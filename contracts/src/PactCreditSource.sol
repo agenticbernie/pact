@@ -10,10 +10,7 @@ import {PactErrors} from "./PactErrors.sol";
 /// repayment logic, no credit semantics beyond the recorded fields.
 contract PactCreditSource is Ownable, ReentrancyGuard {
     event CreditGranted(
-        bytes32 indexed evidenceId,
-        address indexed beneficiary,
-        uint256 creditAmount,
-        uint64 expiresAt
+        bytes32 indexed evidenceId, address indexed beneficiary, uint256 creditAmount, uint64 expiresAt
     );
 
     mapping(bytes32 => bool) public usedEvidence;
@@ -24,12 +21,10 @@ contract PactCreditSource is Ownable, ReentrancyGuard {
         revert PactErrors.RenounceDisabled();
     }
 
-    function recordCredit(
-        bytes32 evidenceId,
-        address beneficiary,
-        uint256 creditAmount,
-        uint64 expiresAt
-    ) external onlyOwner {
+    function recordCredit(bytes32 evidenceId, address beneficiary, uint256 creditAmount, uint64 expiresAt)
+        external
+        onlyOwner
+    {
         if (usedEvidence[evidenceId]) {
             revert PactErrors.InvalidPolicy();
         }

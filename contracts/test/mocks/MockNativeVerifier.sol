@@ -25,11 +25,7 @@ contract MockNativeVerifier {
         return VERIFY_RESULT;
     }
 
-    function calculateTxIndex(INativeQueryVerifier.MerkleProof calldata)
-        external
-        view
-        returns (uint64)
-    {
+    function calculateTxIndex(INativeQueryVerifier.MerkleProof calldata) external view returns (uint64) {
         return TX_INDEX;
     }
 }

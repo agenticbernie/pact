@@ -14,8 +14,7 @@ import {IPactCardController} from "./IPactCardController.sol";
 /// settlement funds. Single supported action: CREDIT_GRANTED.
 contract PactCreditASC is Ownable, ReentrancyGuard, ASCBase {
     uint8 public constant CREDIT_GRANTED = 0;
-    bytes32 public constant CREDIT_GRANTED_SIGNATURE =
-        keccak256("CreditGranted(bytes32,address,uint256,uint64)");
+    bytes32 public constant CREDIT_GRANTED_SIGNATURE = keccak256("CreditGranted(bytes32,address,uint256,uint64)");
 
     error InvalidAction(uint8 action);
     error InvalidProof();
@@ -45,10 +44,7 @@ contract PactCreditASC is Ownable, ReentrancyGuard, ASCBase {
     /// worker serves only the registered chain (chain binding residual: the
     /// base `execute` cannot observe chainKey in-handler, so registration plus
     /// worker allowlist plus hybrid manifest carry the binding).
-    function registerSourceCreditContract(uint64 sourceChainKey_, address sourceContract_)
-        external
-        onlyOwner
-    {
+    function registerSourceCreditContract(uint64 sourceChainKey_, address sourceContract_) external onlyOwner {
         if (sourceContract_ == address(0)) {
             revert PactErrors.InvalidPolicy();
         }
@@ -57,10 +53,7 @@ contract PactCreditASC is Ownable, ReentrancyGuard, ASCBase {
         emit SourceCreditContractRegistered(sourceChainKey_, sourceContract_);
     }
 
-    function _processAndEmitEvent(uint8 action, bytes32, bytes memory encodedTransaction)
-        internal
-        override
-    {
+    function _processAndEmitEvent(uint8 action, bytes32, bytes memory encodedTransaction) internal override {
         if (action != CREDIT_GRANTED) {
             revert InvalidAction(action);
         }
@@ -74,13 +67,11 @@ contract PactCreditASC is Ownable, ReentrancyGuard, ASCBase {
         if (!EvmV1Decoder.isValidTransactionType(txType)) {
             revert InvalidProof();
         }
-        EvmV1Decoder.ReceiptFields memory receipt =
-            EvmV1Decoder.decodeReceiptFields(encodedTransaction);
+        EvmV1Decoder.ReceiptFields memory receipt = EvmV1Decoder.decodeReceiptFields(encodedTransaction);
         if (receipt.receiptStatus != 1) {
             revert InvalidProof();
         }
-        EvmV1Decoder.LogEntry[] memory logs =
-            EvmV1Decoder.getLogsByEventSignature(receipt, CREDIT_GRANTED_SIGNATURE);
+        EvmV1Decoder.LogEntry[] memory logs = EvmV1Decoder.getLogsByEventSignature(receipt, CREDIT_GRANTED_SIGNATURE);
         if (logs.length == 0) {
             revert InvalidProof();
         }

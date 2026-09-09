@@ -59,9 +59,8 @@ contract PactCreditASCHarnessTest is Test {
     }
 
     function _validTx() internal view returns (bytes memory) {
-        return _encodeTx(
-            sourceAddr, _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)), 1
-        );
+        return
+            _encodeTx(sourceAddr, _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)), 1);
     }
 
     function test_ValidEvidenceApplies() public {
@@ -96,7 +95,9 @@ contract PactCreditASCHarnessTest is Test {
     function test_WrongEmitterReverts() public {
         vm.expectRevert(PactCreditASC.UnregisteredSource.selector);
         harness.exposedProcessEvidence(
-            _encodeTx(address(0xBAD), _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)), 1)
+            _encodeTx(
+                address(0xBAD), _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)), 1
+            )
         );
     }
 
@@ -124,7 +125,9 @@ contract PactCreditASCHarnessTest is Test {
     function test_ZeroBeneficiaryReverts() public {
         vm.expectRevert(PactCreditASC.InvalidProof.selector);
         harness.exposedProcessEvidence(
-            _encodeTx(sourceAddr, _topics(EVIDENCE, address(0)), abi.encode(uint256(500), uint64(block.timestamp + 5000)), 1)
+            _encodeTx(
+                sourceAddr, _topics(EVIDENCE, address(0)), abi.encode(uint256(500), uint64(block.timestamp + 5000)), 1
+            )
         );
     }
 

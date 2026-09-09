@@ -58,17 +58,9 @@ contract PactCreditASCTest is Test {
         t[2] = bytes32(uint256(uint160(beneficiary)));
     }
 
-    function _encodeTx(uint8 status, bytes32[] memory topics, bytes memory data)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _encodeTx(uint8 status, bytes32[] memory topics, bytes memory data) internal view returns (bytes memory) {
         EvmV1Decoder.LogEntryTuple[] memory logs = new EvmV1Decoder.LogEntryTuple[](1);
-        logs[0] = EvmV1Decoder.LogEntryTuple({
-            address_: address(source),
-            topics: topics,
-            data: data
-        });
+        logs[0] = EvmV1Decoder.LogEntryTuple({address_: address(source), topics: topics, data: data});
         bytes[] memory chunks = new bytes[](3);
         chunks[2] = abi.encode(status, uint64(21000), logs, hex"");
         return abi.encode(uint8(2), chunks);
@@ -78,11 +70,11 @@ contract PactCreditASCTest is Test {
         return _encodeTx(1, _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)));
     }
 
-    function _execute(bytes memory encodedTx)
-        internal
-        returns (bool)
-    {
-        return asc.execute(0, SOURCE_KEY, 100, encodedTx, bytes32(uint256(1)), siblings, bytes32(uint256(2)), continuityRoots);
+    function _execute(bytes memory encodedTx) internal returns (bool) {
+        return
+            asc.execute(
+                0, SOURCE_KEY, 100, encodedTx, bytes32(uint256(1)), siblings, bytes32(uint256(2)), continuityRoots
+            );
     }
 
     function test_ValidProofAppliesCredit() public {
@@ -104,7 +96,8 @@ contract PactCreditASCTest is Test {
     }
 
     function test_FailedReceiptReverts() public {
-        bytes memory bad = _encodeTx(0, _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)));
+        bytes memory bad =
+            _encodeTx(0, _topics(EVIDENCE, agent), abi.encode(uint256(500), uint64(block.timestamp + 5000)));
         vm.expectRevert(PactCreditASC.InvalidProof.selector);
         _execute(bad);
     }
@@ -147,7 +140,9 @@ contract PactCreditASCTest is Test {
 
     function test_UnknownBeneficiaryPropagates() public {
         vm.expectRevert(PactErrors.UnknownAgent.selector);
-        _execute(_encodeTx(1, _topics(EVIDENCE, address(0xDEAD)), abi.encode(uint256(500), uint64(block.timestamp + 5000))));
+        _execute(
+            _encodeTx(1, _topics(EVIDENCE, address(0xDEAD)), abi.encode(uint256(500), uint64(block.timestamp + 5000)))
+        );
     }
 
     function test_ExpiredCreditReverts() public {
@@ -165,7 +160,9 @@ contract PactCreditASCTest is Test {
 
     function test_QueryReplayRejected() public {
         assertTrue(_execute(_validTx()));
-        bytes memory other = _encodeTx(1, _topics(keccak256(bytes("ev2")), agent), abi.encode(uint256(10), uint64(block.timestamp + 5000)));
+        bytes memory other = _encodeTx(
+            1, _topics(keccak256(bytes("ev2")), agent), abi.encode(uint256(10), uint64(block.timestamp + 5000))
+        );
         vm.expectRevert(bytes("Query already processed"));
         asc.execute(0, SOURCE_KEY, 100, other, bytes32(uint256(1)), siblings, bytes32(uint256(2)), continuityRoots);
     }
@@ -192,7 +189,9 @@ contract PactCreditASCTest is Test {
         assertTrue(_execute(_validTx()));
         bytes32 ev2 = keccak256(bytes("ev2"));
         bytes memory tx2 = _encodeTx(1, _topics(ev2, agent), abi.encode(uint256(300), uint64(block.timestamp + 5000)));
-        assertTrue(asc.execute(0, SOURCE_KEY, 101, tx2, bytes32(uint256(9)), siblings, bytes32(uint256(2)), continuityRoots));
+        assertTrue(
+            asc.execute(0, SOURCE_KEY, 101, tx2, bytes32(uint256(9)), siblings, bytes32(uint256(2)), continuityRoots)
+        );
         assertTrue(controller.availableCredit(1) == 300);
     }
 
