@@ -1,0 +1,19 @@
+{
+  "phase": "phase-01-foundation",
+  "date": "2026-09-09",
+  "runner": "corepack yarn@1.22.22 on node v24.17.0",
+  "gates": [
+    { "command": "corepack yarn vitest run packages/domain/test", "exit": 0, "result": "56 passed" },
+    { "command": "corepack yarn typecheck", "exit": 0, "result": "clean" },
+    { "command": "corepack yarn lint", "exit": 0, "result": "clean" },
+    { "command": "corepack yarn validate:aicd", "exit": 0, "result": "11 components, 6 flows, 17 scenarios" },
+    { "command": "node scripts/check-no-secrets.mjs", "exit": 0, "result": "774 files scanned, 0 findings" },
+    {
+      "command": "node scripts/preflight-testnet.mjs --config config/networks/advance-testnet.json",
+      "exit": 2,
+      "result": "fail-closed unverified; no RPC attempted"
+    },
+    { "command": "git diff --check", "exit": 0, "result": "clean" }
+  ],
+  "liveProviderProbes": "not-run"
+}

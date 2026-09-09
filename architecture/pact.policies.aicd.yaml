@@ -1,0 +1,114 @@
+version: "0.1"
+
+policies:
+  - id: policy-active-card
+    description: Payment settles only while the card status is ACTIVE.
+    critical: true
+    requires:
+      - card-status-active
+    invariant: invariant-receipt-gates-success
+    scenarios:
+      - SC-PAY-002
+
+  - id: policy-assigned-agent
+    description: Only the assigned agent signer may call pay for a card.
+    critical: true
+    requires:
+      - caller-is-assigned-agent
+    invariant: invariant-ai-proposal-only
+    scenarios:
+      - SC-PAY-002
+
+  - id: policy-merchant-allowlist
+    description: The merchant must be registered and allowlisted for the card.
+    critical: true
+    requires:
+      - merchant-registered
+      - merchant-allowlisted
+    invariant: invariant-ai-proposal-only
+    scenarios:
+      - SC-PAY-002
+
+  - id: policy-matching-asset
+    description: The payment asset must equal the card asset (native-testnet-ctc).
+    critical: true
+    requires:
+      - asset-matches-card
+    invariant: invariant-atomic-accounting
+    scenarios:
+      - SC-PAY-002
+
+  - id: policy-effective-credit
+    description: Spend plus amount must stay within min(ownerCap, verifiedCredit).
+    critical: true
+    requires:
+      - within-effective-credit
+      - within-per-transaction-limit
+    invariant: invariant-atomic-accounting
+    scenarios:
+      - SC-PAY-001
+      - SC-PAY-002
+
+  - id: policy-deadline
+    description: Current time must precede card expiry and the payment deadline.
+    critical: true
+    requires:
+      - unexpired-card
+      - unexpired-deadline
+    invariant: invariant-receipt-gates-success
+    scenarios:
+      - SC-PAY-003
+
+  - id: policy-unused-nonce
+    description: The card-scoped nonce and payment ID must be unused.
+    critical: true
+    requires:
+      - unused-nonce
+      - unused-payment-id
+    invariant: invariant-atomic-accounting
+    scenarios:
+      - SC-PAY-004
+
+  - id: policy-receipt-required
+    description: Success is shown only after a confirmed receipt and indexed event.
+    critical: true
+    requires:
+      - confirmed-receipt
+      - indexed-payment-event
+    invariant: invariant-receipt-gates-success
+    scenarios:
+      - SC-INDEX-001
+
+  - id: policy-ai-not-authority
+    description: AI output proposes an intent but never authorizes settlement.
+    critical: true
+    requires:
+      - validated-intent-reference
+      - onchain-policy-check
+    invariant: invariant-ai-proposal-only
+    scenarios:
+      - SC-AI-002
+
+invariants:
+  - id: invariant-ai-proposal-only
+    statement: AI output can propose an intent but cannot authorize settlement.
+    provenBy:
+      - SC-AI-002
+      - SC-PAY-002
+
+  - id: invariant-receipt-gates-success
+    statement: UI success requires a confirmed PaymentSettled receipt and event.
+    provenBy:
+      - SC-INDEX-001
+      - SC-PAY-001
+
+  - id: invariant-atomic-accounting
+    statement: Card spend moves only inside a successful atomic settlement.
+    provenBy:
+      - SC-PAY-005
+      - SC-PAY-001
+
+  - id: invariant-architecture-traceable
+    statement: Every deployed component and critical flow carries authority, boundary, deployment, and evidence links checked by the AICD validator.
+    provenBy:
+      - SC-AICD-001

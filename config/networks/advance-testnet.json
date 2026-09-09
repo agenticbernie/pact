@@ -1,0 +1,18 @@
+{
+  "protocol": "creditcoin-evm",
+  "label": "advance-testnet",
+  "rpcUrl": "https://advance-testnet.example.invalid",
+  "chainId": 0,
+  "explorerUrl": "https://explorer.example.invalid",
+  "nativeAsset": {
+    "id": "native-testnet-ctc",
+    "evmAddress": "0x0000000000000000000000000000000000000000",
+    "symbol": "CTC",
+    "decimals": 18
+  },
+  "asc": {
+    "verifierPrecompile": "0x0000000000000000000000000000000000000000",
+    "evmV1DecoderLibrary": "0x0000000000000000000000000000000000000000"
+  },
+  "verified": false
+}

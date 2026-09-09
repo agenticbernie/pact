@@ -26,18 +26,22 @@ The planned source/test paths are:
   atomicity, replay protection, and invariants;
 - `contracts/script/DeployPaymentSystem.s.sol` for local deployment/readback.
 
-None of these files existed at the `vc-setup` scan. Their absence is tracked
-as a bootstrap gap, not as a passing or failing test result.
+None of the contract sources existed at the `vc-setup` scan. Their absence is
+tracked as a bootstrap gap, not as a passing or failing test result. The
+`packages/domain` side (schemas, canonical serialization, hashes,
+asset/merchant conversion, errors, network config, preflight fixtures) is
+implemented and green; `contracts/src/` and `contracts/test/` arrive in
+Phase 02.
 
 ## Commands
 
-    yarn vitest run packages/domain/test
+    corepack yarn vitest run packages/domain/test
     forge fmt --check
     forge test --root contracts -vvv
     forge test --root contracts --match-path test/PactPaymentInvariant.t.sol -vvv
 
 For local wiring, the Phase 02 plan uses Anvil plus the deployment script,
-artifact export, and `yarn typecheck`. Run this only after the focused tests
+artifact export, and `corepack yarn typecheck`. Run this only after the focused tests
 are green and local toolchains are installed.
 
 ## Required Assertions

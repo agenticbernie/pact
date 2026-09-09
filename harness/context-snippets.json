@@ -1,0 +1,26 @@
+{
+  "phase": "phase-01-foundation",
+  "date": "2026-09-09",
+  "snippets": [
+    {
+      "ref": "docs/superpowers/specs/2026-09-08-pact-mvp-aicd-design.md",
+      "note": "product and architecture authority; unchanged since 23e1b81"
+    },
+    {
+      "ref": "process/features/pact/active/pact-mvp_08-09-26/phase-01-foundation_PLAN_08-09-26.md",
+      "note": "selected plan; Validate Contract CONDITIONAL accepted 2026-09-09"
+    },
+    {
+      "ref": "process/context/all-context.md",
+      "note": "root context router; refreshed with Phase 01 inventory"
+    },
+    {
+      "ref": "process/context/tests/all-tests.md",
+      "note": "test router; Phase 01 rows marked green with exact commands"
+    },
+    {
+      "ref": "config/networks/advance-testnet.json",
+      "note": "canonical network input; verified:false; values are placeholders, redacted here by reference only"
+    }
+  ]
+}

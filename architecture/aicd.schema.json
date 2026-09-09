@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PactAICD",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string" },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "protocol", "targetNetwork", "settlementAsset", "evidenceProtocol"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "purpose": { "type": "string" },
+        "protocol": { "type": "string" },
+        "targetNetwork": { "type": "string" },
+        "settlementAsset": { "type": "string" },
+        "evidenceProtocol": { "type": "string" }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "authority", "cannot", "deployment", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "platform": { "type": "string" },
+          "authority": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "cannot": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "interfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id"],
+              "properties": {
+                "id": { "type": "string" },
+                "routes": { "type": "array", "items": { "type": "string" } },
+                "secrets": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          "deployment": { "type": "string" },
+          "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "critical", "requires", "invariant", "scenarios"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "critical": { "type": "boolean" },
+          "requires": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "invariant": { "type": "string" },
+          "scenarios": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "provenBy"],
+        "properties": {
+          "id": { "type": "string" },
+          "statement": { "type": "string" },
+          "provenBy": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "from", "through", "produces", "realData", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "from": { "type": "string" },
+          "through": { "type": "array", "items": { "type": "string" } },
+          "produces": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "realData": { "type": "boolean" },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "parties", "allows", "denies"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "parties": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "allows": { "type": "array", "items": { "type": "string" } },
+          "denies": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "deployments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "target", "hosts", "requiresVerifiedConfig"],
+        "properties": {
+          "id": { "type": "string" },
+          "target": { "type": "string" },
+          "hosts": { "type": "array", "items": { "type": "string" } },
+          "requiresVerifiedConfig": { "type": "boolean" }
+        }
+      }
+    },
+    "uiStates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "receiptGate", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["success", "pending", "declined", "failed"] },
+          "receiptGate": { "type": "boolean" },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

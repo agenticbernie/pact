@@ -1,0 +1,87 @@
+version: "0.1"
+
+components:
+  - id: pact-credit-source
+    type: source-evidence-emitter
+    platform: ethereum-sepolia
+    authority:
+      - emit-credit-evidence
+    cannot:
+      - touch-payment-pool
+      - authorize-card
+    interfaces:
+      - id: record-credit
+    deployment: ethereum-sepolia
+    evidence:
+      - SC-ASC-001
+
+  - id: pact-credit-asc
+    type: attestcoin-smart-contract
+    platform: creditcoin-evm
+    authority:
+      - verify-source-credit-evidence
+      - apply-verified-credit
+    cannot:
+      - settle-payment
+      - bypass-source-emitter-binding
+    interfaces:
+      - id: execute-proof
+    deployment: advance-testnet
+    evidence:
+      - SC-ASC-001
+      - SC-ASC-002
+
+  - id: pact-card-controller
+    type: policy-authority-contract
+    platform: creditcoin-evm
+    authority:
+      - create-card
+      - enforce-card-policy
+      - settle-allowed-payment
+    cannot:
+      - trust-ai-output-as-authority
+      - increase-verified-credit-without-asc
+      - accept-unregistered-merchant
+    interfaces:
+      - id: card-lifecycle
+      - id: pay
+      - id: preflight-pay
+    deployment: advance-testnet
+    evidence:
+      - SC-CARD-001
+      - SC-CARD-002
+      - SC-PAY-001
+      - SC-PAY-002
+      - SC-PAY-003
+      - SC-PAY-004
+
+  - id: pact-credit-pool
+    type: settlement-treasury-contract
+    platform: creditcoin-evm
+    authority:
+      - hold-settlement-asset
+      - pay-registered-merchant-for-controller
+    cannot:
+      - accept-arbitrary-callers
+      - decide-policy
+    interfaces:
+      - id: settle-native
+    deployment: advance-testnet
+    evidence:
+      - SC-PAY-001
+      - SC-PAY-005
+
+  - id: merchant-simulator
+    type: test-merchant-contract
+    platform: creditcoin-evm
+    authority:
+      - receive-testnet-settlement
+      - record-merchant-receipt
+    cannot:
+      - change-card-policy
+      - authorize-card
+    interfaces:
+      - id: merchant-receive
+    deployment: advance-testnet
+    evidence:
+      - SC-PAY-001

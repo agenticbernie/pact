@@ -1,0 +1,103 @@
+version: "0.1"
+
+system:
+  id: pact
+  name: Pact
+  purpose: Programmable spending control for autonomous AI agents
+  protocol: creditcoin-evm
+  targetNetwork: advance-testnet
+  settlementAsset: native-testnet-ctc
+  evidenceProtocol: attestcoin-asc
+
+components:
+  - id: pact-edge-worker
+    type: public-edge-router
+    authority:
+      - validate-request-shape
+      - rate-limit
+      - attach-correlation-id
+    cannot:
+      - hold-provider-keys
+      - hold-signer-keys
+      - settle-funds
+    interfaces:
+      - id: public-api
+        routes:
+          - POST /v1/agent/intents
+          - POST /v1/payments/preflight
+          - POST /v1/payments/execute
+    deployment: cloudflare-edge
+    evidence:
+      - SC-AI-002
+
+  - id: pact-ai-gateway
+    type: regional-provider-gateway
+    authority:
+      - generate-structured-intent
+      - enforce-provider-region-policy
+    cannot:
+      - settle-payment
+      - mutate-credit-limit
+      - sign-card-transaction
+    interfaces:
+      - id: openai-relay
+        secrets:
+          - OPENAI_API_KEY
+      - id: intent-store
+    deployment: supabase-edge-us-east-1
+    evidence:
+      - SC-AI-001
+      - SC-AI-002
+      - SC-AI-003
+
+  - id: agent-executor
+    type: privileged-executor
+    authority:
+      - run-read-only-preflight
+      - sign-allowed-payment
+      - await-receipt
+    cannot:
+      - change-policy
+      - transfer-pool-funds-directly
+      - select-arbitrary-recipient
+    interfaces:
+      - id: agent-signer
+        secrets:
+          - AGENT_SIGNER_PRIVATE_KEY
+    deployment: secure-executor
+    evidence:
+      - SC-PAY-001
+      - SC-NETWORK-001
+
+  - id: asc-proof-worker
+    type: evidence-relayer
+    authority:
+      - monitor-source-events
+      - request-proof
+      - relay-proof-transaction
+    cannot:
+      - decide-credit-without-asc
+      - change-card-policy
+    interfaces:
+      - id: proof-relay
+        secrets:
+          - ASC_RELAYER_PRIVATE_KEY
+    deployment: secure-worker
+    evidence:
+      - SC-ASC-001
+
+  - id: event-indexer
+    type: read-model-builder
+    authority:
+      - index-chain-events
+      - serve-read-model
+    cannot:
+      - authorize-payments
+      - fabricate-receipts
+    interfaces:
+      - id: chain-poller
+      - id: read-api
+    deployment: secure-worker
+    evidence:
+      - SC-INDEX-001
+      - SC-INDEX-002

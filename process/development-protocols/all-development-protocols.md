@@ -27,6 +27,7 @@ Use this folder for durable, repo-specific operating instructions that must stay
 7. `communication-standards.md`
 8. `vc-autoresearch-spec.md` (optional deep reference — read only when designing or deeply understanding the autoresearch gap-loop primitive)
 9. `autopilot.md` — Autopilot Mode trigger phrases, consolidated clarification, provisional goal block format, mode markers, per-gate decision policy, hard stops, and deactivation rules. Read when: user says autopilot / autonomous mode / /autopilot trigger phrases, or when understanding orchestrator §Autonomy Mode integration.
+10. `pact-mvp-gates.md` — Pact program gate routing: exact gate commands, preconditions, and fail-closed rules per phase. Read when running Pact gates or regression checks.
 
 ## File Roles
 
@@ -56,6 +57,10 @@ Use this folder for durable, repo-specific operating instructions that must stay
   marker syntax, [AUTOPILOT CONTEXT] injection schema for subagents, AUTOPILOT_ACTIVATED signal,
   V6/V7 (UPDATE) variant, per-gate autonomous decision policy, hard stops, deactivation rules, and
   phase-program interaction. Complements orchestration.md §Autonomy Mode.
+- `pact-mvp-gates.md`
+  Pact MVP gate routing: exact per-phase gate commands with preconditions, the Phase 01
+  foundation gate set, fail-closed rules, and ownership of the shared preflight script
+  and canonical network config. Read when running Pact gates or regression checks.
 
 - `references/program-goal-charter-template.md`
   Blank and filled Program Goal Charter template for phase-program umbrella plans. Read when building

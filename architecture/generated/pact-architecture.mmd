@@ -1,0 +1,24 @@
+%% aicd-hash: fea4f065a55396e812040eb52abee8c7951dc18f7fa1c31ecaca23df3986d24f
+flowchart TB
+    pact-edge-worker["pact-edge-worker"]
+    pact-ai-gateway["pact-ai-gateway"]
+    agent-executor["agent-executor"]
+    asc-proof-worker["asc-proof-worker"]
+    event-indexer["event-indexer"]
+    pact-credit-source["pact-credit-source"]
+    pact-credit-asc["pact-credit-asc"]
+    pact-card-controller["pact-card-controller"]
+    pact-credit-pool["pact-credit-pool"]
+    merchant-simulator["merchant-simulator"]
+    pact-web-app["pact-web-app"]
+    pact-web-app --> pact-card-controller
+    pact-credit-source --> asc-proof-worker
+    asc-proof-worker --> pact-credit-asc
+    pact-credit-asc --> pact-card-controller
+    pact-ai-gateway --> agent-executor
+    agent-executor --> pact-card-controller
+    pact-card-controller --> pact-credit-pool
+    pact-credit-pool --> merchant-simulator
+    pact-edge-worker --> pact-ai-gateway
+    pact-card-controller --> event-indexer
+    event-indexer --> pact-web-app
