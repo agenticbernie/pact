@@ -1,0 +1,18 @@
+{
+  "phase": "phase-01-foundation",
+  "date": "2026-09-09",
+  "decision": "CONDITIONAL-accepted",
+  "decidedBy": "user at V5 exit gate after 3 re-validation cycles",
+  "acceptedConcerns": [
+    "C1: zero executable tests at PVL time; EXECUTE bound to RED-first increments",
+    "C2: umbrella Pre-PVL note proposed, not yet applied",
+    "C3: Advance identity unverified by design (fail-closed)",
+    "C4: toolchain doc drift (node/corepack versions; forge+wrangler newly present)"
+  ],
+  "hardStopsCarried": [
+    "no faked PASS/RED/install/identity/evidence",
+    "no live calls, mutations, or secret writes in Phase 01",
+    "verified:false is never runtime-ready",
+    "first increment is RED tests"
+  ]
+}

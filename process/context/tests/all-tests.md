@@ -13,14 +13,17 @@ involves testing, verification, debugging, CI, or evidence collection.
 
 ## Current State
 
-The repository has no application or test source files yet. The commands below
-are the approved verification surface from the Pact phase plans; they become
-executable as their owning phase materializes the corresponding files and
-toolchains. No green test result is claimed from a planned command.
+Phase 01 foundation outputs are materialized and gated: `packages/domain`
+source plus its Vitest suite, canonical network/AI configuration, AICD source
+with validator and generated diagram, and the preflight/secret-scan scripts.
+The rows below marked green are executable now; the rest become executable as
+their owning phase materializes the corresponding files and toolchains. No
+green result is claimed from a planned command.
 
-Current shell facts: Node `v24.19.0` and Corepack `0.34.6` are available;
-Yarn Classic, Foundry, Supabase CLI, Deno, Wrangler, and Playwright are not
-installed as commands in this environment at scan time.
+Current shell facts: Node `v24.17.0` and Corepack `0.35.0` are available;
+`corepack yarn --version` reads `1.22.22`. Foundry (`forge`/`cast`/`anvil`)
+and `wrangler` are installed. Supabase CLI, Deno, and Playwright are not
+installed in this environment.
 
 ## Test-Tier Routing
 
@@ -48,20 +51,20 @@ installed as commands in this environment at scan time.
 
 | Layer | Runner/command | Scope and current status |
 |---|---|---|
-| Domain | `yarn vitest run packages/domain/test` | Phase 01 schema, hash, asset, config, and preflight fixtures; files not created yet |
-| TypeScript | `yarn typecheck` | root/domain/services/web type safety; root manifest not created yet |
-| Lint | `yarn lint` | repository lint; root manifest not created yet |
-| AICD | `yarn validate:aicd` | architecture/source/diagram consistency; Phase 01 output not created yet |
+| Domain | `corepack yarn vitest run packages/domain/test` | Phase 01 schema, hash, asset, config, preflight, and AICD fixtures — green |
+| TypeScript | `corepack yarn typecheck` | root/domain type safety — green |
+| Lint | `corepack yarn lint` | repository lint — green |
+| AICD | `corepack yarn validate:aicd` | architecture/source/diagram consistency — green (11 components, 6 flows, 17 scenarios) |
 | Solidity | `forge fmt --check` | formatting for `contracts/`; Foundry project not created yet |
 | Solidity | `forge test --root contracts -vvv` | full Forge suite; contracts are not created yet |
 | Solidity invariants | `forge test --root contracts --match-path test/PactPaymentInvariant.t.sol -vvv` | payment invariant gate; test is not created yet |
-| Local deployment | `anvil --silent` plus the Phase 02 deploy script | local wiring/readback; Anvil/Foundry are unavailable at scan time |
-| Backend | `supabase start && supabase db reset --local && deno test --allow-env --allow-net --allow-read supabase/test/schema.test.ts` | local migration gate; Supabase/Deno files and CLI are unavailable at scan time |
-| Web build | `yarn build:web` | production web bundle; web app is not created yet |
-| Local E2E | `node scripts/start-local-stack.mjs && yarn test:e2e && node scripts/stop-local-stack.mjs` | Playwright local path; scripts/app are not created yet |
-| Preflight | `node scripts/preflight-testnet.mjs --config config/networks/advance-testnet.json` | read-only chain/config preflight; script/config are not created yet |
+| Local deployment | `anvil --silent` plus the Phase 02 deploy script | local wiring/readback; Foundry is installed, deploy script arrives in Phase 02 |
+| Backend | `supabase start && supabase db reset --local && deno test --allow-env --allow-net --allow-read supabase/test/schema.test.ts` | local migration gate; Supabase/Deno files and CLI arrive in Phase 04/05 |
+| Web build | `corepack yarn build:web` | production web bundle; web app arrives in Phase 06 |
+| Local E2E | `node scripts/start-local-stack.mjs && corepack yarn test:e2e && node scripts/stop-local-stack.mjs` | Playwright local path; scripts/app arrive in later phases |
+| Preflight | `node scripts/preflight-testnet.mjs --config config/networks/advance-testnet.json` | read-only chain/config preflight — executable; fails closed (exit 2, `unverified`) while values are unconfirmed |
 | Live lane | `node scripts/preflight-live-lane.mjs --network advance-testnet --dry-run` | read-only deployment/demo preflight; Phase 07 owns it |
-| Evidence | `node scripts/check-no-secrets.mjs` | source, fixtures, bundles, and evidence scan; script is not created yet |
+| Evidence | `node scripts/check-no-secrets.mjs` | source, fixtures, bundles, and evidence scan — green (clean) |
 
 ## Required Pact Assertions
 
@@ -91,8 +94,11 @@ installed as commands in this environment at scan time.
 
 ## Known Gaps at Setup Time
 
-- No executable test files exist yet, so strict PVL cannot assign real test
-  coverage tiers to Phase 01 implementation tasks.
-- The toolchain and root package manifest still need to be created by Phase 01.
+- Phase 01 executable coverage is green (domain, AICD, preflight fixtures,
+  secret scan); contract sources, Supabase, web, and e2e coverage arrive with
+  their owning phases.
+- The toolchain owners for later phases (Supabase CLI/Deno, Playwright) still
+  need to be installed in the build environment before their planned commands
+  can be executed.
 - Advance Testnet identity, ASC integration details, deployment addresses, and
   live model access require explicit verification before a demo lane.

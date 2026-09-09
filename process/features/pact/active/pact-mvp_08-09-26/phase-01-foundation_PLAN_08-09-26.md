@@ -488,4 +488,129 @@ git diff --check
 
 ## Validate Contract
 
-(placeholder — vc-validate-agent writes this section before EXECUTE)
+Status: CONDITIONAL
+Date: 2026-09-09
+date: 2026-09-09
+generated-by: inner-pvl: phase-1
+
+PVL scope: V1 pre-check + V2 two-layer fan-out rerun on 2026-09-09 against
+real files and real command output on branch `main` @ `168c493` (clean
+worktree). The requested `feat/pact-mvp @ 6131789` does not exist locally or
+on origin (`origin/feat/pact-mvp` is `23e1b81`); the user directed execution
+to stay on `main`. No OpenAI calls, RPC calls, testnet mutations, or secret
+writes were made in this PVL pass.
+
+V1 evidence (all real output, exit codes recorded in session report):
+- Structural validation: `validate-plan-artifact.mjs` on this plan → exit 0,
+  0 failures, 0 warnings.
+- Context audit: `validate-context-discovery.mjs` → exit 0 (9 docs,
+  239 concrete refs, 33 skills, 15+15 agents, 0 failures).
+- Scout path check: all 22 implementation target paths MISSING (expected —
+  this plan creates them); `process/context/all-context.md` and
+  `process/context/tests/all-tests.md` EXIST.
+- Baseline smoke: no baseline exists (`package.json` absent). `corepack yarn
+  install --non-interactive --ignore-scripts` produced only an empty lockfile
+  + empty `node_modules` (no manifest to resolve); both spurious artifacts
+  were removed and the tree is clean again. `corepack yarn vitest run
+  packages/domain/test` → exit 1 via yarn itself
+  ("Couldn't find a package.json file"), Vitest never launched — this is a
+  pre-RED state, NOT a genuine Vitest RED, and is not claimed as one.
+- Spec + plan stability: both unchanged since `23e1b81` (single commit each).
+- Phase-program check: no `## Pre-PVL Conflict Resolution` in the umbrella
+  AND no `## Potential Blast Radius Conflicts` in any phase plan → HARD STOP
+  condition not triggered. `phase-blast-radius-registry.md` covers ownership;
+  the missing explicit umbrella note is CONCERN C2 below.
+- Existing contract: placeholder only — no auto-proceed; this contract is new
+  (no `supersedes:` field).
+- Toolchain observed: node `v24.17.0` (doc said `v24.19.0` — drift, still
+  satisfies `>=20`), corepack `0.35.0` (doc said `0.34.6`), `forge` and
+  `wrangler` now AVAILABLE (doc said unavailable at scan), `supabase`/`deno`
+  NOT AVAILABLE (only needed Phase 04/05). Ambient `yarn` exists — EXECUTE
+  must use only `corepack yarn` (pinned `1.22.22`) and verify with
+  `corepack yarn --version` as its first step.
+
+Test gates (exact commands; currently 0 green — all become executable as
+EXECUTE materializes files, in task order):
+
+- `corepack yarn vitest run packages/domain/test` (domain: schemas, hash,
+  config, preflight fixtures, AICD fixture)
+- `corepack yarn typecheck` and `corepack yarn lint`
+- `corepack yarn validate:aicd`
+- `node scripts/check-no-secrets.mjs`
+- `node scripts/preflight-testnet.mjs --config config/networks/advance-testnet.json` (hybrid — expected fail-closed `NETWORK_CONFIG_INVALID` while values unverified)
+- `git diff --check`
+- agent-probe: fresh-executor routing review of `all-tests.md` chain; review of the five `harness/*.json` evidence artifacts
+
+Dimension findings:
+
+- infra/setup-fit: CONCERN — all plan target paths absent but the plan creates them (documented creation, not drift); toolchain meets Phase 01 needs (Node+Yarn+forge present; supabase/deno not needed until Phase 04/05).
+- test-coverage: CONCERN — zero executable test files exist, so tier assignments bind to planned files only. No PASS is claimed. The first EXECUTE increment MUST be the RED tests of Task 1.1 (then 2.4, 3.2, 4.1): RED → minimal GREEN → refactor → focused verification. Inventing tier PASS pre-RED is forbidden.
+- breaking-changes: PASS with notes — greenfield, no downstream consumers yet. Public contracts declared stable (AgentIntent + `policyVersion`, `native-testnet-ctc` descriptor, root commands, AICD/SC-* IDs). Residual risk carried into execution: Task 2.10 Solidity ABI-encoding parity check; any mismatch is a BLOCKER, never a changed vector.
+- security-surface: PASS with notes — no secrets in repo/tree; scanner (Task 4.3), fail-closed preflight (Task 4.2), and redacted high-risk pack (Task 4.5, live probes marked `not-run`) are planned work, not gaps. Phase 01 makes no live calls by plan constraint.
+
+Layer-2 per-section answers (mechanical feasibility / gaps / conflicts / highest-risk edit):
+
+- Task 1 (root tooling): feasible. Highest risk: registry resolution of pinned `@gluwa/asc-contracts@0.2.1` / `@gluwa/usc-sdk@0.18.0` / OpenZeppelin `5.4.0`; record exact resolution or a blocker. `solc 0.8.30` vs `0.8.28`-compatible interface: feasibility finding, not silent change.
+- Task 2 (domain contracts): feasible pure-TS. Highest risk: canonical serialization field order/types and `merchantIdToBytes32` must be exact before Solidity/API work; golden vectors lock this.
+- Task 3 (AICD + validator): feasible. Highest risk: validator strictness (recursive secret-boundary checks, three linkage rules, registry membership, deterministic diagram-drift hash).
+- Task 4 (context, preflight, secret scan): feasible. Highest risk: preflight hybrid gate stays red until Advance identity is verified (expected fail-closed); evidence pack must mark non-run live probes honestly.
+- No section depends on untested runtime behavior beyond the explicit hybrid gates → no feasibility probe emitted, no re-spawn needed.
+
+Open gaps (CONCERNs, no FAILs):
+
+- C1: zero executable tests; tiers bind to planned files; EXECUTE must start RED (Task 1.1). Acceptance: user approval of this contract. Known tension (cycle 2): the umbrella Next Step says "write its PVL Validate Contract only if the hard stop is cleared," while the supplement hard stop clears only when first RED tests exist — which require EXECUTE, which requires this contract. This CONDITIONAL contract is the deadlock breaker, not an evasion: it claims 0 green, invents no tiers, and binds the first increment to RED tests. A BLOCKED verdict would route to the same user decision one round-trip later. Approving this contract IS the hard-stop clearance for the RED-first increment only.
+- C1-supplement (cycle 2): Phase 01 umbrella entry gate verified SATISFIED — approved design present and unchanged since `23e1b81`, baseline clean (only this plan file modified, no execution changes), no conflicting Pact changes. Phase 02 forward-dependency verified compatible — it assumes only `contracts/foundry.toml` + `packages/domain` (Phase 01 Tasks 1.6/1.2/2.x outputs) plus domain/AICD regression gates. Full test-context chain verified present (`contract/blocked` routes: `contract-tests.md`, `backend-tests.md`, `browser-tests.md`, `container-e2e.md`, `browser-automation.md`, `live-e2e.md` all exist).
+- C2: umbrella lacks an explicit `## Pre-PVL Conflict Resolution` note. Proposed one-line supplement (needs approval, not yet applied): note under the umbrella Blast Radius section pointing to `phase-blast-radius-registry.md` as the conflict-resolution record with "no conflicts for Phase 01 scope."
+- C3: Advance Testnet identity unverified (RPC/chainID/explorer/verifier/decoder). By-design fail-closed; plan handles via `verified: false` + preflight. Hybrid gate expected red through Phase 01.
+- C4: toolchain doc drift (node/corepack versions; forge+wrangler newly available). Informational; EXECUTE re-verifies pinned Yarn first.
+
+What This Coverage Does NOT Prove (required statement):
+
+- No test has run green — every gate above is planned, none is evidence of working behavior.
+- No Advance network identity, ASC integration, contract bytecode, deployment address, or model-access claim is proven.
+- No secret scan has meaningful scope yet (no source files exist to scan).
+- No dependency pin is proven installable until EXECUTE runs the real `yarn install` against the Task 1.3 manifest.
+- No Solidity/hash parity is proven until Task 2.10 runs.
+- Agent-probe tiers (routing usability, evidence-pack review) are deferred to Task 4 completion.
+
+Hard stops carried into EXECUTE (verbatim for /goal block):
+
+- Do not fake PASS, RED, dependency installation, RPC identity, or testnet evidence.
+- No OpenAI API calls, RPC calls, Advance Testnet mutations, or secret writes in Phase 01.
+- Config `verified: false` is never runtime-ready; preflight fail-closed stays.
+- First increment must be RED tests (Task 1.1); no implementation before its red test exists.
+- Stop on: unknown Advance identity, RPC chain mismatch, missing verifier/decoder bytecode, or any required AICD linkage failure.
+
+Strategy for EXECUTE: sequential, single executor, Tasks 1→4 in order (each task's files are the next task's inputs; shared `packages/domain` surface forbids parallel writers). No fan-out.
+
+Accepted by: user, 2026-09-09 — CONDITIONAL accepted with concerns C1–C4 (V5 exit gate, after 3 re-validation cycles). Advance to EXECUTE requires the user's explicit ENTER EXECUTE MODE with this plan path.
+
+Re-validation cycle 1 (2026-09-09, user-selected Re-validate): V1 evidence
+refreshed — structural validator exit 0 (0 failures, 0 warnings, 587 lines),
+context audit exit 0 (0 failures), `git diff --check` exit 0, tree unchanged
+except this contract, `package.json`/`packages/domain` still absent (expected
+pre-EXECUTE state). BLOCKED-vs-CONDITIONAL stress test: the Plan Supplement
+hard stop forbids inventing tiers and treating planned files as evidence —
+neither occurs here (tiers are the plan's own matrix, 0 green claimed); the
+absent-test-files state is the plan's correct entry precondition with RED-first
+mandated (Tasks 1.1/2.4/3.2/4.1), not a plan defect, so test-coverage remains
+CONCERN, not FAIL. No FAILs → no plan-agent supplement triggered. Verdict
+CONFIRMED: CONDITIONAL, unchanged.
+
+Re-validation cycle 2 (2026-09-09): umbrella Phase 01 entry gate verified
+SATISFIED (design unchanged, baseline clean, no conflicting changes); Phase 02
+forward-dependency verified compatible; umbrella-tension deadlock analysis
+recorded in C1. Verdict CONFIRMED: CONDITIONAL, unchanged.
+
+Re-validation cycle 3 = final allowed re-run (protocol cap: 3 re-runs, then
+escalation). Deepened surfaces: planning context group (all-planning.md —
+Rule 6 complied with, 0 green claimed), contract-tests.md (absence tracked as
+bootstrap gap, corroborating the CONCERN-not-FAIL call), vc-validate-findings
+skill conformance. New machine-checked artifact:
+process/features/pact/active/pact-mvp_08-09-26/phase-01-pvl-v2-findings_09-09-26.md
+— `validate-findings-output.mjs` exit 0, 0 failures, net gate CONDITIONAL.
+Method note: fan-out executed inline by the orchestrator (no validate-agent
+subagent type in this environment); Simple Mode per skill criteria. Verdict
+CONFIRMED: CONDITIONAL, unchanged. Re-run budget exhausted — further
+"re-validate" requests escalate per protocol; remaining options are Accept
+with concerns or Request plan changes.

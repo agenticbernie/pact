@@ -1,0 +1,34 @@
+{
+  "phase": "phase-01-foundation",
+  "date": "2026-09-09",
+  "mustStopBeforeFinalize": false,
+  "reason": "Phase 01 creates no payment authority and performs no live mutation; finalization here means the foundation gate set, not a deployment.",
+  "risks": [
+    {
+      "id": "unverified-advance-identity",
+      "severity": "high",
+      "status": "accepted-fail-closed",
+      "mitigation": "config verified:false; preflight exits 2 without attempting RPC"
+    },
+    {
+      "id": "secret-entry",
+      "severity": "critical",
+      "status": "guarded",
+      "mitigation": "check-no-secrets.mjs in the foundation gate; mutation-tested with planted positives"
+    },
+    {
+      "id": "model-substitution",
+      "severity": "high",
+      "status": "guarded",
+      "mitigation": "strict OpenAI loader plus OPENAI_MODEL runtime guard; no fallback path exists"
+    },
+    {
+      "id": "hash-encoding-drift",
+      "severity": "high",
+      "status": "verified",
+      "mitigation": "golden vector 1 cross-checked with foundry cast abi-encode; identical digest"
+    }
+  ],
+  "liveProbes": "not-run",
+  "safeNextAction": "run the foundation gate; keep preflight red until Advance values are confirmed out-of-band"
+}

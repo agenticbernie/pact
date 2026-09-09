@@ -92,42 +92,52 @@ conversion, or a production OpenAI fallback model.
 
 ## Repository Structure at Scan Time
 
-The repository is currently a planning-and-harness workspace. No application,
-contract, package, deployment, or test source tree has been materialized yet.
+The repository holds the planning-and-harness workspace plus the Phase 01
+foundation outputs: root Node/Yarn tooling, the pure domain package with its
+Vitest suite, canonical network/AI configuration, AICD source with its
+validator and generated diagram, and the preflight/secret-scan scripts.
 
 ```
 pact/
 ├── .claude/                         -- managed Vibecode skills, agents, hooks
 ├── .codex/                          -- managed Codex agent and hook mirrors
 ├── .agents/                         -- symlink to .claude/skills
+├── architecture/                    -- AICD fragments, schema, scenario registry, generated diagram
+├── config/ai/                       -- pinned OpenAI provider config
+├── config/networks/                 -- canonical Advance Testnet config (verified: false)
+├── contracts/                       -- Foundry config only; Solidity sources arrive in Phase 02
 ├── docs/superpowers/
 │   ├── specs/                       -- Pact MVP and AICD design
 │   └── plans/                       -- Superpowers implementation plan
+├── packages/domain/                 -- shared schemas, canonical hash, config loaders, tests
 ├── process/
 │   ├── _seeds/                      -- read-only Vibecode setup templates
 │   ├── context/                     -- this router, planning, and test context
 │   ├── development-protocols/       -- managed workflow and gate protocols
 │   ├── features/pact/active/         -- Pact umbrella and phase plans
 │   └── general-plans/                -- general active/completed/backlog lanes
+├── scripts/                         -- validate-aicd, preflight-testnet, check-no-secrets, print-config
 ├── AGENTS.md                        -- managed project workflow entrypoint
-└── CLAUDE.md                        -- managed project workflow entrypoint
+├── CLAUDE.md                        -- managed project workflow entrypoint
+├── package.json / yarn.lock         -- Yarn Classic 1.22.22 workspace root
+└── tsconfig.json / vitest.config.ts / eslint.config.js
 ```
 
-Planned implementation roots, which are specified by Phase 01 and do not yet
-exist at this scan, are `package.json`, `yarn.lock`, `tsconfig.json`,
-`vitest.config.ts`, `contracts/`, `packages/domain/`, `packages/asc/`,
-`supabase/`, `apps/web/`, `config/`, `scripts/`, `e2e/`, and
-`.github/workflows/`.
+Still planned by later phases (not present): `packages/asc/`,
+`packages/pact-sdk/`, `supabase/`, `apps/web/`, `apps/edge/`, `services/`,
+`e2e/`, contract sources under `contracts/src/`, and `.github/workflows/`.
 
 ## Technology and Runtime
 
 ### Detected now
 
 - Vibecode project harness kit version `3.2.5` is installed.
-- Node `v24.19.0` and Corepack `0.34.6` are available in the current shell.
-- No project manifest or lockfile is present yet.
-- `yarn`, `forge`, `supabase`, `wrangler`, and `deno` are not currently
-  available as shell commands.
+- Node `v24.17.0` and Corepack `0.35.0` are available in the current shell;
+  `corepack yarn --version` reads `1.22.22` (the pinned manager — never use the
+  ambient `yarn` for project commands).
+- Root manifest and lockfile exist; `packages/domain` with Vitest `3.2.4`,
+  `forge`/`cast`/`anvil` (Foundry `1.7.1`), and `wrangler` are available.
+- `supabase` and `deno` are not installed (needed from Phase 04/05).
 
 ### Approved implementation target
 
@@ -258,8 +268,10 @@ and `node .claude/skills/vc-audit-context/scripts/validate-context-discovery.mjs
 
 ## Scan Metadata
 
-- Generated: 2026-09-09
-- HEAD: `3e8bfce chore: install Vibecode project harness`
-- Mode: refresh after approved `vc-setup`; user plans preserved
-- Package manager: target Yarn Classic `1.22.22`; no manifest or lockfile at scan time
-- Source scan: no application or test source files yet; planning and harness files detected
+- Generated: 2026-09-09 (refreshed after Phase 01 foundation execution)
+- HEAD: `main` (Phase 01 execution branch; see phase plan Validate Contract)
+- Mode: refresh after Phase 01 Tasks 1–4; Pact plans preserved
+- Package manager: Yarn Classic `1.22.22` via Corepack; manifest and lockfile present
+- Source scan: `packages/domain` source + tests, `config/`, `architecture/`,
+  and `scripts/` materialized and gated; contract sources, Supabase, web,
+  services, and e2e remain planned

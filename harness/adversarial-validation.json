@@ -1,0 +1,37 @@
+{
+  "phase": "phase-01-foundation",
+  "date": "2026-09-09",
+  "status": "not-run-live-probes",
+  "adversarialChecks": [
+    {
+      "attack": "commit a populated secret file",
+      "defense": "check-no-secrets.mjs populated-env-secret and credential-file rules",
+      "result": "validated with planted positives (4 findings), then cleaned"
+    },
+    {
+      "attack": "flip config verified to true without evidence",
+      "defense": "assertDeploymentReady requires matching chain observation plus live bytecode",
+      "result": "validated by fixture (static-verified without bytecode rejected)"
+    },
+    {
+      "attack": "substitute model via OPENAI_MODEL",
+      "defense": "resolveOpenAIModel rejects any non-pinned value",
+      "result": "validated by test"
+    },
+    {
+      "attack": "smuggle recipient through model output",
+      "defense": "strict schema plus recursive deny-list scan with redacted errors",
+      "result": "validated by test (top-level and nested cases)"
+    },
+    {
+      "attack": "drift AICD diagram from source",
+      "defense": "validator regenerates diagram in-memory and fails on stale check-in",
+      "result": "validated by construction (hash comment plus exact-match gate)"
+    },
+    {
+      "attack": "live Advance RPC impersonation",
+      "defense": "preflight chain-ID match plus bytecode presence over the configured RPC",
+      "result": "not-run: requires verified network values; tracked as hybrid gate"
+    }
+  ]
+}
