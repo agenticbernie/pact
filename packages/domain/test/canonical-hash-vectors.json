@@ -1,0 +1,50 @@
+[
+  {
+    "name": "coffee-demo-intent",
+    "abiTypes": ["uint256", "address", "bytes32", "uint256", "address", "string", "uint64", "uint32"],
+    "input": {
+      "cardId": "7",
+      "agentId": "0x1111111111111111111111111111111111111111",
+      "merchantId": "coffee-demo",
+      "amountBaseUnits": "250",
+      "asset": "native-testnet-ctc",
+      "purpose": "demo coffee purchase",
+      "expiresAt": "2026-09-09T00:05:00Z",
+      "policyVersion": 1
+    },
+    "merchantBytes32": "0x14b0d999dc378b1bfd77fdaae9eb812308012cfcc5d585656e4ad328e0c78916",
+    "hash": "0xc8a46314e71e3494151270bb2e79351039ab4460fc99b057f1a496d31edce4ea"
+  },
+  {
+    "name": "tea-house-intent",
+    "abiTypes": ["uint256", "address", "bytes32", "uint256", "address", "string", "uint64", "uint32"],
+    "input": {
+      "cardId": "42",
+      "agentId": "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B",
+      "merchantId": "tea-house",
+      "amountBaseUnits": "1000000000000000000",
+      "asset": "native-testnet-ctc",
+      "purpose": "demo tea bulk order",
+      "expiresAt": "2026-12-31T23:59:59Z",
+      "policyVersion": 3
+    },
+    "merchantBytes32": "0x0e4c51efffedf1cc3849e32e3f0d9517b1d4bc783c9fdeb8443860afde1657e3",
+    "hash": "0x2c95abe04166f225e697143b63b17aafb1e362809dc3eb453c2a1968b91a4567"
+  },
+  {
+    "name": "millis-timestamp-intent",
+    "abiTypes": ["uint256", "address", "bytes32", "uint256", "address", "string", "uint64", "uint32"],
+    "input": {
+      "cardId": "1",
+      "agentId": "0x2222222222222222222222222222222222222222",
+      "merchantId": "book-store",
+      "amountBaseUnits": "999",
+      "asset": "native-testnet-ctc",
+      "purpose": "demo book purchase",
+      "expiresAt": "2026-09-09T00:05:00.000Z",
+      "policyVersion": 0
+    },
+    "merchantBytes32": "0xa00c1e7667bb3e786524f6c4cc9b8df86b409bb07eb874fb20f78687c44e6e58",
+    "hash": "0x81a7c73682c7d6c25c16214cd56de1dce4a1929c93128fbf881ca12dafd22631"
+  }
+]
