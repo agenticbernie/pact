@@ -105,11 +105,12 @@ pact/
 ├── architecture/                    -- AICD fragments, schema, scenario registry, generated diagram
 ├── config/ai/                       -- pinned OpenAI provider config
 ├── config/networks/                 -- canonical Advance Testnet config (verified: false)
-├── contracts/                       -- Foundry config only; Solidity sources arrive in Phase 02
+├── contracts/                       -- Foundry project: sources, tests, deploy script (Phase 02 green)
 ├── docs/superpowers/
 │   ├── specs/                       -- Pact MVP and AICD design
 │   └── plans/                       -- Superpowers implementation plan
 ├── packages/domain/                 -- shared schemas, canonical hash, config loaders, tests
+├── packages/pact-sdk/               -- generated contract ABIs + local deployment addresses
 ├── process/
 │   ├── _seeds/                      -- read-only Vibecode setup templates
 │   ├── context/                     -- this router, planning, and test context
@@ -124,8 +125,8 @@ pact/
 ```
 
 Still planned by later phases (not present): `packages/asc/`,
-`packages/pact-sdk/`, `supabase/`, `apps/web/`, `apps/edge/`, `services/`,
-`e2e/`, contract sources under `contracts/src/`, and `.github/workflows/`.
+`supabase/`, `apps/web/`, `apps/edge/`, `services/`,
+`e2e/`, and `.github/workflows/`.
 
 ## Technology and Runtime
 
@@ -268,10 +269,10 @@ and `node .claude/skills/vc-audit-context/scripts/validate-context-discovery.mjs
 
 ## Scan Metadata
 
-- Generated: 2026-09-09 (refreshed after Phase 01 foundation execution)
-- HEAD: `main` (Phase 01 execution branch; see phase plan Validate Contract)
-- Mode: refresh after Phase 01 Tasks 1–4; Pact plans preserved
+- Generated: 2026-09-09 (refreshed after Phase 02 payment-contracts execution)
+- HEAD: `main` (Phase 02 execution branch; see phase plan Validate Contract)
+- Mode: refresh after Phase 02 Tasks 1–5; Pact plans preserved
 - Package manager: Yarn Classic `1.22.22` via Corepack; manifest and lockfile present
-- Source scan: `packages/domain` source + tests, `config/`, `architecture/`,
-  and `scripts/` materialized and gated; contract sources, Supabase, web,
-  services, and e2e remain planned
+- Source scan: `packages/domain` + `packages/pact-sdk`, `contracts/` (sources, tests,
+  deploy script), `config/`, `architecture/`, and `scripts/` materialized and gated;
+  Supabase, web, services, and e2e remain planned

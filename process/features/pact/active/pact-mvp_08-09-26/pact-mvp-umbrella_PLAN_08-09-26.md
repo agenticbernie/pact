@@ -122,16 +122,17 @@ START: Phase 01 — Foundation, Domain Contracts & AICD; loop step PLAN-SUPPLEME
 ## Current Execution State
 
 Last updated: 2026-09-09
-Current phase: 1 of 7
-Phase 1 name: Foundation, Domain Contracts & AICD
-Phase 1 status: 🔨 CODE DONE
-Phase 1 EVL: green (typecheck, lint, 56 tests, AICD, secret scan, fail-closed preflight, diff-check)
-Phase 1 report: process/features/pact/active/pact-mvp_08-09-26/phase-01-foundation_REPORT_08-09-26.md
-Next phase: 2 — Payment contracts (entry gate satisfiable: foundry.toml + packages/domain exist)
+Current phase: 2 of 7
+Phase 2 name: Payment Contracts & Native Settlement
+Phase 2 status: ✅ VERIFIED
+Phase 2 EVL: green (64 Forge tests incl. invariants, Anvil deploy + export + readback, domain regression, AICD, scan)
+Phase 2 report: process/features/pact/active/pact-mvp_08-09-26/phase-02-payment-contracts_REPORT_08-09-26.md
+Next phase: 3 — ASC credit evidence (entry: Phase 02 VERIFIED confirmed; ASC package pinned)
 
-Phase 1 Validate Contract: CONDITIONAL accepted with C1–C4 (2026-09-09).
-Phase 1 promotion to ✅ VERIFIED needs explicit user confirmation per the phase plan rules.
-Next Step: confirm Phase 01 VERIFIED, then Phase 02 RESEARCH.
+Phase 1 status: 🔨 CODE DONE (VERIFIED confirmation outstanding).
+Phase 2 Validate Contract: CONDITIONAL accepted with C-P2a–C-P2d (2026-09-09);
+all concerns closed by evidence except the --ffi=false form note.
+Next Step: Phase 03 RESEARCH (no live deployment; ASC verifier/decoder values stay deferred).
 
 ---
 
@@ -231,7 +232,7 @@ Reports stay flat inside the program task folder. The folder moves as one unit w
 | Phase | Status |
 |---|---|
 | 01 — Foundation | 🔨 CODE DONE |
-| 02 — Payment contracts | ⏳ PLANNED |
+| 02 — Payment contracts | ✅ VERIFIED |
 | 03 — ASC credit evidence | ⏳ PLANNED |
 | 04 — AI gateway/executor | ⏳ PLANNED |
 | 05 — Indexer/read model | ⏳ PLANNED |

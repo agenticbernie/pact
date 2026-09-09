@@ -26,12 +26,13 @@ The planned source/test paths are:
   atomicity, replay protection, and invariants;
 - `contracts/script/DeployPaymentSystem.s.sol` for local deployment/readback.
 
-None of the contract sources existed at the `vc-setup` scan. Their absence is
-tracked as a bootstrap gap, not as a passing or failing test result. The
+None of the contract sources existed at the `vc-setup` scan. The
 `packages/domain` side (schemas, canonical serialization, hashes,
 asset/merchant conversion, errors, network config, preflight fixtures) is
-implemented and green; `contracts/src/` and `contracts/test/` arrive in
-Phase 02.
+implemented and green, as is the `contracts/` side (`PactCardController`,
+`PactCreditPool`, `MerchantSimulator`, policy/atomicity/invariant suites, local
+deployment script with SDK export) — 64 Forge tests green on solc 0.8.30,
+`evm_version` shanghai.
 
 ## Commands
 

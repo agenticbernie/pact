@@ -55,10 +55,10 @@ installed in this environment.
 | TypeScript | `corepack yarn typecheck` | root/domain type safety — green |
 | Lint | `corepack yarn lint` | repository lint — green |
 | AICD | `corepack yarn validate:aicd` | architecture/source/diagram consistency — green (11 components, 6 flows, 17 scenarios) |
-| Solidity | `forge fmt --check` | formatting for `contracts/`; Foundry project not created yet |
-| Solidity | `forge test --root contracts -vvv` | full Forge suite; contracts are not created yet |
-| Solidity invariants | `forge test --root contracts --match-path test/PactPaymentInvariant.t.sol -vvv` | payment invariant gate; test is not created yet |
-| Local deployment | `anvil --silent` plus the Phase 02 deploy script | local wiring/readback; Foundry is installed, deploy script arrives in Phase 02 |
+| Solidity | `forge fmt --check` | formatting for `contracts/` — green |
+| Solidity | `forge test --root contracts -vvv` | full Forge suite (8 suites, 64 tests) — green |
+| Solidity invariants | `forge test --root contracts --match-path test/PactPaymentInvariant.t.sol -vvv` | payment invariant gate — green (3 invariants, ~128k calls) |
+| Local deployment | `anvil --silent` plus the Phase 02 deploy script | local wiring/readback — green on Anvil (chain 31337, triangle asserted, SDK exported) |
 | Backend | `supabase start && supabase db reset --local && deno test --allow-env --allow-net --allow-read supabase/test/schema.test.ts` | local migration gate; Supabase/Deno files and CLI arrive in Phase 04/05 |
 | Web build | `corepack yarn build:web` | production web bundle; web app arrives in Phase 06 |
 | Local E2E | `node scripts/start-local-stack.mjs && corepack yarn test:e2e && node scripts/stop-local-stack.mjs` | Playwright local path; scripts/app arrive in later phases |
