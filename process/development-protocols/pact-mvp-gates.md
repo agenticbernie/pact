@@ -1,3 +1,15 @@
+---
+name: protocol:pact-mvp-gates
+description: "Pact MVP gate routing: exact gate commands, preconditions, and fail-closed rules per phase."
+date: 09-09-26
+metadata:
+  node_type: memory
+  type: protocol
+  read_order: 10
+  required: false
+  read_when: "running Pact phase gates, regression checks, or deployment/demo lanes"
+---
+
 # Pact MVP Gate Routing
 
 Phase 01 output. Routes every later agent to the exact gate commands, their

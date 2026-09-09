@@ -12,7 +12,7 @@ metadata:
 # Phase 01 — Foundation, Domain Contracts & AICD
 
 **Date**: 2026-09-08
-**Status**: ⏳ PLANNED
+**Status**: 🔨 CODE DONE (EVL green 2026-09-09; ✅ VERIFIED needs user confirmation)
 **Complexity**: COMPLEX
 **Program:** pact-mvp
 **Umbrella plan:** process/features/pact/active/pact-mvp_08-09-26/pact-mvp-umbrella_PLAN_08-09-26.md
@@ -154,13 +154,13 @@ Pact starts with the approved design document and no application harness. This p
 
 ## Phase Loop Progress
 
-- [ ] 1. RESEARCH — inspect the approved design, kit protocol, repository drift, and available test context
-- [ ] 2. INNOVATE — choose pure shared schemas plus machine-readable AICD; record rejected alternatives
-- [ ] 3. PLAN-SUPPLEMENT — add discovered preconditions or record n/a — research clean
-- [ ] 4. PVL — vc-validate-agent writes the V1–V7 Validate Contract with exact gates
-- [ ] 5. EXECUTE — complete Tasks 1–4 and run each section gate immediately
-- [ ] 6. EVL — independently rerun gates, review AICD coverage, and record regression evidence
-- [ ] 7. UPDATE PROCESS — write the phase report, update the umbrella, and commit process/execution separately
+- [x] 1. RESEARCH — inspect the approved design, kit protocol, repository drift, and available test context
+- [x] 2. INNOVATE — choose pure shared schemas plus machine-readable AICD; record rejected alternatives
+- [x] 3. PLAN-SUPPLEMENT — add discovered preconditions or record n/a — research clean
+- [x] 4. PVL — vc-validate-agent writes the V1–V7 Validate Contract with exact gates
+- [x] 5. EXECUTE — complete Tasks 1–4 and run each section gate immediately
+- [x] 6. EVL — independently rerun gates, review AICD coverage, and record regression evidence
+- [x] 7. UPDATE PROCESS — write the phase report, update the umbrella, and commit process/execution separately
 
 **Validate-contract required before execute.** The placeholder Validate Contract is a blocker.
 
@@ -174,9 +174,9 @@ Pact starts with the approved design document and no application harness. This p
 
 **Produces:** Stable commands: yarn typecheck, yarn lint, yarn test, yarn test:contracts, yarn validate:aicd, yarn test:db, yarn test:e2e, yarn dev:web, yarn dev:edge, yarn preflight:testnet.
 
-- [ ] 1.1. Write root-smoke.test.ts importing `@pact/domain/bootstrap` and assert the foundation marker is true; verify it fails because the module does not exist yet.
-- [ ] 1.2. Add `packages/domain/package.json` with name `@pact/domain`, ESM exports, and a `./bootstrap` export. Add the smallest pure `packages/domain/src/bootstrap.ts` implementation only after the red smoke test exists.
-- [ ] 1.3. Add package.json with workspaces apps/*, packages/*, services/*, Node >=20, `packageManager: yarn@1.22.22`, and exact dependency pins for Zod, ethers v6, YAML, AJV, TypeScript, Vitest, ESLint, Node types, `@gluwa/asc-contracts@0.2.1`, `@gluwa/usc-sdk@0.18.0`, and `@openzeppelin/contracts@5.4.0`. Include these scripts:
+- [x] 1.1. Write root-smoke.test.ts importing `@pact/domain/bootstrap` and assert the foundation marker is true; verify it fails because the module does not exist yet.
+- [x] 1.2. Add `packages/domain/package.json` with name `@pact/domain`, ESM exports, and a `./bootstrap` export. Add the smallest pure `packages/domain/src/bootstrap.ts` implementation only after the red smoke test exists.
+- [x] 1.3. Add package.json with workspaces apps/*, packages/*, services/*, Node >=20, `packageManager: yarn@1.22.22`, and exact dependency pins for Zod, ethers v6, YAML, AJV, TypeScript, Vitest, ESLint, Node types, `@gluwa/asc-contracts@0.2.1`, `@gluwa/usc-sdk@0.18.0`, and `@openzeppelin/contracts@5.4.0`. Include these scripts:
 
 ~~~json
 {
@@ -218,16 +218,16 @@ Pact starts with the approved design document and no application harness. This p
 }
 ~~~
 
-- [ ] 1.4. Add `.gitignore` rules for `.env`, `.env.*` except `.env.example`, credential/key files, local reports, and generated secret-bearing evidence; keep `.worktrees/` ignored.
-- [ ] 1.5. Add strict TypeScript with target ES2022, module ESNext, bundler resolution, noEmit, and Vitest globals. Keep root typecheck scoped to currently existing Node packages; document Deno and Worker-specific checks in the test router until their owning phases create them.
-- [ ] 1.6. Add Foundry config with the ASC reference toolchain (`solc_version = 0.8.30`, optimizer enabled, `via_ir = true`, `libs = ["node_modules"]`, src/test/script/out directories), and pinned OpenZeppelin/ASC remappings. Record any incompatibility with the approved 0.8.28-compatible interface as a feasibility finding rather than silently changing the design.
-- [ ] 1.7. Generate `yarn.lock` through the pinned Yarn version and record the exact resolved dependency graph.
-- [ ] 1.8. Run the root smoke test and typecheck.
+- [x] 1.4. Add `.gitignore` rules for `.env`, `.env.*` except `.env.example`, credential/key files, local reports, and generated secret-bearing evidence; keep `.worktrees/` ignored.
+- [x] 1.5. Add strict TypeScript with target ES2022, module ESNext, bundler resolution, noEmit, and Vitest globals. Keep root typecheck scoped to currently existing Node packages; document Deno and Worker-specific checks in the test router until their owning phases create them.
+- [x] 1.6. Add Foundry config with the ASC reference toolchain (`solc_version = 0.8.30`, optimizer enabled, `via_ir = true`, `libs = ["node_modules"]`, src/test/script/out directories), and pinned OpenZeppelin/ASC remappings. Record any incompatibility with the approved 0.8.28-compatible interface as a feasibility finding rather than silently changing the design.
+- [x] 1.7. Generate `yarn.lock` through the pinned Yarn version and record the exact resolved dependency graph.
+- [x] 1.8. Run the root smoke test and typecheck.
 
 Run: corepack prepare yarn@1.22.22 --activate && yarn install && yarn vitest run packages/domain/test/root-smoke.test.ts && yarn typecheck
 Expected: PASS and exit 0.
 
-- [ ] 1.9. Commit: git add package.json yarn.lock tsconfig.json vitest.config.ts eslint.config.js .env.example .gitignore contracts/foundry.toml packages/domain packages/domain/test/root-smoke.test.ts; git commit -m "chore: bootstrap Pact monorepo".
+- [x] 1.9. Commit: git add package.json yarn.lock tsconfig.json vitest.config.ts eslint.config.js .env.example .gitignore contracts/foundry.toml packages/domain packages/domain/test/root-smoke.test.ts; git commit -m "chore: bootstrap Pact monorepo".
 
 ### Task 2 — Define shared domain contracts
 
@@ -242,15 +242,15 @@ Expected: PASS and exit 0.
 - `assertDeploymentReady(config, observation): void`
 - DomainError(code, message, details)
 
-- [ ] 2.1. Write failing tests for a valid intent, malformed/unknown merchant ID, catalog lookup rejection for an unregistered merchant, zero amount, wrong logical asset, invalid confidence/time, zero agent address, raw recipientAddress, nested secret-bearing fields, and non-OpenAI provider/model.
-- [ ] 2.2. Write failing hash tests and golden vectors proving property order is irrelevant, canonical timestamps/amounts are stable, and policyVersion, amount, card, merchant, asset, purpose, or expiry changes alter the hash.
-- [ ] 2.3. Write failing config tests for missing/invalid chain ID, non-HTTPS RPC/explorer, empty native asset descriptor, zero verifier, missing decoder, unverified flag, unsafe chain ID, and an observation mismatch.
-- [ ] 2.4. Run failures.
+- [x] 2.1. Write failing tests for a valid intent, malformed/unknown merchant ID, catalog lookup rejection for an unregistered merchant, zero amount, wrong logical asset, invalid confidence/time, zero agent address, raw recipientAddress, nested secret-bearing fields, and non-OpenAI provider/model.
+- [x] 2.2. Write failing hash tests and golden vectors proving property order is irrelevant, canonical timestamps/amounts are stable, and policyVersion, amount, card, merchant, asset, purpose, or expiry changes alter the hash.
+- [x] 2.3. Write failing config tests for missing/invalid chain ID, non-HTTPS RPC/explorer, empty native asset descriptor, zero verifier, missing decoder, unverified flag, unsafe chain ID, and an observation mismatch.
+- [x] 2.4. Run failures.
 
 Run: yarn vitest run packages/domain/test/schemas.test.ts packages/domain/test/canonical-hash.test.ts  
 Expected: FAIL because exports do not exist.
 
-- [ ] 2.5. Implement these stable fields and conversion contracts:
+- [x] 2.5. Implement these stable fields and conversion contracts:
 
 ~~~typescript
 type AgentIntent = {
@@ -282,17 +282,17 @@ type NetworkObservation = {
 };
 ~~~
 
-- [ ] 2.6. Enforce strict recursive schemas: positive canonical decimal base units (no sign, point, exponent, whitespace, or leading zero; safe `uint256` bounds), decimal card IDs, normalized non-zero EVM agent addresses, kebab-case merchant IDs, purpose <=160 chars, canonical UTC RFC3339 timestamps, expiry after creation, `policyVersion` as a safe `uint32`, provider exactly `openai`, model exactly `gpt-5.6-luna`, and rejection—not stripping—of unknown keys and deny-list keys (`recipient`, `recipientAddress`, `calldata`, `privateKey`, `apiKey`, `secret`, `token`).
-- [ ] 2.7. Define one canonical serialization with fixed field order and types. Hash only cardId, agentId, merchantId, amountBaseUnits, asset, purpose, expiresAt, and policyVersion with ethers `keccak256`; normalize addresses, timestamps, and merchant strings before hashing. Map merchant strings to Solidity `bytes32` via the exported `merchantIdToBytes32` helper and consume shared golden vectors.
-- [ ] 2.8. Separate static config parsing from runtime readiness. `loadAdvanceTestnetConfig` validates the strict nested schema and absolute HTTPS URLs; `assertDeploymentReady(config, observation)` is the only path that can accept `verified === true`, matching chain identity, non-zero addresses, and non-empty verifier/decoder bytecode. Any empty, unsafe, unverified, malformed, or mismatched value throws `NETWORK_CONFIG_INVALID` with redacted details.
-- [ ] 2.9. Set config/ai/openai.json to provider openai, model gpt-5.6-luna, region us-east-1, allowFallback false, and add a strict loader/test so runtime env cannot substitute a provider or model silently.
-- [ ] 2.10. Run TypeScript hash-vector checks against the exact Solidity ABI encoding contract planned for Phase 02; record any compiler/encoding mismatch as a blocker, not a changed vector.
-- [ ] 2.11. Run tests and typecheck.
+- [x] 2.6. Enforce strict recursive schemas: positive canonical decimal base units (no sign, point, exponent, whitespace, or leading zero; safe `uint256` bounds), decimal card IDs, normalized non-zero EVM agent addresses, kebab-case merchant IDs, purpose <=160 chars, canonical UTC RFC3339 timestamps, expiry after creation, `policyVersion` as a safe `uint32`, provider exactly `openai`, model exactly `gpt-5.6-luna`, and rejection—not stripping—of unknown keys and deny-list keys (`recipient`, `recipientAddress`, `calldata`, `privateKey`, `apiKey`, `secret`, `token`).
+- [x] 2.7. Define one canonical serialization with fixed field order and types. Hash only cardId, agentId, merchantId, amountBaseUnits, asset, purpose, expiresAt, and policyVersion with ethers `keccak256`; normalize addresses, timestamps, and merchant strings before hashing. Map merchant strings to Solidity `bytes32` via the exported `merchantIdToBytes32` helper and consume shared golden vectors.
+- [x] 2.8. Separate static config parsing from runtime readiness. `loadAdvanceTestnetConfig` validates the strict nested schema and absolute HTTPS URLs; `assertDeploymentReady(config, observation)` is the only path that can accept `verified === true`, matching chain identity, non-zero addresses, and non-empty verifier/decoder bytecode. Any empty, unsafe, unverified, malformed, or mismatched value throws `NETWORK_CONFIG_INVALID` with redacted details.
+- [x] 2.9. Set config/ai/openai.json to provider openai, model gpt-5.6-luna, region us-east-1, allowFallback false, and add a strict loader/test so runtime env cannot substitute a provider or model silently.
+- [x] 2.10. Run TypeScript hash-vector checks against the exact Solidity ABI encoding contract planned for Phase 02; record any compiler/encoding mismatch as a blocker, not a changed vector.
+- [x] 2.11. Run tests and typecheck.
 
 Run: yarn vitest run packages/domain/test/schemas.test.ts packages/domain/test/canonical-hash.test.ts packages/domain/test/config.test.ts && yarn typecheck
 Expected: PASS.
 
-- [ ] 2.12. Commit: git add packages/domain config; git commit -m "feat: define Pact domain contracts".
+- [x] 2.12. Commit: git add packages/domain config; git commit -m "feat: define Pact domain contracts".
 
 ### Task 3 — Materialize AICD and its validator
 
@@ -300,24 +300,24 @@ Expected: PASS.
 
 **Interfaces:** AICD nodes require id, type, authority, cannot, interfaces, deployment, evidence. Flows reference declared components. Evidence references approved SC-* IDs. The Mermaid diagram is generated from AICD. The seven fragments are loaded in deterministic lexical order into one strict merged document; duplicate IDs and conflicting declarations fail.
 
-- [ ] 3.1. Write the fixture test first; assert unique IDs, valid references, required authority/cannot/deployment/evidence, critical-policy → invariant/scenario links, UI-success → receipt/evidence links, real-data paths → evidence links, recursive secret-boundary rules, scenario-registry membership, and generated component parity.
-- [ ] 3.2. Run it and observe missing-file failure.
+- [x] 3.1. Write the fixture test first; assert unique IDs, valid references, required authority/cannot/deployment/evidence, critical-policy → invariant/scenario links, UI-success → receipt/evidence links, real-data paths → evidence links, recursive secret-boundary rules, scenario-registry membership, and generated component parity.
+- [x] 3.2. Run it and observe missing-file failure.
 
 Run: yarn vitest run packages/domain/test/aicd-fixture.test.ts  
 Expected: FAIL before AICD files exist.
 
-- [ ] 3.3. Define components for web, Cloudflare edge, regional AI gateway, agent executor, ASC proof worker, source contract, ASC, controller, pool, merchant simulator, and indexer.
-- [ ] 3.4. Define policies active-card, assigned-agent, merchant-allowlist, matching-asset, effective-credit, deadline, unused-nonce, receipt-required, and AI-not-authority.
-- [ ] 3.5. Define flows card setup, credit evidence, allowed payment, rejected payment, provider failure, and indexed receipt.
-- [ ] 3.6. Mark Advance Testnet deployments as requiring verified runtime config; include SC-NETWORK-001 through SC-AICD-001 links.
-- [ ] 3.7. Implement validate-aicd.mjs with pinned YAML and JSON Schema dependencies. It must parse/merge all seven YAML files deterministically, reject duplicate/orphan IDs and unknown keys, require authority/cannot/deployment/evidence, enforce the three authority/evidence linkage rules, reject secret-bearing browser/edge components recursively, require every SC-* ID to exist in architecture/scenario-registry.json, and compare generated Mermaid component IDs plus a normalized content hash against the checked-in diagram.
-- [ ] 3.8. Generate pact-architecture.mmd from the same deterministic merged AICD source; fail when the checked-in artifact is stale.
-- [ ] 3.9. Run fixture, validator, and typecheck.
+- [x] 3.3. Define components for web, Cloudflare edge, regional AI gateway, agent executor, ASC proof worker, source contract, ASC, controller, pool, merchant simulator, and indexer.
+- [x] 3.4. Define policies active-card, assigned-agent, merchant-allowlist, matching-asset, effective-credit, deadline, unused-nonce, receipt-required, and AI-not-authority.
+- [x] 3.5. Define flows card setup, credit evidence, allowed payment, rejected payment, provider failure, and indexed receipt.
+- [x] 3.6. Mark Advance Testnet deployments as requiring verified runtime config; include SC-NETWORK-001 through SC-AICD-001 links.
+- [x] 3.7. Implement validate-aicd.mjs with pinned YAML and JSON Schema dependencies. It must parse/merge all seven YAML files deterministically, reject duplicate/orphan IDs and unknown keys, require authority/cannot/deployment/evidence, enforce the three authority/evidence linkage rules, reject secret-bearing browser/edge components recursively, require every SC-* ID to exist in architecture/scenario-registry.json, and compare generated Mermaid component IDs plus a normalized content hash against the checked-in diagram.
+- [x] 3.8. Generate pact-architecture.mmd from the same deterministic merged AICD source; fail when the checked-in artifact is stale.
+- [x] 3.9. Run fixture, validator, and typecheck.
 
 Run: yarn vitest run packages/domain/test/aicd-fixture.test.ts && yarn validate:aicd && yarn typecheck  
 Expected: PASS with no orphan references.
 
-- [ ] 3.10. Commit: git add architecture packages/domain/test/aicd-fixture.test.ts scripts/validate-aicd.mjs; git commit -m "feat: add Pact AICD architecture source".
+- [x] 3.10. Commit: git add architecture packages/domain/test/aicd-fixture.test.ts scripts/validate-aicd.mjs; git commit -m "feat: add Pact AICD architecture source".
 
 ### Task 4 — Add test context, network preflight, and secret scan
 
@@ -329,18 +329,18 @@ Expected: PASS with no orphan references.
 - node scripts/check-no-secrets.mjs exits non-zero for private keys, OpenAI keys, JWT-like tokens, or populated secret variables.
 - Context files route later agents to the design, current plan, protocol, and exact automated/hybrid/agent-probe commands. `all-tests.md` must link every deeper test document and identify runner, command, precondition, evidence, and what the command does not prove.
 
-- [ ] 4.1. Write failing preflight tests for every missing value, chain mismatch, malformed JSON-RPC, timeout, RPC error, empty verifier/decoder bytecode, attempted static `verified: true`, redaction case, and one concrete valid observation fixture.
-- [ ] 4.2. Implement preflight with `eth_chainId` and `eth_getCode` calls, bounded timeout, malformed/error handling, canonical chain comparison, non-empty bytecode checks, and redacted JSON output. Fixture transport tests are automated; the actual Advance identity remains hybrid.
-- [ ] 4.3. Implement secret scan patterns for private keys, OpenAI key prefixes, JWT-like strings, populated secret assignments, and forbidden secret field names; scan recursively and fail on non-example credential files.
-- [ ] 4.4. Write all-context.md and the complete all-tests.md routing chain under `process/context/tests/`; include the actual repository inventory, exact commands, runner availability, required preconditions, evidence locations, and explicit blocked states. Run context discovery/audit after authoring.
-- [ ] 4.5. Populate the high-risk evidence pack with redacted gate inputs, context snippets, verification results, reviewer decision, and adversarial-validation status. Missing live-provider evidence must be marked `not-run` with its required safe next action.
-- [ ] 4.6. Run the foundation gate.
+- [x] 4.1. Write failing preflight tests for every missing value, chain mismatch, malformed JSON-RPC, timeout, RPC error, empty verifier/decoder bytecode, attempted static `verified: true`, redaction case, and one concrete valid observation fixture.
+- [x] 4.2. Implement preflight with `eth_chainId` and `eth_getCode` calls, bounded timeout, malformed/error handling, canonical chain comparison, non-empty bytecode checks, and redacted JSON output. Fixture transport tests are automated; the actual Advance identity remains hybrid.
+- [x] 4.3. Implement secret scan patterns for private keys, OpenAI key prefixes, JWT-like strings, populated secret assignments, and forbidden secret field names; scan recursively and fail on non-example credential files.
+- [x] 4.4. Write all-context.md and the complete all-tests.md routing chain under `process/context/tests/`; include the actual repository inventory, exact commands, runner availability, required preconditions, evidence locations, and explicit blocked states. Run context discovery/audit after authoring.
+- [x] 4.5. Populate the high-risk evidence pack with redacted gate inputs, context snippets, verification results, reviewer decision, and adversarial-validation status. Missing live-provider evidence must be marked `not-run` with its required safe next action.
+- [x] 4.6. Run the foundation gate.
 
 Run: yarn typecheck && yarn lint && yarn test && yarn validate:aicd && node scripts/check-no-secrets.mjs  
 Expected: PASS; preflight fails closed with NETWORK_CONFIG_INVALID while verified values are absent.
 
-- [ ] 4.7. Commit process separately: git add process harness scripts architecture; git commit -m "docs: add Pact context and gate routing".
-- [ ] 4.8. Commit remaining foundation changes: git add package.json yarn.lock tsconfig.json vitest.config.ts eslint.config.js .gitignore config packages; git commit -m "chore: finalize Pact foundation".
+- [x] 4.7. Commit process separately: git add process harness scripts architecture; git commit -m "docs: add Pact context and gate routing".
+- [x] 4.8. Commit remaining foundation changes: git add package.json yarn.lock tsconfig.json vitest.config.ts eslint.config.js .gitignore config packages; git commit -m "chore: finalize Pact foundation".
 
 ## Acceptance Criteria
 

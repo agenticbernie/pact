@@ -121,20 +121,27 @@ START: Phase 01 — Foundation, Domain Contracts & AICD; loop step PLAN-SUPPLEME
 
 ## Current Execution State
 
-- Last updated: 2026-09-09
-- Current phase: 01 of 07
-- Current phase name: Foundation, Domain Contracts & AICD
-- Current phase status: 🚧 BLOCKED
-- Current loop step: PLAN supplement required; next execution entry is the approved harness/context bootstrap, then RESEARCH/PVL
-- Current phase EVL: not started
-- Current phase report: process/features/pact/active/pact-mvp_08-09-26/phase-01-foundation_REPORT_08-09-26.md
-- Validate-contract status: pending in each direct phase plan; PVL must write the contract before execution
-- Next phase: phase-01-foundation_PLAN_08-09-26.md
-- Last verified phase: none
-- User Confirmation: required before promoting a phase or the program to ✅ VERIFIED.
-- Next Step: complete the Phase 01 Pre-PVL harness/context bootstrap, rerun RESEARCH and V1–V2 validation, then write its PVL Validate Contract only if the hard stop is cleared.
+Last updated: 2026-09-09
+Current phase: 1 of 7
+Phase 1 name: Foundation, Domain Contracts & AICD
+Phase 1 status: 🔨 CODE DONE
+Phase 1 EVL: green (typecheck, lint, 56 tests, AICD, secret scan, fail-closed preflight, diff-check)
+Phase 1 report: process/features/pact/active/pact-mvp_08-09-26/phase-01-foundation_REPORT_08-09-26.md
+Next phase: 2 — Payment contracts (entry gate satisfiable: foundry.toml + packages/domain exist)
+
+Phase 1 Validate Contract: CONDITIONAL accepted with C1–C4 (2026-09-09).
+Phase 1 promotion to ✅ VERIFIED needs explicit user confirmation per the phase plan rules.
+Next Step: confirm Phase 01 VERIFIED, then Phase 02 RESEARCH.
 
 ---
+
+## Pre-PVL Conflict Resolution
+
+No blast-radius conflicts for Phase 01 scope. `phase-blast-radius-registry.md`
+is the conflict-resolution record: Phase 01 owns foundation, domain contracts,
+AICD, test context, shared preflight, and the high-risk evidence schema
+exclusively, and no other phase claims those paths. (Resolves Validate
+Contract concern C2, 2026-09-09.)
 
 ## Phase Ordering
 
@@ -223,7 +230,7 @@ Reports stay flat inside the program task folder. The folder moves as one unit w
 
 | Phase | Status |
 |---|---|
-| 01 — Foundation | ⏳ PLANNED |
+| 01 — Foundation | 🔨 CODE DONE |
 | 02 — Payment contracts | ⏳ PLANNED |
 | 03 — ASC credit evidence | ⏳ PLANNED |
 | 04 — AI gateway/executor | ⏳ PLANNED |
