@@ -1,0 +1,89 @@
+version: "0.1"
+
+components:
+  - id: pact-web-app
+    type: browser-frontend
+    authority:
+      - display-state
+      - collect-owner-actions
+      - show-receipts
+    cannot:
+      - sign-agent-payments
+      - set-limits
+      - claim-success-without-evidence
+    interfaces:
+      - id: command-center
+      - id: agent-console
+      - id: payment-receipt
+    deployment: browser
+    evidence:
+      - SC-UI-001
+      - SC-INDEX-001
+
+uiStates:
+  - id: NETWORK_MISMATCH
+    kind: failed
+    receiptGate: false
+    evidence:
+      - SC-NETWORK-001
+
+  - id: NO_CARD
+    kind: declined
+    receiptGate: false
+    evidence:
+      - SC-CARD-001
+
+  - id: CARD_INACTIVE
+    kind: declined
+    receiptGate: false
+    evidence:
+      - SC-PAY-002
+
+  - id: AGENT_OFFLINE
+    kind: failed
+    receiptGate: false
+    evidence:
+      - SC-PAY-001
+
+  - id: AI_PROVIDER_UNAVAILABLE
+    kind: failed
+    receiptGate: false
+    evidence:
+      - SC-AI-002
+
+  - id: INTENT_INVALID
+    kind: declined
+    receiptGate: false
+    evidence:
+      - SC-AI-001
+
+  - id: PREFLIGHT_DECLINED
+    kind: declined
+    receiptGate: false
+    evidence:
+      - SC-PAY-002
+
+  - id: TX_PENDING
+    kind: pending
+    receiptGate: false
+    evidence:
+      - SC-INDEX-001
+
+  - id: SETTLED
+    kind: success
+    receiptGate: true
+    evidence:
+      - SC-INDEX-001
+      - SC-PAY-001
+
+  - id: TX_FAILED
+    kind: failed
+    receiptGate: false
+    evidence:
+      - SC-PAY-005
+
+  - id: CARD_SUSPENDED
+    kind: declined
+    receiptGate: false
+    evidence:
+      - SC-CARD-002

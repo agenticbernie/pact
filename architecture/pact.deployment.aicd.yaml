@@ -1,0 +1,53 @@
+version: "0.1"
+
+deployments:
+  - id: deploy-browser
+    target: browser
+    hosts:
+      - pact-web-app
+    requiresVerifiedConfig: false
+
+  - id: deploy-static-web
+    target: static-web
+    hosts: []
+    requiresVerifiedConfig: false
+
+  - id: deploy-cloudflare-edge
+    target: cloudflare-edge
+    hosts:
+      - pact-edge-worker
+    requiresVerifiedConfig: false
+
+  - id: deploy-supabase-regional
+    target: supabase-edge-us-east-1
+    hosts:
+      - pact-ai-gateway
+    requiresVerifiedConfig: false
+
+  - id: deploy-secure-executor
+    target: secure-executor
+    hosts:
+      - agent-executor
+    requiresVerifiedConfig: false
+
+  - id: deploy-secure-worker
+    target: secure-worker
+    hosts:
+      - asc-proof-worker
+      - event-indexer
+    requiresVerifiedConfig: false
+
+  - id: deploy-advance-testnet
+    target: advance-testnet
+    hosts:
+      - pact-credit-asc
+      - pact-card-controller
+      - pact-credit-pool
+      - merchant-simulator
+    requiresVerifiedConfig: true
+
+  - id: deploy-source-sepolia
+    target: ethereum-sepolia
+    hosts:
+      - pact-credit-source
+    requiresVerifiedConfig: false

@@ -1,0 +1,21 @@
+{
+  "scenarios": [
+    "SC-NETWORK-001",
+    "SC-CARD-001",
+    "SC-CARD-002",
+    "SC-ASC-001",
+    "SC-ASC-002",
+    "SC-AI-001",
+    "SC-AI-002",
+    "SC-AI-003",
+    "SC-PAY-001",
+    "SC-PAY-002",
+    "SC-PAY-003",
+    "SC-PAY-004",
+    "SC-PAY-005",
+    "SC-INDEX-001",
+    "SC-INDEX-002",
+    "SC-UI-001",
+    "SC-AICD-001"
+  ]
+}

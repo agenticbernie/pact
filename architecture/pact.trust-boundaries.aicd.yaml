@@ -1,0 +1,65 @@
+version: "0.1"
+
+boundaries:
+  - id: boundary-browser-edge
+    name: Boundary A — Browser to public edge
+    parties:
+      - pact-web-app
+      - pact-edge-worker
+    allows:
+      - request-intents
+      - display-state
+    denies:
+      - trust-client-amount
+      - trust-client-balance
+      - claim-success-without-evidence
+
+  - id: boundary-edge-gateway
+    name: Boundary B — Public edge to AI gateway
+    parties:
+      - pact-edge-worker
+      - pact-ai-gateway
+    allows:
+      - validated-request-forwarding
+      - correlation-id-propagation
+    denies:
+      - expose-provider-key-to-edge
+      - return-transaction-authorization
+
+  - id: boundary-gateway-executor
+    name: Boundary C — AI gateway to agent executor
+    parties:
+      - pact-ai-gateway
+      - agent-executor
+    allows:
+      - validated-intent-reference
+      - chain-state-reread
+    denies:
+      - trust-freeform-model-text
+      - trust-client-recipient-address
+
+  - id: boundary-executor-chain
+    name: Boundary D — Off-chain executor to blockchain
+    parties:
+      - agent-executor
+      - pact-card-controller
+      - pact-credit-pool
+    allows:
+      - restricted-agent-signature
+      - onchain-policy-recheck
+    denies:
+      - pool-direct-withdrawal-by-agent
+      - gas-funding-beyond-allowance
+
+  - id: boundary-source-asc
+    name: Boundary E — Source chain to ASC
+    parties:
+      - pact-credit-source
+      - asc-proof-worker
+      - pact-credit-asc
+    allows:
+      - proof-relay-with-retry
+      - idempotent-evidence-dedupe
+    denies:
+      - credit-without-asc-verification
+      - unregistered-emitter-evidence

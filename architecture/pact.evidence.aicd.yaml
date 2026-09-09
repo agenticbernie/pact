@@ -1,0 +1,78 @@
+version: "0.1"
+
+flows:
+  - id: flow-card-setup
+    from: pact-web-app
+    through:
+      - pact-card-controller
+    produces:
+      - CardCreated
+      - CardActivated
+    realData: true
+    evidence:
+      - SC-CARD-001
+      - SC-NETWORK-001
+
+  - id: flow-credit-evidence
+    from: pact-credit-source
+    through:
+      - asc-proof-worker
+      - pact-credit-asc
+      - pact-card-controller
+    produces:
+      - CreditGranted
+      - CreditVerified
+      - CardCreditUpdated
+    realData: true
+    evidence:
+      - SC-ASC-001
+      - SC-ASC-002
+
+  - id: flow-allowed-payment
+    from: pact-ai-gateway
+    through:
+      - agent-executor
+      - pact-card-controller
+      - pact-credit-pool
+      - merchant-simulator
+    produces:
+      - PaymentSettled
+    realData: true
+    evidence:
+      - SC-PAY-001
+      - SC-INDEX-001
+
+  - id: flow-rejected-payment
+    from: agent-executor
+    through:
+      - pact-card-controller
+    produces:
+      - PaymentRejected
+    realData: true
+    evidence:
+      - SC-PAY-002
+      - SC-PAY-003
+      - SC-PAY-004
+
+  - id: flow-provider-failure
+    from: pact-edge-worker
+    through:
+      - pact-ai-gateway
+    produces:
+      - ProviderError
+    realData: false
+    evidence:
+      - SC-AI-002
+      - SC-AI-003
+
+  - id: flow-indexed-receipt
+    from: pact-card-controller
+    through:
+      - event-indexer
+      - pact-web-app
+    produces:
+      - PaymentReceipt
+    realData: true
+    evidence:
+      - SC-INDEX-001
+      - SC-INDEX-002
