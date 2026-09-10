@@ -1,0 +1,6 @@
+{
+  "merchants": [
+    { "id": "coffee-demo", "label": "Coffee Demo" },
+    { "id": "book-demo", "label": "Book Demo" }
+  ]
+}

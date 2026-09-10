@@ -1,0 +1,15 @@
+# Pact edge worker: public boundary, no secrets.
+# Secrets are never committed here; only names are referenced in docs.
+name = "pact-edge"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[vars]
+SUPABASE_REGIONAL_FUNCTION_URL = ""
+ALLOWED_ORIGIN = "https://app.example.invalid"
+
+# Rate limiting: 30 requests per minute binding.
+# Deployment preflight must confirm this binding exists; when absent the
+# Worker fails closed (see S7 failure behavior).
+# [[limits]]
+# binding = "RATE_LIMITER"
