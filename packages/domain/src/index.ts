@@ -39,3 +39,38 @@ export type {
   ObservedExternalContract,
   OpenAIConfig,
 } from "./types.js";
+export {
+  API_ERROR_CODES,
+  MAX_BODY_BYTES,
+  MAX_PROMPT_LENGTH,
+  createApiError,
+  isApiErrorCode,
+  mapDomainErrorToApiCode,
+  parseIntentRequest,
+  requireRequestId,
+  toApiError,
+} from "./api.js";
+export type {
+  ApiError,
+  ApiErrorCode,
+  ExecuteResponse,
+  IntentRequest,
+  IntentResponse,
+  PreflightResponse,
+} from "./api.js";
+export {
+  CHALLENGE_TTL_MS,
+  SESSION_HMAC_SECRET_NAME,
+  SESSION_TTL_MS,
+  buildChallengeMessage,
+  hashNonce,
+  hashToken,
+  is64Hex,
+  issueSessionToken,
+  verifySessionToken,
+} from "./session-token.js";
+export type { SessionRole, SessionTokenPayload } from "./session-token.js";
+export { PAYMENT_STATUSES, classifyReceipt, isSettledReceipt, paymentCodeForStatus } from "./payment.js";
+export type { PaymentStatus, ReceiptResult } from "./payment.js";
+export { PINNED_MODEL, assertModelConfigAllowsCall, loadModelConfig } from "./model-config.js";
+export type { ModelConfig } from "./model-config.js";
