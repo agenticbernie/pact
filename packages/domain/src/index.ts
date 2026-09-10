@@ -26,6 +26,8 @@ export {
   parseAdvanceTestnetConfig,
   parseAgentIntent,
   resolveOpenAIModel,
+  VERIFIER_PRECOMPILE_ADDRESS,
+  CREDITCOIN_CHAIN_IDS,
 } from "./schemas.js";
 export type {
   AdvanceTestnetConfig,
@@ -34,5 +36,6 @@ export type {
   MerchantCatalog,
   NativeAssetDescriptor,
   NetworkObservation,
+  ObservedExternalContract,
   OpenAIConfig,
 } from "./types.js";

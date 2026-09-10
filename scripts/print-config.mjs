@@ -13,6 +13,9 @@ function readJson(rel) {
 const network = readJson("config/networks/advance-testnet.json");
 const ai = readJson("config/ai/openai.json");
 
+const VERIFIER_PRECOMPILE = "0x0000000000000000000000000000000000000FD2";
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 const output = {
   network: {
     protocol: network.protocol,
@@ -22,9 +25,12 @@ const output = {
     nativeDecimals: network.nativeAsset?.decimals,
     rpcConfigured: network.rpcUrl !== "https://advance-testnet.example.invalid",
     explorerConfigured: network.explorerUrl !== "https://explorer.example.invalid",
-    ascWired:
-      network.asc?.verifierPrecompile !== "0x0000000000000000000000000000000000000000" &&
-      network.asc?.evmV1DecoderLibrary !== "0x0000000000000000000000000000000000000000",
+    verifierIsCanonical:
+      typeof network.asc?.verifierPrecompile === "string" &&
+      network.asc.verifierPrecompile.toLowerCase() === VERIFIER_PRECOMPILE.toLowerCase(),
+    decoderCompileTime:
+      typeof network.asc?.evmV1DecoderLibrary === "string" &&
+      network.asc.evmV1DecoderLibrary.toLowerCase() === ZERO_ADDRESS,
     verified: network.verified,
   },
   ai: {

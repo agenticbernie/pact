@@ -1,8 +1,20 @@
 #!/usr/bin/env node
 // Advance Testnet preflight: read-only chain/config readiness probe.
-// Exits 0 only when the static config is verified AND live chain identity plus
-// verifier/decoder bytecode all agree. Failure output is redacted to reason
-// codes and numeric chain facts — URLs and addresses never leave this boundary.
+// Exits 0 only when the static config is verified AND live chain identity,
+// the canonical verifier precompile identity, and the compile-time decoder
+// acknowledgment all agree.
+//
+// Design notes (R-E readiness revision):
+// - 0xFD2 is a protocol precompile: zero bytecode is valid by design and is
+//   never probed. Identity is established by address constant + allowlisted
+//   chain ID, mirroring the pinned ASC package.
+// - The EVM decoder is compile-time/inlined: no address exists. Readiness
+//   requires the config to acknowledge this with the zero address; any other
+//   value claims a phantom deployment and fails closed.
+// - Real external contract dependencies (none in the MVP) require bytecode
+//   evidence; a missing one fails closed.
+// Failure output is redacted to reason codes and numeric chain facts — URLs
+// and addresses never leave this boundary.
 //
 // Importing this module has no side effects; the CLI runs only when the file
 // is executed directly.
@@ -14,6 +26,8 @@ export const EXIT_USAGE = 1;
 export const EXIT_NOT_READY = 2;
 export const EXIT_TRANSPORT = 3;
 
+export const VERIFIER_PRECOMPILE_ADDRESS = "0x0000000000000000000000000000000000000FD2";
+export const CREDITCOIN_CHAIN_IDS = [102030, 102031, 102032];
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class PreflightError extends Error {
@@ -101,30 +115,18 @@ async function rpcCall(transport, url, method, params) {
   return payload.result;
 }
 
-function hasBytecode(code) {
-  return typeof code === "string" && code.length > 2 && code !== "0x";
-}
-
-/** Read-only observation: chain ID plus verifier/decoder bytecode presence. */
-export async function fetchChainObservation(rpcUrl, asc, transport) {
+/**
+ * Read-only chain observation: chain identity only. No bytecode is probed:
+ * the verifier is a precompile (no bytecode by design) and the decoder is
+ * compile-time (no address at all).
+ */
+export async function fetchChainObservation(rpcUrl, transport) {
   const chainHex = await rpcCall(transport, rpcUrl, "eth_chainId", []);
   const rpcChainId = typeof chainHex === "string" ? Number.parseInt(chainHex, 16) : NaN;
   if (!Number.isSafeInteger(rpcChainId)) {
     throw new PreflightError("malformed-response");
   }
-  const verifierCode = await rpcCall(transport, rpcUrl, "eth_getCode", [
-    asc.verifierPrecompile,
-    "latest",
-  ]);
-  const decoderCode = await rpcCall(transport, rpcUrl, "eth_getCode", [
-    asc.evmV1DecoderLibrary,
-    "latest",
-  ]);
-  return {
-    rpcChainId,
-    verifierHasBytecode: hasBytecode(verifierCode),
-    decoderHasBytecode: hasBytecode(decoderCode),
-  };
+  return { rpcChainId };
 }
 
 /** Readiness decision over static config plus live observation. Redacted details only. */
@@ -141,17 +143,33 @@ export function runPreflight(config, observation) {
       observedChainId: observation.rpcChainId,
     });
   }
-  if (config.asc.verifierPrecompile.toLowerCase() === ZERO_ADDRESS) {
-    throw new PreflightError("verifier-not-deployed");
+  if (!CREDITCOIN_CHAIN_IDS.includes(observation.rpcChainId)) {
+    throw new PreflightError("chain-not-allowlisted", {
+      observedChainId: observation.rpcChainId,
+    });
   }
-  if (config.asc.evmV1DecoderLibrary.toLowerCase() === ZERO_ADDRESS) {
-    throw new PreflightError("decoder-not-deployed");
+  if (
+    !isEvmAddress(observation.verifierAddress) ||
+    observation.verifierAddress.toLowerCase() !== VERIFIER_PRECOMPILE_ADDRESS.toLowerCase()
+  ) {
+    throw new PreflightError("verifier-identity-mismatch");
   }
-  if (observation.verifierHasBytecode !== true) {
-    throw new PreflightError("verifier-no-bytecode");
+  if (
+    !isEvmAddress(config.asc.verifierPrecompile) ||
+    config.asc.verifierPrecompile.toLowerCase() !== VERIFIER_PRECOMPILE_ADDRESS.toLowerCase()
+  ) {
+    throw new PreflightError("verifier-not-canonical");
   }
-  if (observation.decoderHasBytecode !== true) {
-    throw new PreflightError("decoder-no-bytecode");
+  if (config.asc.evmV1DecoderLibrary.toLowerCase() !== ZERO_ADDRESS) {
+    throw new PreflightError("decoder-not-compile-time");
+  }
+  for (const external of observation.externalContracts ?? []) {
+    if (!isEvmAddress(external.address)) {
+      throw new PreflightError("external-invalid-address", { contract: external.label });
+    }
+    if (external.hasBytecode !== true) {
+      throw new PreflightError("external-no-bytecode", { contract: external.label });
+    }
   }
   return { ok: true, chainId: config.chainId, label: config.label, verified: true };
 }
@@ -175,15 +193,22 @@ export async function main(argv, deps = {}) {
   } catch (error) {
     return { exitCode: EXIT_NOT_READY, output: { ok: false, reason: error.reason } };
   }
-  let observation;
   if (config.verified !== true) {
     return { exitCode: EXIT_NOT_READY, output: { ok: false, reason: "unverified" } };
   }
+  let observation;
   try {
-    observation = await fetchChainObservation(config.rpcUrl, config.asc, {
+    const { rpcChainId } = await fetchChainObservation(config.rpcUrl, {
       fetch,
       timeoutMs: 15000,
     });
+    // Verifier identity is protocol-defined (constant), not probed: precompiles
+    // carry no bytecode by design. The MVP declares no external dependencies.
+    observation = {
+      rpcChainId,
+      verifierAddress: VERIFIER_PRECOMPILE_ADDRESS,
+      externalContracts: [],
+    };
   } catch (error) {
     return {
       exitCode: EXIT_TRANSPORT,

@@ -4,15 +4,19 @@ import {
   loadAdvanceTestnetConfig,
   loadOpenAIConfig,
   resolveOpenAIModel,
+  VERIFIER_PRECOMPILE_ADDRESS,
 } from "../src/schemas.js";
 import { DomainError } from "../src/errors.js";
-import type { AdvanceTestnetConfig } from "../src/types.js";
+import type { AdvanceTestnetConfig, NetworkObservation } from "../src/types.js";
 
 const CONFIG_PATH = new URL(
   "../../../config/networks/advance-testnet.json",
   import.meta.url,
 );
 const OPENAI_PATH = new URL("../../../config/ai/openai.json", import.meta.url);
+
+const VERIFIER = VERIFIER_PRECOMPILE_ADDRESS;
+const DECODER_LABEL = "example-external-oracle";
 
 function baseConfig(): AdvanceTestnetConfig {
   return {
@@ -41,10 +45,19 @@ function readyConfig(): AdvanceTestnetConfig {
     chainId: 102031,
     rpcUrl: "https://rpc.advance-testnet.example.invalid",
     asc: {
-      verifierPrecompile: "0x00000000000000000000000000000000000000FD",
-      evmV1DecoderLibrary: "0x1111111111111111111111111111111111111111",
+      verifierPrecompile: VERIFIER,
+      evmV1DecoderLibrary: "0x0000000000000000000000000000000000000000",
     },
     verified: true,
+  };
+}
+
+function observation(overrides: Partial<NetworkObservation> = {}): NetworkObservation {
+  return {
+    rpcChainId: 102031,
+    verifierAddress: VERIFIER,
+    externalContracts: [],
+    ...overrides,
   };
 }
 
@@ -117,51 +130,107 @@ describe("loadAdvanceTestnetConfig", () => {
 });
 
 describe("assertDeploymentReady", () => {
-  it("accepts a verified config with a matching live observation", () => {
-    expect(() =>
-      assertDeploymentReady(readyConfig(), {
-        rpcChainId: 102031,
-        verifierHasBytecode: true,
-        decoderHasBytecode: true,
-      }),
-    ).not.toThrow();
+  it("accepts the canonical precompile with no bytecode concept", () => {
+    expect(() => assertDeploymentReady(readyConfig(), observation())).not.toThrow();
   });
 
   it("rejects an unverified config even with a matching observation", () => {
-    expect(() =>
-      assertDeploymentReady(baseConfig(), {
-        rpcChainId: 0,
-        verifierHasBytecode: true,
-        decoderHasBytecode: true,
-      }),
-    ).toThrowError(DomainError);
+    expect(() => assertDeploymentReady(baseConfig(), observation({ rpcChainId: 0 }))).toThrowError(
+      DomainError,
+    );
   });
 
-  it("rejects a statically verified config without live bytecode", () => {
-    const attempted = { ...readyConfig(), asc: { ...baseConfig().asc } };
-    expect(() =>
-      assertDeploymentReady(attempted, {
-        rpcChainId: 102031,
-        verifierHasBytecode: false,
-        decoderHasBytecode: false,
-      }),
-    ).toThrowError(DomainError);
+  it("rejects a non-allowlisted chain even when IDs match", () => {
+    const local = {
+      ...readyConfig(),
+      chainId: 31337,
+    };
+    try {
+      assertDeploymentReady(local, observation({ rpcChainId: 31337 }));
+      expect.unreachable();
+    } catch (error) {
+      expect((error as DomainError).code).toBe("NETWORK_CONFIG_INVALID");
+    }
   });
 
   it("rejects chain mismatches with redacted details", () => {
     try {
-      assertDeploymentReady(readyConfig(), {
-        rpcChainId: 999999,
-        verifierHasBytecode: true,
-        decoderHasBytecode: true,
-      });
+      assertDeploymentReady(readyConfig(), observation({ rpcChainId: 102030 }));
       expect.unreachable();
     } catch (error) {
       expect((error as DomainError).code).toBe("NETWORK_CONFIG_INVALID");
       const serialized = JSON.stringify(error);
       expect(serialized).not.toContain("https://rpc.advance-testnet.example.invalid");
-      expect(serialized).not.toContain("0x1111111111111111111111111111111111111111");
     }
+  });
+
+  it("rejects a verifier identity mismatch", () => {
+    try {
+      assertDeploymentReady(
+        readyConfig(),
+        observation({ verifierAddress: "0x0000000000000000000000000000000000000000" }),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect((error as DomainError).code).toBe("NETWORK_CONFIG_INVALID");
+    }
+  });
+
+  it("rejects a non-canonical configured verifier", () => {
+    const config = {
+      ...readyConfig(),
+      asc: { ...readyConfig().asc, verifierPrecompile: "0x1111111111111111111111111111111111111111" },
+    };
+    expect(() => assertDeploymentReady(config, observation())).toThrowError(DomainError);
+  });
+
+  it("rejects a non-zero decoder address (decoder is compile-time)", () => {
+    const config = {
+      ...readyConfig(),
+      asc: {
+        ...readyConfig().asc,
+        evmV1DecoderLibrary: "0x04B9ae8562D8Cc5bbbBbBB759080dDC30B56D18B",
+      },
+    };
+    try {
+      assertDeploymentReady(config, observation());
+      expect.unreachable();
+    } catch (error) {
+      expect((error as DomainError).code).toBe("NETWORK_CONFIG_INVALID");
+    }
+  });
+
+  it("rejects an external dependency without bytecode", () => {
+    const obs = observation({
+      externalContracts: [
+        {
+          label: DECODER_LABEL,
+          address: "0x2222222222222222222222222222222222222222",
+          hasBytecode: false,
+        },
+      ],
+    });
+    try {
+      assertDeploymentReady(readyConfig(), obs);
+      expect.unreachable();
+    } catch (error) {
+      expect((error as DomainError).code).toBe("NETWORK_CONFIG_INVALID");
+      expect(JSON.stringify(error)).toContain(DECODER_LABEL);
+      expect(JSON.stringify(error)).not.toContain("0x2222222222222222222222222222222222222222");
+    }
+  });
+
+  it("accepts an external dependency with bytecode", () => {
+    const obs = observation({
+      externalContracts: [
+        {
+          label: DECODER_LABEL,
+          address: "0x2222222222222222222222222222222222222222",
+          hasBytecode: true,
+        },
+      ],
+    });
+    expect(() => assertDeploymentReady(readyConfig(), obs)).not.toThrow();
   });
 });
 

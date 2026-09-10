@@ -1,0 +1,18 @@
+{
+  "protocol": "attestcoin-asc",
+  "sourceChainKey": 1,
+  "registeredSourceChainKey": 1,
+  "sourceContract": "0x5e1771de29Bd1a084900d032fd4DB2Ac7cF7528B",
+  "sourceTxHash": "0x8aeb3e57d22352de1c29e2cd167c25ccf91313511da4313e7a42d17c7b5248f8",
+  "sourceBlock": 11672872,
+  "evidenceId": "0x6ff34eed582ba1f452d8e9908c1736424c121e06e923f00a2625295ae45af121",
+  "beneficiary": "0xDf9e6cbA5990892F451487c466081F0A45a345A8",
+  "creditAmountBaseUnits": "1000000000000000000",
+  "expiresAt": "1791609777",
+  "proofTxHash": "0x483f849aa4fa81b0e02b158a0eb733b6bab341eb9b961ec7b925fb42b91e0752",
+  "targetBlock": 5461852,
+  "controller": "0x7A474c005433DEf5fC496D2016F6Ae794EDFC423",
+  "creditAsc": "0xf6E7915e590d43d47c7046aB9B6B34d7Bbd0208D",
+  "confirmations": 2,
+  "createdAt": "2026-09-10T05:35:56.247Z"
+}
