@@ -122,12 +122,12 @@ START: Phase 01 — Foundation, Domain Contracts & AICD; loop step PLAN-SUPPLEME
 ## Current Execution State
 
 Last updated: 2026-09-10
-Current phase: 3 of 7
-Phase 3 name: ASC Credit Evidence
-Phase 3 status: ✅ VERIFIED (EVL PASS read-only 2026-09-10, user-confirmed; commit pending review)
-Phase 3 EVL: green (single Sepolia→Advance proof: source 11155111 / target 102031 / chainKey 1; record + execute receipts status 1; CreditGranted/CreditEvidenceApplied/CreditVerified single events; availableCredit 1e18; processedEvidence true; manifest schema-valid; secret scan clean)
-Phase 3 report: process/features/pact/active/pact-mvp_08-09-26/phase-03-asc-credit-evidence_REPORT_08-09-26.md
-Next phase: 4 — AI gateway/executor (entry: Phase 03 VERIFIED; proof-worker backlog none; ASC authority path proven)
+Current phase: 4 of 7
+Phase 4 name: AI Gateway & Executor
+Phase 4 status: 🔨 CODE DONE (LOCAL GATES GREEN reported 2026-09-10; H1–H3 hybrid pending explicit approval; VERIFIED confirmation outstanding)
+Phase 4 EVL-local: green reported (domain 91 + edge/gateway/executor fake-backed suites; typecheck/lint/AICD clean; secret scan 954 files 0 findings; Forge 101 regression; sendPayment==0 fail-closed + store-before-wait + never-settled-on-uncertain; commits 8c5e23c/77e5d25/ad6d50b local, unpushed)
+Phase 4 report: process/features/pact/active/pact-mvp_08-09-26/phase-04-ai-gateway-executor_REPORT_08-09-26.md
+Next phase: H1–H3 hybrid lane under separate explicit approval (live model call + regional preflight + URL/region record), then 5 — Indexer/read model (entry: Phase 04 API/event contracts stable; implementation committed locally)
 
 Phase 1 status: 🔨 CODE DONE (VERIFIED confirmation outstanding).
 Phase 2 Validate Contract: CONDITIONAL accepted with C-P2a–C-P2d (2026-09-09);
@@ -234,7 +234,7 @@ Reports stay flat inside the program task folder. The folder moves as one unit w
 | 01 — Foundation | 🔨 CODE DONE |
 | 02 — Payment contracts | ✅ VERIFIED |
 | 03 — ASC credit evidence | ✅ VERIFIED |
-| 04 — AI gateway/executor | ⏳ PLANNED |
+| 04 — AI gateway/executor | 🔨 CODE DONE |
 | 05 — Indexer/read model | ⏳ PLANNED |
 | 06 — Web UI/UX | ⏳ PLANNED |
 | 07 — Integrated deployment/demo | ⏳ PLANNED |

@@ -28,6 +28,19 @@ The repository currently has none of these runtime files. The first executable
 backend checks must use local fixtures and must not require a production URL,
 service-role value, provider secret, or live chain mutation.
 
+Phase 04 update (2026-09-10, local green): `supabase/functions/` now exists
+(`_shared/`, `session/`, `ai-gateway/` with raw-fetch-behind-port provider,
+`agent-executor/` with reconcile) plus Vitest mirrors
+(`*.vitest.test.ts`, hermetic + fake-backed) and Deno CI refs (`*.test.ts`,
+non-binding while CLIs are missing); `apps/edge/` worker app + tests +
+`wrangler.toml` (fixed regional URL, no secrets); `supabase/migrations/
+202609080001_sessions_and_intents.sql` (`session_challenges`, `sessions`,
+`payment_attempts` with sha256-only hashes, atomic consume, first-claim lock);
+`config/ai/model-config.json` is the single model truth
+(`openai`/`gpt-5.6-luna`/`allowFallback:false`). Binding local green stays
+Vitest E1+E2; Deno suites are CI-only references per the Phase 04 Validate
+Contract (G7 non-binding).
+
 ## Planned Commands
 
     supabase start

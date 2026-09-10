@@ -92,13 +92,17 @@ conversion, or a production OpenAI fallback model.
 
 ## Repository Structure at Scan Time
 
-The repository holds the planning-and-harness workspace plus the Phase 01–03
-outputs: root Node/Yarn tooling, the pure domain package with its Vitest suite,
-canonical network/AI configuration, AICD source with its validator and generated
-diagram, preflight/secret-scan scripts, Phase 02 payment contracts (green) with
-local deployment artifacts, and Phase 03 ASC credit evidence (source emitter,
-ASC verifier, proof worker, evidence schema, rehearsal gate, single-proof live
-manifest).
+The repository holds the planning-and-harness workspace plus the Phase 01–04
+outputs: root Node/Yarn tooling, the pure domain package with its Vitest suite
+(incl. Phase 04 API/session/payment/model contracts), canonical network/AI
+configuration (incl. Phase 04 single-truth model config + merchant catalog),
+AICD source with its validator and generated diagram, preflight/secret-scan
+scripts, Phase 02 payment contracts (green) with local deployment artifacts,
+Phase 03 ASC credit evidence (source emitter, ASC verifier, proof worker,
+evidence schema, rehearsal gate, single-proof live manifest), and Phase 04 AI
+gateway/executor (supabase session/ai-gateway/agent-executor functions with
+Vitest mirrors + Deno CI refs, edge worker app, migration, smoke scripts;
+local gates green, H1–H3 hybrid pending).
 
 ```
 pact/
@@ -115,6 +119,9 @@ pact/
 ├── packages/domain/                 -- shared schemas, canonical hash, config loaders, evidence types, tests
 ├── packages/pact-sdk/               -- generated contract ABIs + local deployment addresses
 ├── services/asc-proof-worker/       -- proof-client/worker/state-store/source-scanner + tests (Phase 03 green)
+├── supabase/functions/              -- _shared/session/ai-gateway/agent-executor + Vitest mirrors + Deno CI refs (Phase 04 local green)
+├── supabase/migrations/             -- sessions/intents/payment_attempts schema (Phase 04)
+├── apps/edge/                       -- Cloudflare worker boundary + tests + wrangler config (Phase 04 local green)
 ├── config/asc/                      -- evidence manifest schema, proof-worker example (Phase 03)
 ├── config/deployments/              -- local payment manifest + Task 5B single-proof evidence manifest (redacted)
 ├── process/
@@ -131,8 +138,7 @@ pact/
 ```
 
 Still planned by later phases (not present): `packages/asc/`,
-`supabase/`, `apps/web/`, `apps/edge/`,
-`e2e/`, and `.github/workflows/`.
+`apps/web/`, `e2e/`, and `.github/workflows/`.
 
 ## Technology and Runtime
 
@@ -275,9 +281,9 @@ and `node .claude/skills/vc-audit-context/scripts/validate-context-discovery.mjs
 
 ## Scan Metadata
 
-- Generated: 2026-09-10 (refreshed after Phase 03 Task 5B single-proof + EVL PASS; Pact plans preserved)
-- HEAD: `main` (Phase 03 closeout, uncommitted pending review)
-- Mode: closeout after Phase 03 Tasks 1–5B; research/PVL artifacts preserved byte-identically
+- Generated: 2026-09-10 (refreshed after Phase 04 Tasks 1–6 local EXIT; Pact plans preserved)
+- HEAD: `main` (Phase 04 closeout, process commit pending review; implementation commits local)
+- Mode: closeout after Phase 04 Tasks 1–6 local green (H1–H3 hybrid pending); research/PVL artifacts preserved byte-identically
 - Package manager: Yarn Classic `1.22.22` via Corepack; manifest and lockfile present
 - Source scan: `packages/domain` + `packages/pact-sdk`, `contracts/` (sources, tests,
   deploy script), `config/`, `architecture/`, and `scripts/` materialized and gated;

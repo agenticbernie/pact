@@ -20,7 +20,7 @@ metadata:
 **Primary execute anchor:** Tasks 1–6 in this plan, after PVL writes the Validate Contract.
 **Supporting phase files:** phase-blast-radius-registry.md and the Phase 04 report destination above.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [x]) syntax for tracking.
 
 **Goal:** Turn a natural-language request into a validated, attributed AgentIntent and execute only an on-chain-approved payment through a restricted server-side agent signer.
 
@@ -70,10 +70,10 @@ This phase creates the off-chain path that makes Pact feel autonomous without ma
 - [x] 1. RESEARCH — inspect Phase 02 SDK/events, Phase 03 evidence state, Supabase/Deno runtime, OpenAI structured-output contract, and Cloudflare worker bindings
 - [x] 2. INNOVATE — choose signed wallet challenge + HMAC session and separate AI/executor functions; record rejected browser-key and AI-direct-settlement alternatives
 - [x] 3. PLAN-SUPPLEMENT — update API/type/rate-limit touchpoints if runtime constraints change
-- [ ] 4. PVL — vc-validate-agent writes V1–V7 contract with automated, hybrid, and agent-probe gates
-- [ ] 5. EXECUTE — complete Tasks 1–6 and run each section gate immediately
-- [ ] 6. EVL — rerun tests, local edge-to-function smoke, no-chain-call failures, and auth/rate-limit probes
-- [ ] 7. UPDATE PROCESS — write report, update umbrella/downstream plans, and commit process/execution separately
+- [x] 4. PVL — vc-validate-agent writes V1–V7 contract with automated, hybrid, and agent-probe gates
+- [x] 5. EXECUTE — complete Tasks 1–6 and run each section gate immediately
+- [x] 6. EVL — rerun tests, local edge-to-function smoke, no-chain-call failures, and auth/rate-limit probes
+- [x] 7. UPDATE PROCESS — write report, update umbrella/downstream plans, and commit process/execution separately
 
 **Validate-contract required before execute.** The placeholder Validate Contract is a blocker.
 
@@ -127,15 +127,15 @@ type ExecuteResponse = {
 };
 ~~~
 
-- [ ] 1.1. Write failing contract tests for required fields, stable status values, redacted errors, maximum prompt length 2,000 characters, and missing requestId rejection.
-- [ ] 1.2. Re-export the Phase 01 DomainError code union and map it to API errors: AUTH_REQUIRED, AUTH_INVALID, AUTH_EXPIRED, INPUT_INVALID, NETWORK_CONFIG_INVALID, PROVIDER_UNAVAILABLE, PROVIDER_MODEL_UNAVAILABLE, PROVIDER_OUTPUT_INVALID, REGION_MISMATCH, CARD_NOT_ELIGIBLE, PREFLIGHT_DECLINED, PAYMENT_BROADCAST_TIMEOUT, PAYMENT_FAILED, PAYMENT_RECONCILIATION_REQUIRED, RATE_LIMITED. Do not introduce an untyped `string` escape hatch.
-- [ ] 1.3. Implement shared parsing/redaction helpers; errors expose category and requestId but never provider response body, authorization header, prompt secrets, or key material.
-- [ ] 1.4. Run yarn vitest run packages/domain/test/api-contracts.test.ts and expect failure before exports exist.
-- [ ] 1.5. Implement the types and run focused tests.
+- [x] 1.1. Write failing contract tests for required fields, stable status values, redacted errors, maximum prompt length 2,000 characters, and missing requestId rejection.
+- [x] 1.2. Re-export the Phase 01 DomainError code union and map it to API errors: AUTH_REQUIRED, AUTH_INVALID, AUTH_EXPIRED, INPUT_INVALID, NETWORK_CONFIG_INVALID, PROVIDER_UNAVAILABLE, PROVIDER_MODEL_UNAVAILABLE, PROVIDER_OUTPUT_INVALID, REGION_MISMATCH, CARD_NOT_ELIGIBLE, PREFLIGHT_DECLINED, PAYMENT_BROADCAST_TIMEOUT, PAYMENT_FAILED, PAYMENT_RECONCILIATION_REQUIRED, RATE_LIMITED. Do not introduce an untyped `string` escape hatch.
+- [x] 1.3. Implement shared parsing/redaction helpers; errors expose category and requestId but never provider response body, authorization header, prompt secrets, or key material.
+- [x] 1.4. Run yarn vitest run packages/domain/test/api-contracts.test.ts and expect failure before exports exist.
+- [x] 1.5. Implement the types and run focused tests.
 
 Run: yarn vitest run packages/domain/test/api-contracts.test.ts && yarn typecheck  
 Expected: PASS.
-- [ ] 1.6. Commit API/domain contracts.
+- [x] 1.6. Commit API/domain contracts.
 
 ### Task 2 — Implement wallet challenge and short-lived session
 
@@ -149,21 +149,21 @@ POST /v1/session/verify
 POST /v1/session/revoke
 ~~~
 
-- [ ] 2.1. Write tests for challenge expiry, one-time consumption, wrong signature, wrong address, expired token, revoked token, and session wallet binding.
-- [ ] 2.2. Run session tests before implementation.
+- [x] 2.1. Write tests for challenge expiry, one-time consumption, wrong signature, wrong address, expired token, revoked token, and session wallet binding.
+- [x] 2.2. Run session tests before implementation.
 
 Run: deno test --allow-env --allow-net supabase/functions/session/test/session.test.ts  
 Expected: FAIL because the session function and migration are absent.
 
-- [ ] 2.3. Add session_challenges with nonce hash, wallet address, expires_at, consumed_at; add sessions with token hash, wallet address, role, issued_at, expires_at, revoked_at; index nonce/token hashes.
-- [ ] 2.4. Generate a cryptographically random nonce, store only its hash, return an EIP-191 message with domain, chain label, wallet, nonce, issued-at, and expiry.
-- [ ] 2.5. Verify the wallet signature with ethers verifyMessage, consume the challenge atomically, issue an HMAC-signed token containing session ID, wallet, role, issued-at, and expiry, and store only the token hash.
-- [ ] 2.6. Make session middleware require a valid wallet-bound token for intent/preflight/execute; demo authorization uses a separate explicitly configured demo token and cannot access secrets.
-- [ ] 2.7. Run session tests and the local function.
+- [x] 2.3. Add session_challenges with nonce hash, wallet address, expires_at, consumed_at; add sessions with token hash, wallet address, role, issued_at, expires_at, revoked_at; index nonce/token hashes.
+- [x] 2.4. Generate a cryptographically random nonce, store only its hash, return an EIP-191 message with domain, chain label, wallet, nonce, issued-at, and expiry.
+- [x] 2.5. Verify the wallet signature with ethers verifyMessage, consume the challenge atomically, issue an HMAC-signed token containing session ID, wallet, role, issued-at, and expiry, and store only the token hash.
+- [x] 2.6. Make session middleware require a valid wallet-bound token for intent/preflight/execute; demo authorization uses a separate explicitly configured demo token and cannot access secrets.
+- [x] 2.7. Run session tests and the local function.
 
 Run: deno test --allow-env --allow-net supabase/functions/session/test/session.test.ts && supabase functions serve session --env-file .env.local  
 Expected: tests pass; local function starts without production URL.
-- [ ] 2.8. Commit migration and session boundary.
+- [x] 2.8. Commit migration and session boundary.
 
 ### Task 3 — Implement the regional OpenAI gateway
 
@@ -193,18 +193,18 @@ type ProviderIntentResult = {
 };
 ~~~
 
-- [ ] 3.1. Write failing gateway tests for valid structured output, malformed JSON, provider 401/429/5xx, model unavailable, wrong execution region, unknown merchant, prompt too long, model-supplied recipientAddress, and card/asset mismatch.
-- [ ] 3.2. Add a deterministic FakeAiProvider for automated tests; it returns fixtures only and is never used by the live route.
-- [ ] 3.3. Implement OpenAiProvider using the Responses API with model from OPENAI_MODEL, store false, strict JSON schema named pact_agent_intent, and no fallback branch. Include provider request ID and latency in redacted logs.
-- [ ] 3.4. Constrain model input to merchant IDs/catalog labels and the selected card’s policy; resolve card ID, agent, asset, recipient, and allowlist outside model output.
-- [ ] 3.5. Check Deno execution region against configured SUPABASE_FUNCTION_REGION and return REGION_MISMATCH before provider call when wrong.
-- [ ] 3.6. Parse decimal amount with the Phase 01 native asset descriptor, calculate amountBaseUnits with ethers parseUnits, obtain policyVersion from the authoritative card snapshot, build the shared canonical intentHash, set a canonical UTC expiresAt, and persist provider/model attribution plus intent status.
-- [ ] 3.7. Add a capability check that fails startup or the first live request with PROVIDER_MODEL_UNAVAILABLE when gpt-5.6-luna cannot be accessed; do not choose another model.
-- [ ] 3.8. Run automated gateway tests and assert payment client call count remains zero for every provider/schema failure.
+- [x] 3.1. Write failing gateway tests for valid structured output, malformed JSON, provider 401/429/5xx, model unavailable, wrong execution region, unknown merchant, prompt too long, model-supplied recipientAddress, and card/asset mismatch.
+- [x] 3.2. Add a deterministic FakeAiProvider for automated tests; it returns fixtures only and is never used by the live route.
+- [x] 3.3. Implement OpenAiProvider using the Responses API with model from OPENAI_MODEL, store false, strict JSON schema named pact_agent_intent, and no fallback branch. Include provider request ID and latency in redacted logs.
+- [x] 3.4. Constrain model input to merchant IDs/catalog labels and the selected card’s policy; resolve card ID, agent, asset, recipient, and allowlist outside model output.
+- [x] 3.5. Check Deno execution region against configured SUPABASE_FUNCTION_REGION and return REGION_MISMATCH before provider call when wrong.
+- [x] 3.6. Parse decimal amount with the Phase 01 native asset descriptor, calculate amountBaseUnits with ethers parseUnits, obtain policyVersion from the authoritative card snapshot, build the shared canonical intentHash, set a canonical UTC expiresAt, and persist provider/model attribution plus intent status.
+- [x] 3.7. Add a capability check that fails startup or the first live request with PROVIDER_MODEL_UNAVAILABLE when gpt-5.6-luna cannot be accessed; do not choose another model.
+- [x] 3.8. Run automated gateway tests and assert payment client call count remains zero for every provider/schema failure.
 
 Run: deno test --allow-env --allow-net --allow-read supabase/functions/ai-gateway/test/ai-gateway.test.ts  
 Expected: PASS; every fail-closed case has zero chain-call count.
-- [ ] 3.9. Commit gateway/provider code and non-authoritative merchant catalog.
+- [x] 3.9. Commit gateway/provider code and non-authoritative merchant catalog.
 
 ### Task 4 — Implement Cloudflare public edge
 
@@ -212,15 +212,15 @@ Expected: PASS; every fail-closed case has zero chain-call count.
 
 **Boundary:** Cloudflare validates method/path/body size, request ID, session/demo header shape, and rate limit, then forwards to one configured regional Supabase URL. It never imports OpenAI or signer code.
 
-- [ ] 4.1. Write Worker tests for request size >64 KB, unsupported method/path, missing auth header, rate-limit response, correlation header propagation, upstream timeout, and upstream 4xx/5xx mapping.
-- [ ] 4.2. Implement the Worker with a 64 KB body limit, explicit CORS allowlist from environment, 30 requests per minute binding, AbortController timeout, and redacted structured logs.
-- [ ] 4.3. Configure wrangler with SUPABASE_REGIONAL_FUNCTION_URL, ALLOWED_ORIGIN, and RATE_LIMITER binding; leave secrets out of committed config.
-- [ ] 4.4. Verify the Worker never references OPENAI_API_KEY or AGENT_SIGNER_PRIVATE_KEY by running the secret scanner over apps/edge.
-- [ ] 4.5. Run Worker tests.
+- [x] 4.1. Write Worker tests for request size >64 KB, unsupported method/path, missing auth header, rate-limit response, correlation header propagation, upstream timeout, and upstream 4xx/5xx mapping.
+- [x] 4.2. Implement the Worker with a 64 KB body limit, explicit CORS allowlist from environment, 30 requests per minute binding, AbortController timeout, and redacted structured logs.
+- [x] 4.3. Configure wrangler with SUPABASE_REGIONAL_FUNCTION_URL, ALLOWED_ORIGIN, and RATE_LIMITER binding; leave secrets out of committed config.
+- [x] 4.4. Verify the Worker never references OPENAI_API_KEY or AGENT_SIGNER_PRIVATE_KEY by running the secret scanner over apps/edge.
+- [x] 4.5. Run Worker tests.
 
 Run: yarn vitest run apps/edge/test/edge.test.ts && node scripts/check-no-secrets.mjs  
 Expected: PASS and no secret references.
-- [ ] 4.6. Commit the edge boundary.
+- [x] 4.6. Commit the edge boundary.
 
 ### Task 5 — Implement the agent executor, preflight, and idempotent payment execution
 
@@ -245,30 +245,30 @@ interface PaymentClient {
 }
 ~~~
 
-- [ ] 5.1. Write failing tests for owner/session mismatch, intent missing/expired, card state changed after intent, preflight decline, signer chain mismatch, gas-only signer, successful receipt, reverted receipt, broadcast timeout, and duplicate idempotency key.
-- [ ] 5.2. Implement chain-client with ethers JsonRpcProvider, Wallet from AGENT_SIGNER_PRIVATE_KEY only inside the function, controller ABI from packages/pact-sdk, and an explicit chain ID assertion.
-- [ ] 5.3. Implement preflight as a static controller preflightPay call using server-bound card/merchant/asset and a card-scoped nonce; never trust a client nonce or recipient.
-- [ ] 5.4. Implement execute to lock intentId/idempotency key, re-read card/merchant/network, static-call preflight, send controller.pay, store txHash before waiting, wait for one confirmation, and classify receipt status.
-- [ ] 5.5. On timeout, call findByNonce and transaction receipt lookup before any retry; if neither proves outcome, return PAYMENT_RECONCILIATION_REQUIRED and do not submit a second transaction.
-- [ ] 5.6. Return settled only for receipt.status == 1 and later let the indexer confirm matching PaymentSettled; no API response alone is the final UI truth.
-- [ ] 5.7. Run executor tests with a fake PaymentClient and assert the signer/private key never appears in response/log fixtures.
+- [x] 5.1. Write failing tests for owner/session mismatch, intent missing/expired, card state changed after intent, preflight decline, signer chain mismatch, gas-only signer, successful receipt, reverted receipt, broadcast timeout, and duplicate idempotency key.
+- [x] 5.2. Implement chain-client with ethers JsonRpcProvider, Wallet from AGENT_SIGNER_PRIVATE_KEY only inside the function, controller ABI from packages/pact-sdk, and an explicit chain ID assertion.
+- [x] 5.3. Implement preflight as a static controller preflightPay call using server-bound card/merchant/asset and a card-scoped nonce; never trust a client nonce or recipient.
+- [x] 5.4. Implement execute to lock intentId/idempotency key, re-read card/merchant/network, static-call preflight, send controller.pay, store txHash before waiting, wait for one confirmation, and classify receipt status.
+- [x] 5.5. On timeout, call findByNonce and transaction receipt lookup before any retry; if neither proves outcome, return PAYMENT_RECONCILIATION_REQUIRED and do not submit a second transaction.
+- [x] 5.6. Return settled only for receipt.status == 1 and later let the indexer confirm matching PaymentSettled; no API response alone is the final UI truth.
+- [x] 5.7. Run executor tests with a fake PaymentClient and assert the signer/private key never appears in response/log fixtures.
 
 Run: deno test --allow-env --allow-net --allow-read supabase/functions/agent-executor/test/executor.test.ts && yarn vitest run packages/domain/test/payment.test.ts  
 Expected: PASS; provider/chain errors are fail-closed and duplicate execution has one sendPayment call.
-- [ ] 5.8. Commit executor and payment types.
+- [x] 5.8. Commit executor and payment types.
 
 ### Task 6 — Local edge-to-function smoke and regression
 
 **Files:** Create scripts/smoke-edge-gateway.mjs, supabase/functions/_shared/health.ts, docs/runbook/local-runtime.md. Extend package.json and process/context/tests/backend-tests.md only through an approved plan-supplement, preserving Phase 01 command semantics and existing routing sections.
 
-- [ ] 6.1. Add health responses exposing requestId, configured region, expected region, chain ID, provider name, and model availability without exposing secrets.
-- [ ] 6.2. Start local session, AI gateway fake provider, executor fake client, and Worker; exercise challenge → verify → intent → preflight → execute.
-- [ ] 6.3. Exercise malformed provider and over-limit fixture; assert no transaction call and a visible reason code.
-- [ ] 6.4. Run the local smoke and Phase 01/02/03 regression suites.
+- [x] 6.1. Add health responses exposing requestId, configured region, expected region, chain ID, provider name, and model availability without exposing secrets.
+- [x] 6.2. Start local session, AI gateway fake provider, executor fake client, and Worker; exercise challenge → verify → intent → preflight → execute.
+- [x] 6.3. Exercise malformed provider and over-limit fixture; assert no transaction call and a visible reason code.
+- [x] 6.4. Run the local smoke and Phase 01/02/03 regression suites.
 
 Run: node scripts/smoke-edge-gateway.mjs && yarn test && yarn typecheck && yarn validate:aicd  
 Expected: PASS with correlation IDs present and no secret output.
-- [ ] 6.5. Commit runtime smoke/runbook updates.
+- [x] 6.5. Commit runtime smoke/runbook updates.
 
 ## Acceptance Criteria
 
@@ -421,9 +421,9 @@ git diff --check
 ## Resume and Execution Handoff
 
 - Selected plan: process/features/pact/active/pact-mvp_08-09-26/phase-04-ai-gateway-executor_PLAN_08-09-26.md
-- Last completed step: not started
-- Validate-contract status: pending
-- Next Step: RESEARCH, then PVL; live OpenAI is gated.
+- Last completed step: Tasks 1–6 RED→GREEN + local EXIT 2026-09-10 (G1–G6+G8 green reported; G7 CI-only non-binding; commits 8c5e23c/77e5d25/ad6d50b local, unpushed)
+- Validate-contract status: CONDITIONAL accepted 2026-09-10 (C-SESSION/C-DDL/C-MODEL pinned verbatim in code+migration+tests; C-TOOL informational)
+- Next Step: H1–H3 hybrid lane (live model call + regional preflight + URL/region record) under SEPARATE explicit approval; G7 stays CI-only/non-binding; no fallback permitted.
 - On ✅ VERIFIED, continue to phase-05-indexer-read-model_PLAN_08-09-26.md.
 
 ## Validate Contract

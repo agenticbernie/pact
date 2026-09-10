@@ -53,6 +53,13 @@ Remaining for Phase 07 full demo: model/region live access, production-shaped
 deployment manifest parity, Playwright demo path, and runbook rehearsal. No
 further live testnet action without a new lane approval.
 
+Phase 04 hybrid backlog (2026-09-10, NOT executed): H1 live `gpt-5.6-luna`
+structured-output call, H2 regional `preflightPay` static-call evidence, H3
+fixed `SUPABASE_REGIONAL_FUNCTION_URL` + region confirmation. Local
+implementation is green (fake-backed); hybrid gates require separate explicit
+approval per the Phase 04 Validate Contract. No fallback model/region/direct
+payment is ever permitted.
+
 ## Update Triggers
 
 Refresh when chain identity, deployment addresses, model/region access, ASC
