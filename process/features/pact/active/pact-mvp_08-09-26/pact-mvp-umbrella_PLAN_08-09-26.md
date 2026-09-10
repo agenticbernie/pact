@@ -121,17 +121,18 @@ START: Phase 01 — Foundation, Domain Contracts & AICD; loop step PLAN-SUPPLEME
 
 ## Current Execution State
 
-Last updated: 2026-09-09
-Current phase: 1 of 7
-Phase 1 name: Foundation, Domain Contracts & AICD
-Phase 1 status: 🔨 CODE DONE
-Phase 1 EVL: green (typecheck, lint, 56 tests, AICD, secret scan, fail-closed preflight, diff-check)
-Phase 1 report: process/features/pact/active/pact-mvp_08-09-26/phase-01-foundation_REPORT_08-09-26.md
-Next phase: 2 — Payment contracts (entry gate satisfiable: foundry.toml + packages/domain exist)
+Last updated: 2026-09-10
+Current phase: 3 of 7
+Phase 3 name: ASC Credit Evidence
+Phase 3 status: ✅ VERIFIED (EVL PASS read-only 2026-09-10, user-confirmed; commit pending review)
+Phase 3 EVL: green (single Sepolia→Advance proof: source 11155111 / target 102031 / chainKey 1; record + execute receipts status 1; CreditGranted/CreditEvidenceApplied/CreditVerified single events; availableCredit 1e18; processedEvidence true; manifest schema-valid; secret scan clean)
+Phase 3 report: process/features/pact/active/pact-mvp_08-09-26/phase-03-asc-credit-evidence_REPORT_08-09-26.md
+Next phase: 4 — AI gateway/executor (entry: Phase 03 VERIFIED; proof-worker backlog none; ASC authority path proven)
 
-Phase 1 Validate Contract: CONDITIONAL accepted with C1–C4 (2026-09-09).
-Phase 1 promotion to ✅ VERIFIED needs explicit user confirmation per the phase plan rules.
-Next Step: confirm Phase 01 VERIFIED, then Phase 02 RESEARCH.
+Phase 1 status: 🔨 CODE DONE (VERIFIED confirmation outstanding).
+Phase 2 Validate Contract: CONDITIONAL accepted with C-P2a–C-P2d (2026-09-09);
+all concerns closed by evidence except the --ffi=false form note.
+Next Step: Phase 03 RESEARCH (no live deployment; ASC verifier/decoder values stay deferred).
 
 ---
 
@@ -231,8 +232,8 @@ Reports stay flat inside the program task folder. The folder moves as one unit w
 | Phase | Status |
 |---|---|
 | 01 — Foundation | 🔨 CODE DONE |
-| 02 — Payment contracts | ⏳ PLANNED |
-| 03 — ASC credit evidence | ⏳ PLANNED |
+| 02 — Payment contracts | ✅ VERIFIED |
+| 03 — ASC credit evidence | ✅ VERIFIED |
 | 04 — AI gateway/executor | ⏳ PLANNED |
 | 05 — Indexer/read model | ⏳ PLANNED |
 | 06 — Web UI/UX | ⏳ PLANNED |
@@ -304,9 +305,9 @@ A phase may be marked ✅ VERIFIED only after:
 ## Resume and Execution Handoff
 
 - Selected plan: process/features/pact/active/pact-mvp_08-09-26/pact-mvp-umbrella_PLAN_08-09-26.md
-- Last completed step: plan artifact creation and structural validation
-- Validate-contract status: pending for all direct phase plans
-- Next Step: complete the Phase 01 Pre-PVL harness/context bootstrap, rerun RESEARCH and V1–V2 validation, then run vc-validate-agent for PVL; do not execute before the contract is written.
+- Last completed step: Phase 03 Task 5B live single-proof + EVL PASS + closeout artifacts (uncommitted, pending review)
+- Validate-contract status: Phase 03 CONDITIONAL accepted; Phase 04 PVL pending
+- Next Step: review Phase 03 closeout, commit process/execution separately, then Phase 04 RESEARCH (no live deployment without its own contract).
 
 ---
 

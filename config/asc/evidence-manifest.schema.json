@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PactAscEvidenceManifest",
+  "description": "Redacted record of one live ASC evidence rehearsal. Written only by the approved hybrid lane; never fabricated. All hashes are public chain data; no secret is ever stored.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "sourceChainKey",
+    "registeredSourceChainKey",
+    "sourceContract",
+    "sourceTxHash",
+    "sourceBlock",
+    "evidenceId",
+    "beneficiary",
+    "creditAmountBaseUnits",
+    "expiresAt",
+    "proofTxHash",
+    "targetBlock",
+    "controller",
+    "creditAsc",
+    "confirmations",
+    "createdAt"
+  ],
+  "properties": {
+    "protocol": { "const": "attestcoin-asc" },
+    "sourceChainKey": { "type": "integer", "minimum": 0 },
+    "registeredSourceChainKey": { "type": "integer", "minimum": 0 },
+    "sourceContract": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "sourceTxHash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "sourceBlock": { "type": "integer", "minimum": 0 },
+    "evidenceId": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "beneficiary": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "creditAmountBaseUnits": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "expiresAt": { "type": "string" },
+    "proofTxHash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "targetBlock": { "type": "integer", "minimum": 0 },
+    "controller": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "creditAsc": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "confirmations": { "type": "integer", "minimum": 1 },
+    "createdAt": { "type": "string" }
+  }
+}

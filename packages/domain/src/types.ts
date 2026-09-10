@@ -50,8 +50,14 @@ export type AdvanceTestnetConfig = {
 
 export type NetworkObservation = {
   rpcChainId: number;
-  verifierHasBytecode: boolean;
-  decoderHasBytecode: boolean;
+  verifierAddress: string;
+  externalContracts: ObservedExternalContract[];
+};
+
+export type ObservedExternalContract = {
+  label: string;
+  address: string;
+  hasBytecode: boolean;
 };
 
 export type OpenAIConfig = {

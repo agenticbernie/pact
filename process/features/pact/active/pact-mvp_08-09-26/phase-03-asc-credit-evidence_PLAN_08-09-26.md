@@ -30,6 +30,144 @@ metadata:
 
 **Spec:** docs/superpowers/specs/2026-09-08-pact-mvp-aicd-design.md
 
+## Plan Supplement — 09-09-26
+
+Status: INNOVATE complete; R-A–R-H applied below as binding task extensions.
+PVL not started; no implementation performed. Research artifact
+(`phase-03-asc-credit-evidence_RESEARCH_09-09-26.md`) preserved byte-for-byte.
+
+### Innovate decision record
+
+Accepted: 0xFD2 as bytecode-less protocol precompile (mock etched only in the
+Anvil harness, never in production configuration); decoder as compile-time
+dependency (no address, no deployment, example `0x04B9…` explicitly not copied);
+`isLeft` canonical field with 1:1 ProofBuilder→`execute()` mapping; ASC-only hook
+unchanged; overwrite-by-new-ID evidence semantics (Phase 02 precedent);
+reconcile-by-reading with bounded retries (3 tries, 5s backoff, on-chain
+state-check-then-act); gas estimate +35% with size-based fallback; 50-block
+Sepolia log chunks with halving; attestation wait bounded (20-minute cap, then
+`failed` status — never infinite); hybrid lane as the only live-evidence path.
+
+Accepted with precision fix: chain binding is NOT locally testable at handler
+level (the handler cannot observe chainKey by construction) — coverage comes
+from worker-allowlist unit tests plus the hybrid gate, stated explicitly in R-H
+instead of a fictitious handler test.
+
+Rejected (no scope expansion): multi-action support (post-MVP); monotonic
+evidence gate (Phase 02 overwrite precedent stands); decoder deployment of any
+form; resolving the Sepolia chainKey by inference (stays UNKNOWN until a
+builder/registry query); precompile bytecode-presence requirements anywhere;
+ERC-20, other assets, other chains.
+
+Deferred: Sepolia key resolution, RPC/faucet liveness, tCTC denomination
+confirmation, verifier supported-set confirmation — all to the Task 5 hybrid
+gate (U1–U5 below).
+
+AICD impact: none structural (no new components/flows); Task 4.3 extends
+evidence links on existing nodes only.
+
+### Applied tasks (R-A–R-H)
+
+Each item gives the implementation task, exact file/module, acceptance criteria,
+required test, AICD linkage, gate class, and failure behavior with hard stop.
+
+- R-A: rename worker payload `siblings[].left` → `isLeft` and document the
+  off-chain→calldata mapping (`{hash,isLeft}` → `MerkleProofEntry`) at the
+  `execute()` call site. File: `services/asc-proof-worker/src/proof-client.ts`
+  (+ Task 3 interface block in this plan). Acceptance: payload type matches the
+  pinned SDK `MerkleProofEntry` field-for-field; a swapped-field fixture is
+  rejected by typecheck. Test: proof-client mapping unit test with transposed
+  fields asserting rejection. AICD: none (off-chain shape). Gate: local-only.
+  Failure: type error at build; hard stop if the SDK shape drifts (re-pin, never
+  hand-roll encoding).
+- R-B: `PactCreditASC` stores immutable `(sourceChainKey, sourceContract,
+  controller)` set once via constructor; `CREDIT_GRANTED = 0` sole action;
+  `InvalidAction`-style revert otherwise. File:
+  `contracts/src/PactCreditASC.sol` (+ `setAscAuthority` call site, no controller
+  change). Acceptance: constructor rejects zero controller/source; second action
+  value reverts; registration emits source-binding event. Test: harness
+  constructor/registration/action tests. AICD: existing ASC node covers.
+  Gate: local-only. Failure: constructor revert blocks deploy (fail fast).
+- R-C: harness etches a mock verifier at `0xFD2` implementing exactly
+  `verifyAndEmit` (returns true only for the fixture proof) and
+  `calculateTxIndex` (deterministic per fixture) via `vm.etch`; documents that
+  Anvil has no precompile so the etch is the test seam. File:
+  `contracts/test/PactCreditASCHarness.t.sol` (+ mock contract file beside it).
+  Acceptance: mock answers only the fixture; any other proof input returns false;
+  `NativeQueryVerifierLib.hasPrecompile()` path taken via bytecode presence.
+  Test: mock true/false matrix. AICD: none. Gate: local-only. Hard stop: mock
+  must never ship outside `contracts/test/`.
+- R-D: worker bounds mirror the official pattern — 3 submit attempts, 5s backoff,
+  gas estimate +35% with size-based fallback on estimation failure, 50-block
+  Sepolia log chunks halving on error, reconcile-before-retry by reading
+  evidence/query processed flags plus stored target tx hash, tx-hash-driven
+  discovery (no wide scans). Files: `services/asc-proof-worker/src/worker.ts`,
+  `proof-client.ts`, `source-scanner.ts`, `state-store.ts`. Acceptance: every
+  bound is a named constant; timeout-after-broadcast reconciles instead of
+  resubmitting blindly. Test: worker-idempotency suite (timeout-before/after
+  broadcast, duplicate evidence, already-broadcast, permanent failure).
+  AICD: flow `flow-credit-evidence` unchanged. Gate: local-only; hybrid lane
+  reuses the same bounds. Failure: bound breach fails tests; unbounded retry is
+  a hard stop.
+- R-E: preflight-readiness revision (cross-phase; specifies, does not apply):
+  bytecode-less protocol precompiles are valid dependencies when identity is
+  verified — readiness = rpcChainId matches config AND chain ID is in the pinned
+  package allowlist {102030, 102031, 102032} AND verifier equals the `0xFD2`
+  constant; compile-time/inlined decoders require no bytecode and no address
+  (decoder presence = yarn + foundry lock pinning, checked at build); real
+  external contract dependencies keep bytecode/ABI evidence requirements.
+  Affected Phase 01 files (for a Phase 01 supplement before the Phase 03 Task 5
+  hybrid gate, NOT before local Tasks 1–4): `packages/domain/src/schemas.ts`
+  (`NetworkObservation` + `assertDeploymentReady`), `scripts/preflight-testnet.mjs`
+  (+ `.d.mts`), `config/networks/advance-testnet.json` (decoder semantics),
+  `packages/domain/test/*` (updated fixtures). Registry linkage: preflight
+  ownership stays Phase 01; Phase 03 consumes read-only (existing rule covers).
+  Acceptance: preflight opens on allowlisted chain + constant verifier and stays
+  closed otherwise; decoder never blocks. Test: revised fixture matrix.
+  AICD: deployment `requiresVerifiedConfig` semantics unchanged.
+  Gate: local-only until Task 5; skipping this distinction is deployment-blocking
+  (without it deployment can never open on the real chain).
+- R-F: root `tsconfig.json` include covers `services/asc-proof-worker/src` and
+  `test` (or a service-local tsconfig wired into `yarn typecheck`) before Task 3.7
+  runs. File: `tsconfig.json` (Phase 01-owned; additive include only, recorded
+  for the Phase 01 supplement chain like R1 precedent). Acceptance: `yarn
+  typecheck` type-checks the worker; intentional type error in worker fails it.
+  Test: typecheck gate itself. AICD: none. Gate: local-only.
+- R-G: evidence record = plan's `CreditEvidenceRecord` verbatim plus
+  `evidenceKey = chainKey|sourceTxHash|evidenceId`; mapper drops proof blobs,
+  keys, and raw RPC payloads (redaction unit-tested with hostile fixtures).
+  Files: `services/asc-proof-worker/src/evidence-record.ts`,
+  `packages/domain/src/evidence.ts`, `config/asc/evidence-fields.json`.
+  Acceptance: stored record contains exactly the allowlisted fields; status
+  machine transitions only along discovered→proving→verified/rejected/failed.
+  Test: Task 4.1 suite. AICD: Task 4.3 link extension. Gate: local-only.
+  Failure: redaction test failure is a hard stop (secret-adjacent).
+- R-H: chain-binding residual model — registration stores `(sourceChainKey,
+  sourceContract)`; worker serves only the registered chain (allowlist unit
+  tests with wrong-chain fixtures); handler-level chain rejection is
+  architecturally untestable (documented, not faked); hybrid gate must show the
+  submitted chainKey equals the registered one in the manifest. Files: worker
+  allowlist + Task 5 manifest/chain-guard. Acceptance: worker refuses
+  non-registered chainKey before any proof call; manifest records submitted vs
+  registered chainKey. Test: allowlist unit tests + manifest assertion.
+  AICD: boundary E `denies` already covers unregistered-emitter evidence.
+  Gate: unit local-only; chainKey equality hybrid.
+
+### Conflicts resolved
+
+- Plan Task 3 payload field `left` corrected to `isLeft` by R-A (supplement
+  overrides the base text).
+- R-E specifies but does not apply Phase 01 file changes (ownership respected;
+  application gated on a Phase 01 supplement before Task 5 hybrid use).
+- No existing task text removed; all R-items are additive extensions or explicit
+  precision fixes. Rejected alternatives recorded above, not silently dropped.
+
+### Deferred (U1–U5, unchanged)
+
+U1 hardfork level, U2 liveness, U3 denomination, Sepolia chainKey value, U4 live
+verifier behavior, U5 verification niceties — all ride Task 5's hybrid gate or
+the manifest. veto on inference stands.
+
 ## Global Constraints
 
 - Creditcoin EVM Advance Testnet remains the target for PactCreditASC and card state; default source is an Ethereum Sepolia-compatible testnet.
@@ -57,13 +195,13 @@ This phase adapts the official Attestcoin loan readability example to Pact’s c
 
 ## Phase Loop Progress
 
-- [ ] 1. RESEARCH — inspect official ASCBase/EvmV1Decoder signatures, Phase 02 artifacts, package versions, and prior proof attempts
-- [ ] 2. INNOVATE — choose a single CreditGranted action plus evidence-ID dedupe; record rejected direct database credit and multi-action alternatives
-- [ ] 3. PLAN-SUPPLEMENT — update decoder/proof payload touchpoints if pinned packages differ
-- [ ] 4. PVL — vc-validate-agent writes V1–V7 contract with local and live proof gates
-- [ ] 5. EXECUTE — complete Tasks 1–5 and run each section gate immediately
-- [ ] 6. EVL — rerun local ASC harness, worker tests, and inspect live evidence or blocker artifact
-- [ ] 7. UPDATE PROCESS — write report, update umbrella/downstream plans, and commit process/execution separately
+- [x] 1. RESEARCH — inspect official ASCBase/EvmV1Decoder signatures, Phase 02 artifacts, package versions, and prior proof attempts
+- [x] 2. INNOVATE — choose a single CreditGranted action plus evidence-ID dedupe; record rejected direct database credit and multi-action alternatives
+- [x] 3. PLAN-SUPPLEMENT — update decoder/proof payload touchpoints if pinned packages differ
+- [x] 4. PVL — vc-validate-agent writes V1–V7 contract with local and live proof gates (CONDITIONAL accepted 2026-09-09, C-P3a–C-P3d)
+- [x] 5. EXECUTE — complete Tasks 1–5B and run each section gate immediately (Tasks 1–4 + 5A local GREEN 2026-09-09; Task 5B live single-proof 2026-09-10)
+- [x] 6. EVL — rerun local ASC harness, worker tests, and inspect live evidence or blocker artifact (EVL PASS read-only 2026-09-10, manifest schema-valid)
+- [ ] 7. UPDATE PROCESS — write report, update umbrella/downstream plans, and commit process/execution separately (in progress, uncommitted)
 
 **Validate-contract required before execute.** The placeholder Validate Contract is a blocker.
 
@@ -359,11 +497,83 @@ git diff --check
 ## Resume and Execution Handoff
 
 - Selected plan: process/features/pact/active/pact-mvp_08-09-26/phase-03-asc-credit-evidence_PLAN_08-09-26.md
-- Last completed step: not started
-- Validate-contract status: pending
-- Next Step: RESEARCH, then PVL; live proof submission is gated.
+- Last completed step: Task 5B live single-proof + EVL PASS 2026-09-10 (manifest schema-valid, uncommitted)
+- Validate-contract status: CONDITIONAL accepted 2026-09-09 (C-P3a–C-P3d); all concerns closed by evidence except noted backlog form
+- Next Step: finish UPDATE PROCESS (report/umbrella/context closeout, validators, review, then commit); live proof submission complete, no second proof.
 - On ✅ VERIFIED or constrained proof backlog, continue to phase-04-ai-gateway-executor_PLAN_08-09-26.md.
 
 ## Validate Contract
 
-(placeholder — vc-validate-agent writes this section before EXECUTE)
+Status: CONDITIONAL
+Date: 2026-09-09
+date: 2026-09-09
+generated-by: inner-pvl: phase-3
+
+PVL scope: V1 pre-check + V2 two-layer fan-out + V3 synthesis on 2026-09-09 against
+real files and real command output on branch `main` @ `742a778`. No RPC calls,
+deploys, transactions, provider calls, or secret writes in this pass. U1–U5 stay
+deferred to the Task 5 hybrid gate.
+
+V1 evidence: plan structural validator exit 0 (0 failures, 0 warnings); baseline
+`typecheck` exit 0, domain suite 56/56, full Forge suite 64/64; context-discovery
+audit exit 0; scout confirms 7 plan-created paths absent as expected with all 4
+prerequisites present (controller source, domain package, both pinned GluWa packages).
+
+V2 evidence: machine-checked findings artifact
+`phase-03-pvl-v2-findings_09-09-26.md` (`validate-findings-output.mjs` exit 0,
+net gate CONDITIONAL). All 6 non-negotiable checks compliant (precompile constant,
+inlined decoder with the single `0x04B9` mention inside an explicit rejection,
+`isLeft` canonical, no faked handler-level chain test, operational bounds present,
+authority intact). R-A–R-H substance 8/8.
+
+Test gates (exact commands; Forge/worker gates are exact in-plan and NOT RUN
+pre-implementation — RED-first runs begin EXECUTE Task 1.3/2.3):
+
+- `forge fmt --check`
+- `forge test --root contracts --match-path test/PactCreditSource.t.sol`
+- `forge test --root contracts --match-path test/PactCreditASC.t.sol`
+- `corepack yarn vitest run services/asc-proof-worker/test packages/domain/test/evidence.test.ts`
+- `corepack yarn typecheck` (must cover `services/asc-proof-worker` per R-F)
+- `corepack yarn validate:aicd`
+- `node scripts/check-no-secrets.mjs`
+- `git diff --check`
+- Hybrid (approval-gated, Task 5): rehearsal with disposable env → redacted manifest
+  (source tx, proof tx, chain keys incl. submitted-vs-registered equality, blocks,
+  evidence ID, beneficiary, amount, expiry, addresses, confirmations); or a bounded
+  blocker artifact. Never a mock-green result.
+
+Dimension findings:
+
+- infra/setup-fit: CONCERN — created paths absent-but-planned; R-F application is EXECUTE work.
+- test-coverage: CONCERN — tiers cover all areas; C-P3b label/explicitness note only.
+- breaking-changes: PASS with notes — new surface only; R-E/R-F specify future supplements with ownership recorded.
+- security-surface: PASS with notes — chain-binding residual explicitly modeled; no faked tests.
+
+Open gaps (CONCERNs, no FAILs):
+
+- C-P3a: plan-created paths absent (correct pre-EXECUTE state; RED-first increments).
+- C-P3b: R-field label normalization + explicit R-F/R-H failure lines (ready text documented in findings; accepted as note).
+- C-P3c: R-E cross-phase application pending by design (gates Task 5 hybrid only; local Tasks 1–4 proceed without it).
+- C-P3d: Sepolia chainKey value + hybrid unknowns pending by design (U1–U5 routing verified).
+
+What This Coverage Does NOT Prove (required statement):
+
+- No Forge, worker, deployment, RPC identity, liveness, denomination, chainKey value,
+  or testnet evidence exists or is claimed. Attestation latency, gas behavior, faucet
+  availability, and the verifier supported set are documented from official sources,
+  unprobed. Green confirmation of every NOT-RUN gate is deferred to EXECUTE/EVL.
+
+Hard stops carried into EXECUTE (verbatim for /goal block):
+
+- Do not fake Forge results, proofs, deployment, RPC identity, liveness, or testnet evidence.
+- No live calls, testnet mutations, or secret writes except the approved Task 5 hybrid lane.
+- Credit must never apply without registered source binding plus evidence and query dedupe.
+- The etched `0xFD2` mock lives only in `contracts/test/`; never represent it as real evidence.
+- Do not copy the example decoder address; the decoder needs no address or deployment.
+- U1–U5 stay deferred; record exact evidence or mark UNKNOWN.
+- Skipping the precompile/decoder distinction (R-E) is deployment-blocking.
+
+Strategy for EXECUTE: sequential, single executor, Tasks 1→5 in order (shared
+`contracts/src`, worker package, and domain surface forbid parallel writers). No fan-out.
+
+Accepted by: user, 2026-09-09 — CONDITIONAL accepted with concerns C-P3a–C-P3d (V5 exit gate).

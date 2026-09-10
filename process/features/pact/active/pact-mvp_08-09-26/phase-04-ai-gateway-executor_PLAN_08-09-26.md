@@ -67,9 +67,9 @@ This phase creates the off-chain path that makes Pact feel autonomous without ma
 
 ## Phase Loop Progress
 
-- [ ] 1. RESEARCH — inspect Phase 02 SDK/events, Phase 03 evidence state, Supabase/Deno runtime, OpenAI structured-output contract, and Cloudflare worker bindings
-- [ ] 2. INNOVATE — choose signed wallet challenge + HMAC session and separate AI/executor functions; record rejected browser-key and AI-direct-settlement alternatives
-- [ ] 3. PLAN-SUPPLEMENT — update API/type/rate-limit touchpoints if runtime constraints change
+- [x] 1. RESEARCH — inspect Phase 02 SDK/events, Phase 03 evidence state, Supabase/Deno runtime, OpenAI structured-output contract, and Cloudflare worker bindings
+- [x] 2. INNOVATE — choose signed wallet challenge + HMAC session and separate AI/executor functions; record rejected browser-key and AI-direct-settlement alternatives
+- [x] 3. PLAN-SUPPLEMENT — update API/type/rate-limit touchpoints if runtime constraints change
 - [ ] 4. PVL — vc-validate-agent writes V1–V7 contract with automated, hybrid, and agent-probe gates
 - [ ] 5. EXECUTE — complete Tasks 1–6 and run each section gate immediately
 - [ ] 6. EVL — rerun tests, local edge-to-function smoke, no-chain-call failures, and auth/rate-limit probes
@@ -429,3 +429,107 @@ git diff --check
 ## Validate Contract
 
 (placeholder — vc-validate-agent writes this section before EXECUTE)
+
+---
+
+## Plan Supplement — 10-09-26 (INNOVATE decisions)
+
+**Provenance (frozen, do not re-debate):**
+- RESEARCH reuse: `AgentIntentSchema`, `canonicalIntentHash`, `merchantIdToBytes32`, `loadOpenAIConfig(gpt-5.6-luna, allowFallback false)`, controller `pay` + `preflightPay` with read-only static-call `from=agent`, ASC-only hook, `availableCredit`; greenfield `supabase/`, `apps/edge/`, catalog, smoke scripts; no `openai` dependency; Deno + Supabase CLIs missing (wrangler + playwright present).
+- INNOVATE frozen: (a) A3, (b) B1, (c) C3, (d) D-combined, (e) E1+E2 local + E3 hybrid, plus S1–S7 below as binding extensions.
+- Scope rule: this supplement only narrows/extends Tasks 1–6. No prior section semantics change. Any conflict between this supplement and prior text resolves in favor of this supplement plus its required test.
+
+### 1. Decision record
+
+| Area | Chosen | Rejected | Rationale |
+|---|---|---|---|
+| A. Provider transport + output shape (A3) | A3 raw-fetch-behind-port: narrow provider port, `fetch` to Responses API only inside `supabase/functions/ai-gateway/openai-provider.ts`, pinned `gpt-5.6-luna` via `loadOpenAIConfig` with `allowFallback:false`, strict merchantId-only JSON schema | A1 OpenAI SDK dependency; A2 generic multi-provider adapter with fallback/substitution | No `openai` dep exists and none is added (greenfield + supply-chain minimum); raw fetch keeps secret inside one regional function; pin + `allowFallback:false` enforces Global Constraint no-fallback; merchantId-only output preserves server-bound card/agent/asset/recipient authority |
+| B. Error taxonomy (B1) | B1 closed 15-code mapper: exact Task 1.2 list, shared mapper + shared contract test, no `string` escape | B2 open `string` code escape hatch; B3 5-code collapsed union | Phase 01 `DomainError` union is authority; 15 codes are the stable API surface from Task 1.2; escape hatch would break API contracts and redaction audit; collapsed 5-code loses `PROVIDER_MODEL_UNAVAILABLE` / `REGION_MISMATCH` / reconciliation fidelity required by AC-07/AC-12 |
+| C. Session (C3) | C3 hybrid session: EIP-191 one-time challenge + HMAC-signed short-lived wallet-bound token, hash-only storage, atomic consume, per Task 2 | C1 stateless JWT-only without server consume list; C2 long-lived bearer / plaintext storage | Replay protection is Critical risk; hash-at-rest + one-time consume + short expiry satisfies Security invariant; hybrid means automated Vitest for token logic + function-shape test, live Supabase persistence proof deferred to hybrid lane |
+| D. Executor (D-combined) | D-combined executor: single `agent-executor` owns `preflight` (static `preflightPay`, `from=agent`) + `execute` (`pay`, gas-only signer), server-bound card/merchant/asset, card-scoped nonce, intent/idempotency lock, `findByNonce` reconcile | D-split separate preflight/execute services with duplicated chain clients; D-client-nonce / client-recipient trust | One chain-client prevents policy drift between preflight and execute; static-call-before-send mirrors controller authority; card-scoped nonce + ASC-only hook + `availableCredit` re-read closes double-spend/timeout-duplicate; client values remain untrusted per Global Constraints |
+| E. Evidence gates (E1+E2 local, E3 hybrid) | E1 Vitest hermetic + E2 fake-backed Vitest as binding local green; E3 live/regional evidence as hybrid-only | E-all-Deno-gated local green; E-live-un gated local execution | Deno + Supabase CLIs are missing so Deno-gated local green would permanently block; wrangler + Vitest present so edge/domain hermetic green is achievable; live `gpt-5.6-luna` is cost-bearing and region-sensitive, therefore hybrid-gated per Global Constraints |
+
+### 2. Binding task extensions S1–S7
+
+**S1 — Pinned model port (raw-fetch-behind-port, no SDK).**
+- Implementation task: extend Task 3 with a narrow `AiProvider` port; the only OpenAI I/O is `fetch` inside the provider module; model value comes only from `loadOpenAIConfig` pinned to `gpt-5.6-luna` with `allowFallback:false`; no `openai` package is added; provider request ID + latency logged redacted-only.
+- Exact file/module paths: `supabase/functions/ai-gateway/openai-provider.ts` (fetch + strict schema `pact_agent_intent`, `store:false`), `supabase/functions/ai-gateway/provider-port.ts` (new: `AiProvider` / `ProviderIntentResult` port, no network import), `config/ai/model-config.json` (new: pinned `{ "provider": "openai", "model": "gpt-5.6-luna", "allowFallback": false }`).
+- Acceptance criteria: import graph shows no `openai` dep; non-pinned model value cannot reach fetch; `allowFallback` path does not exist; wrong-model config surfaces `PROVIDER_MODEL_UNAVAILABLE` before any chain call.
+- Required test: E1 Vitest hermetic `packages/domain/test/provider-config.test.ts` (new, Vitest): pin parsing, fallback-reject, unknown-model reject. E2 fake-backed Vitest for gateway mapper (see S6). Never Deno-gated for local green.
+- AICD linkage: AC-07, AC-08; Security invariants 1, 2.
+- Gate class: local-only.
+- Failure behavior with hard stop: provider 401/429/5xx, malformed JSON, model-unavailable, or config drift → return mapped `ApiError`, zero payment-client calls, no retry as new payment; STOP, do not proceed to preflight/execute.
+
+**S2 — Strict merchantId-only provider schema (reuse canonical exports).**
+- Implementation task: extend Tasks 1 + 3: provider output may contain only `{ merchantId, amountDecimal, purpose, confidence }`; gateway reuses Phase 01 `AgentIntentSchema`, `CanonicalIntentInput`, `canonicalIntentHash`, `merchantIdToBytes32` and native asset descriptor; it must not duplicate canonicalization; card ID, agent, asset, recipient, allowlist, `policyVersion` (from on-chain card/policy snapshot), `expiresAt` (canonical UTC) resolved server-side; catalog is non-authoritative display only.
+- Exact file/module paths: `supabase/functions/ai-gateway/catalog.ts` (merchantId/catalog-label gating), `supabase/functions/_shared/intent-hash.ts` (thin re-export of Phase 01 hash, no local copy), `config/ai/merchant-catalog.json` (labels + logical IDs only, no addresses), `packages/domain/src/api.ts` (IntentResponse keeps full `AgentIntent`, provider/model attribution required).
+- Acceptance criteria: model-supplied `recipientAddress`/address/asset/card/nonce field is schema/catalog-rejected; unknown merchant → reject; amount parsed via Phase 01 descriptor + `parseUnits`; hash input includes server-resolved `policyVersion`; persisted intent records actual provider/model.
+- Required test: E1 Vitest hermetic `packages/domain/test/intent-shape.test.ts` (new, Vitest): extra-field reject, unknown-merchant reject, hash-stability via reused canonical fn. E2 fake-backed gateway Vitest (S6) asserts zero chain calls on shape failure. Never Deno-gated for local green.
+- AICD linkage: AC-06, AC-08; Security invariants 1, 4, 6.
+- Gate class: local-only.
+- Failure behavior with hard stop: any shape/catalog/asset/card mismatch → `PROVIDER_OUTPUT_INVALID`, zero chain calls; STOP, no intent persisted as `ready`.
+
+**S3 — Closed 15-code mapper + shared contract test.**
+- Implementation task: extend Task 1.2: implement one shared mapper from Phase 01 `DomainError` union to exactly the 15 API codes (`AUTH_REQUIRED`, `AUTH_INVALID`, `AUTH_EXPIRED`, `INPUT_INVALID`, `NETWORK_CONFIG_INVALID`, `PROVIDER_UNAVAILABLE`, `PROVIDER_MODEL_UNAVAILABLE`, `PROVIDER_OUTPUT_INVALID`, `REGION_MISMATCH`, `CARD_NOT_ELIGIBLE`, `PREFLIGHT_DECLINED`, `PAYMENT_BROADCAST_TIMEOUT`, `PAYMENT_FAILED`, `PAYMENT_RECONCILIATION_REQUIRED`, `RATE_LIMITED`); no `string` escape; both edge and functions import the same mapper; redaction helper strips provider body/headers/prompt secrets/key material, keeps `requestId` + category.
+- Exact file/module paths: `packages/domain/src/api.ts` (closed union + mapper source), `supabase/functions/_shared/errors.ts` (thin re-export, no fork), `supabase/functions/_shared/redaction.ts` (redaction helper), `apps/edge/src/types.ts` (re-export only), `packages/domain/test/api-error-codes.test.ts` (new shared Vitest: closed-union exhaustiveness + mapping fixture).
+- Acceptance criteria: adding a 16th code without a further plan supplement fails the shared test; `ApiError.code` type has no `string` escape; edge + function fixtures produce identical code for identical domain error; no secret material in error fixture.
+- Required test: E1 Vitest hermetic `packages/domain/test/api-error-codes.test.ts` (binding). Consumed by S6 E2 suites. Never Deno-gated for local green.
+- AICD linkage: AC-07; cross-cuts AC-09–AC-12 reason codes.
+- Gate class: local-only.
+- Failure behavior with hard stop: unmapped/unknown error → `INPUT_INVALID` or `PROVIDER_UNAVAILABLE` per mapper default + alert-shaped log, never raw body passthrough; STOP, schema test blocks merge on escape-hatch regression.
+
+**S4 — Hybrid session (C3) with hash-only storage.**
+- Implementation task: implement Task 2 as specified (challenge → verify → revoke routes; nonce-hash + token-hash storage; EIP-191 `verifyMessage`; atomic consume; HMAC token with session ID/wallet/role/issued-at/expiry; wallet-bound middleware for intent/preflight/execute; separate demo token with no secret access), with logic structured so token/nonce logic is Vitest-testable without a live database.
+- Exact file/module paths: `supabase/functions/_shared/session-token.ts` (HMAC issue/verify, pure logic), `supabase/functions/_shared/auth.ts` (middleware), `supabase/functions/session/index.ts` (routes), `supabase/migrations/202609080001_sessions_and_intents.sql` (hash columns + indexes, no plaintext token/signature columns).
+- Acceptance criteria: challenge expiry, one-time consume, wrong signature/address, expired/revoked token, wallet-binding mismatch all reject; tables hold hashes only; demo token cannot reach intent/preflight/execute secrets path.
+- Required test: E1 Vitest hermetic `packages/domain/test/session-token.test.ts` (new, Vitest): HMAC round-trip, expiry, tamper, wrong-wallet reject — binding local green. E2 fake-store-backed Vitest for consume-once/revoke flow. Live Supabase persistence is hybrid-only (see §4). Never Deno-gated for local green.
+- AICD linkage: Security invariants (session/auth); AC-07-adjacent fail-closed.
+- Gate class: E1/E2 local-only; live-persistence proof hybrid (deferred).
+- Failure behavior with hard stop: any auth failure → `AUTH_*` mapped error, no intent/preflight/execute work; replayed challenge second-verify rejected; STOP, no session issued.
+
+**S5 — D-combined executor (static preflight + idempotent pay + reconcile).**
+- Implementation task: implement Task 5 as one `agent-executor`: accept only `intentId` + idempotency data; re-read card/merchant/network; ASC-only hook check + `availableCredit` read; static `preflightPay` (`from=agent`) with server-bound values + card-scoped nonce; on pass, `pay` via gas-only signer (`AGENT_SIGNER_PRIVATE_KEY` function-only); store `txHash` before wait; one-confirmation wait; receipt-status classification; timeout → `findByNonce` + receipt lookup before any retry; unproven outcome → `PAYMENT_RECONCILIATION_REQUIRED`, never a second submit; `settled` only on `receipt.status==1` (indexer confirms `PaymentSettled` downstream).
+- Exact file/module paths: `supabase/functions/agent-executor/index.ts` (lock → re-read → static-call → send → store-then-wait → classify), `supabase/functions/agent-executor/chain-client.ts` (`JsonRpcProvider` + controller ABI from `packages/pact-sdk`, chain-ID assert, `from=agent` static call), `supabase/functions/agent-executor/payment-reconciler.ts` (new: timeout/nonce-reconcile policy), `packages/domain/src/payment.ts` (status + reason-code types).
+- Acceptance criteria: owner/session mismatch, missing/expired intent, card-changed-after-intent, preflight decline, signer chain mismatch, reverted receipt, broadcast timeout, duplicate idempotency key all fail closed with mapped codes; duplicate execute → one `sendPayment`; signer/key never in response/log fixtures; gateway never imports executor signer.
+- Required test: E1 Vitest hermetic `packages/domain/test/payment.test.ts` (existing plan path, Vitest — binding): state machine + code mapping. E2 fake-`PaymentClient`-backed Vitest `supabase/functions/agent-executor/test/executor.vitest.test.ts` (new Vitest mirror, fake client + signer spy + zero-duplicate-send assert). Existing Deno `executor.test.ts` retained as CI reference, not local-green gate. Never Deno-gated for local green.
+- AICD linkage: AC-09/10/11/12; Security invariants 1, 3, 4.
+- Gate class: E1/E2 local-only; live-chain receipt proof hybrid (deferred, §4).
+- Failure behavior with hard stop: any preflight decline / state drift / timeout-unproven / receipt-status-0 → mapped decline/fail/reconcile code, no second transaction; STOP, intent locked until reconciled.
+
+**S6 — Local evidence gate E1+E2 (binding green without Deno/Supabase CLIs).**
+- Implementation task: make local green achievable with present tooling only (Vitest + wrangler + playwright shapes): E1 pure-hermetic Vitest for config/shape/codes/session-token/payment-machine/edge-validation; E2 fake-backed Vitest for gateway (FakeAiProvider fixtures) and executor (fake PaymentClient) plus Worker upstream-fake smoke; assert zero payment-client calls on every provider/schema/auth failure; secret-scanner shape check over `apps/edge` (no `OPENAI_API_KEY` / `AGENT_SIGNER_PRIVATE_KEY` references).
+- Exact file/module paths: `packages/domain/test/provider-config.test.ts` (new E1), `packages/domain/test/intent-shape.test.ts` (new E1), `packages/domain/test/api-error-codes.test.ts` (new E1, S3), `packages/domain/test/session-token.test.ts` (new E1, S4), `packages/domain/test/payment.test.ts` (E1), `apps/edge/test/edge.test.ts` (E1+E2 edge: 64KB/method/path/auth/rate-limit/correlation/timeout/upstream-map), `supabase/functions/ai-gateway/test/ai-gateway.vitest.test.ts` (new E2 Vitest mirror, FakeAiProvider), `supabase/functions/agent-executor/test/executor.vitest.test.ts` (new E2 Vitest mirror, fake PaymentClient), `apps/edge/src/index.ts` + `apps/edge/src/rate-limit.ts` + `apps/edge/src/upstream.ts` (subjects under test).
+- Acceptance criteria: full E1+E2 Vitest set passes with Deno/Supabase CLIs absent; every fail-closed case carries payment-call-count-zero evidence; Worker fixture passes size/auth/rate-limit/correlation/timeout maps; no secret reference in `apps/edge`.
+- Required test: this item IS the required-test definition; Deno suites (`session.test.ts`, `ai-gateway.test.ts`, `executor.test.ts`) remain as non-binding CI references until CLIs exist.
+- AICD linkage: proves AC-06/07/08/09–12 locally; feeds EVL regression.
+- Gate class: local-only (this is the binding local green).
+- Failure behavior with hard stop: any E1/E2 red → phase cannot advance to PVL-sign-off/EXECUTE-complete; STOP, fix hermetic/fake suite first; do not route around via Deno-skip or live-call substitution.
+
+**S7 — Edge boundary + catalog/smoke readiness (hybrid handoff shape).**
+- Implementation task: implement Task 4 + Task 6 shape so hybrid lane needs only values, not rework: Worker validates method/path/64KB body/`requestId`/session-demo header/30-req-min limit, fixed `SUPABASE_REGIONAL_FUNCTION_URL` upstream with timeout + redacted logs, explicit CORS allowlist, no OpenAI/signer imports; health shape exposes `requestId`/configured-vs-expected region/chainId/provider/model-availability without secrets; catalog + smoke script run against fakes locally and against regional URL in hybrid.
+- Exact file/module paths: `apps/edge/src/index.ts`, `apps/edge/src/rate-limit.ts`, `apps/edge/src/upstream.ts`, `apps/edge/src/types.ts`, `apps/edge/wrangler.toml` (uncommitted secrets out; `SUPABASE_REGIONAL_FUNCTION_URL`, `ALLOWED_ORIGIN`, rate-limiter binding), `supabase/functions/_shared/health.ts`, `supabase/functions/_shared/chain-config.ts` (target chain ID), `config/ai/merchant-catalog.json` (non-authoritative fixture).
+- Acceptance criteria: oversized/unsupported/unauthenticated/over-limit/upstream-timeout/4xx-5xx all map to redacted `ApiError` with correlation headers; health never leaks secrets; local challenge → verify → intent(fake) → preflight(fake) → execute(fake) flow correlates IDs end-to-end with zero live testnet calls.
+- Required test: E2 Worker Vitest (`apps/edge/test/edge.test.ts`) + fake-backed smoke-shape Vitest; live regional smoke is hybrid-only (§4). Never Deno-gated for local green.
+- AICD linkage: autonomous-path spine; AC-07 region/timeout maps.
+- Gate class: shape + fake proof local-only; regional URL + live-model proof hybrid (deferred).
+- Failure behavior with hard stop: missing rate-limit binding → fail closed or explicit local fake (deployment preflight checks binding); upstream timeout/4xx/5xx → retryable-structured error, no secret forward; STOP, no arbitrary-URL fallback.
+
+### 3. Conflicts resolved
+
+- **15-code vs 5-code union:** resolved for 15-code closed union. The 5-code collapse is rejected (loses model/region/reconciliation fidelity). Enforcement is supplement + shared test (S3 `api-error-codes.test.ts`), not a `string` escape. Any future code addition requires a new plan supplement and shared-test update.
+- **OpenAI SDK vs raw fetch:** resolved for raw fetch. SDK is rejected: no `openai` dep exists, regional function keeps the smallest secret surface, and pin/capability semantics are owned by `loadOpenAIConfig` + port (S1). No SDK import may appear in gateway/edge/domain.
+- **Canonicalization duplication:** resolved for reuse. Gateway must import Phase 01 `AgentIntentSchema` / `canonicalIntentHash` / `merchantIdToBytes32` / asset descriptor; local re-implementation is rejected and fails S2 tests on hash drift.
+- **Deno-gated vs Vitest-gated local green:** resolved for Vitest-gated (E1+E2). Deno suites stay as CI-reference mirrors; no local gate may require `deno` / `supabase` CLIs until those CLIs are present and a later supplement re-gates.
+- **Executor split vs combined:** resolved for D-combined single owner of preflight + execute with one chain-client (S5); split-client proposals rejected for policy-drift risk.
+
+### 4. Deferred to hybrid lane (not local green, requires validate-contract + explicit approval)
+
+- **H1 — Live `gpt-5.6-luna` call:** capability check + one structured-output request through the regional function; evidence is redacted provider/model metadata + latency + mapped-error-on-failure (never prompt secrets / key material / raw body). Proves AC-07/AC-08 live side. Cost-bearing; never run as local regression.
+- **H2 — Regional preflight static-call evidence (redacted):** `preflightPay` static call against configured chain via regional function; evidence is decision + `reasonCode` + `chainId` + `checkedAt` + correlation IDs, with addresses/keys redacted to the approved log shape. Proves AC-10/AC-11 regional side.
+- **H3 — Fixed regional URL value confirmation:** concrete `SUPABASE_REGIONAL_FUNCTION_URL` + expected-vs-actual region pair + `wrangler.toml` binding proof recorded in the Phase 04 report; Worker arbitrary-upstream is never permitted. Records the routing choice referenced in Global Constraints.
+- Hybrid-lane rule: H1–H3 run only after PVL writes V1–V7 with hybrid gates and explicit approval; any H-failure fails closed per S1/S5 hard stops and does not fall back to another model/region/direct payment.
+
+### Loop-state note
+
+- PLAN-SUPPLEMENT is done via this section (checkbox §Phase Loop Progress updated accordingly).
+- PVL / EXECUTE / EVL / UPDATE PROCESS remain pending; PVL must encode S1–S7 required tests and H1–H3 hybrid gates into the Validate Contract before EXECUTE.

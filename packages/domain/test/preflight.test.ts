@@ -4,13 +4,12 @@ import {
   fetchChainObservation,
   runPreflight,
 } from "../../../scripts/preflight-testnet.mjs";
-import type {
-  RpcTransport,
-  RpcTransportResponse,
-} from "../../../scripts/preflight-testnet.mjs";
+import type { RpcTransport } from "../../../scripts/preflight-testnet.mjs";
 import { parseAdvanceTestnetConfig } from "../src/schemas.js";
+import { VERIFIER_PRECOMPILE_ADDRESS } from "../src/schemas.js";
 
 const RPC_URL = "https://rpc.advance-testnet.example.invalid";
+const ZERO = "0x0000000000000000000000000000000000000000";
 
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return parseAdvanceTestnetConfig({
@@ -21,29 +20,42 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
     explorerUrl: "https://explorer.example.invalid",
     nativeAsset: {
       id: "native-testnet-ctc",
-      evmAddress: "0x0000000000000000000000000000000000000000",
+      evmAddress: ZERO,
       symbol: "CTC",
       decimals: 18,
     },
     asc: {
-      verifierPrecompile: "0x00000000000000000000000000000000000000FD",
-      evmV1DecoderLibrary: "0x1111111111111111111111111111111111111111",
+      verifierPrecompile: VERIFIER_PRECOMPILE_ADDRESS,
+      evmV1DecoderLibrary: ZERO,
     },
     verified: true,
     ...overrides,
   });
 }
 
-type RpcBody = { method: string; params: string[] };
-type StubHandler = (_url: string, body: RpcBody) => Promise<RpcTransportResponse>;
+function observation(overrides: Record<string, unknown> = {}) {
+  return {
+    rpcChainId: 102031,
+    verifierAddress: VERIFIER_PRECOMPILE_ADDRESS,
+    externalContracts: [],
+    ...overrides,
+  };
+}
 
-function jsonResponse(body: unknown, { status = 200 }: { status?: number } = {}): RpcTransportResponse {
+function jsonResponse(body: unknown, { status = 200 }: { status?: number } = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
     json: () => Promise.resolve(typeof body === "string" ? (JSON.parse(body) as unknown) : body),
   };
 }
+
+type RpcBody = { method: string; params: string[] };
+type StubHandler = (_url: string, body: RpcBody) => Promise<{
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+}>;
 
 function stubTransport(handler: StubHandler): RpcTransport {
   return {
@@ -53,53 +65,26 @@ function stubTransport(handler: StubHandler): RpcTransport {
   };
 }
 
-function chainHandler(
-  chainHex: string,
-  verifierCode: string,
-  decoderCode: string,
-): StubHandler {
+function chainIdHandler(chainHex: string): StubHandler {
   return (_url: string, body: RpcBody) => {
     if (body.method === "eth_chainId") {
       return Promise.resolve(jsonResponse({ jsonrpc: "2.0", id: 1, result: chainHex }));
-    }
-    if (body.method === "eth_getCode") {
-      const address = body.params[0].toLowerCase();
-      const code = address.endsWith("fd") ? verifierCode : decoderCode;
-      return Promise.resolve(jsonResponse({ jsonrpc: "2.0", id: 1, result: code }));
     }
     return Promise.resolve(jsonResponse({ error: "unknown" }, { status: 500 }));
   };
 }
 
-const FULL_CODE = "0x6080604052";
-
 describe("preflight transport", () => {
-  it("builds a valid observation from well-formed RPC responses", async () => {
-    const observation = await fetchChainObservation(
-      RPC_URL,
-      {
-        verifierPrecompile: "0x00000000000000000000000000000000000000FD",
-        evmV1DecoderLibrary: "0x1111111111111111111111111111111111111111",
-      },
-      stubTransport(chainHandler("0x18e8f", FULL_CODE, FULL_CODE)),
-    );
-    expect(observation).toEqual({
-      rpcChainId: 102031,
-      verifierHasBytecode: true,
-      decoderHasBytecode: true,
-    });
+  it("reads chain identity without bytecode probes", async () => {
+    const observed = await fetchChainObservation(RPC_URL, stubTransport(chainIdHandler("0x18e8f")));
+    expect(observed).toEqual({ rpcChainId: 102031 });
   });
 
-  it("rejects a chain mismatch before trusting bytecode", async () => {
-    const observation = await fetchChainObservation(
-      RPC_URL,
-      {
-        verifierPrecompile: "0x00000000000000000000000000000000000000FD",
-        evmV1DecoderLibrary: "0x1111111111111111111111111111111111111111",
-      },
-      stubTransport(chainHandler("0x1", FULL_CODE, FULL_CODE)),
+  it("rejects a chain mismatch before trusting anything else", async () => {
+    const observed = await fetchChainObservation(RPC_URL, stubTransport(chainIdHandler("0x1")));
+    expect(() => runPreflight(baseConfig(), { ...observation(), ...observed })).toThrowError(
+      PreflightError,
     );
-    expect(() => runPreflight(baseConfig(), observation)).toThrowError(PreflightError);
   });
 
   it("rejects malformed JSON-RPC bodies", async () => {
@@ -110,95 +95,99 @@ describe("preflight transport", () => {
         json: () => Promise.reject(new SyntaxError("not json")),
       }),
     );
-    await expect(
-      fetchChainObservation(RPC_URL, baseConfig().asc, transport),
-    ).rejects.toThrowError(PreflightError);
+    await expect(fetchChainObservation(RPC_URL, transport)).rejects.toThrowError(PreflightError);
   });
 
   it("rejects JSON-RPC error envelopes", async () => {
     const transport = stubTransport(() =>
       Promise.resolve(jsonResponse({ jsonrpc: "2.0", id: 1, error: { code: -32602 } })),
     );
-    await expect(
-      fetchChainObservation(RPC_URL, baseConfig().asc, transport),
-    ).rejects.toThrowError(PreflightError);
+    await expect(fetchChainObservation(RPC_URL, transport)).rejects.toThrowError(PreflightError);
   });
 
   it("times out instead of hanging", async () => {
     const transport: RpcTransport = {
       timeoutMs: 20,
-      fetch: (): Promise<RpcTransportResponse> => new Promise(() => {}),
+      fetch: () =>
+        new Promise<{
+          ok: boolean;
+          status: number;
+          json: () => Promise<unknown>;
+        }>(() => {}),
     };
-    await expect(
-      fetchChainObservation(RPC_URL, baseConfig().asc, transport),
-    ).rejects.toThrowError(PreflightError);
+    await expect(fetchChainObservation(RPC_URL, transport)).rejects.toThrowError(PreflightError);
   });
 
   it("rejects HTTP failures", async () => {
     const transport = stubTransport(() =>
       Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }),
     );
-    await expect(
-      fetchChainObservation(RPC_URL, baseConfig().asc, transport),
-    ).rejects.toThrowError(PreflightError);
-  });
-
-  it("reports empty verifier bytecode as not-ready", async () => {
-    const observation = await fetchChainObservation(
-      RPC_URL,
-      baseConfig().asc,
-      stubTransport(chainHandler("0x18e8f", "0x", FULL_CODE)),
-    );
-    expect(observation.verifierHasBytecode).toBe(false);
-    expect(() => runPreflight(baseConfig(), observation)).toThrowError(PreflightError);
-  });
-
-  it("reports empty decoder bytecode as not-ready", async () => {
-    const observation = await fetchChainObservation(
-      RPC_URL,
-      baseConfig().asc,
-      stubTransport(chainHandler("0x18e8f", FULL_CODE, "0x")),
-    );
-    expect(() => runPreflight(baseConfig(), observation)).toThrowError(PreflightError);
-  });
-
-  it("rejects a statically verified config without live bytecode", () => {
-    expect(() =>
-      runPreflight(baseConfig(), {
-        rpcChainId: 102031,
-        verifierHasBytecode: false,
-        decoderHasBytecode: false,
-      }),
-    ).toThrowError(PreflightError);
+    await expect(fetchChainObservation(RPC_URL, transport)).rejects.toThrowError(PreflightError);
   });
 
   it("rejects missing values at the config boundary", () => {
     expect(() => baseConfig({ rpcUrl: "" })).toThrow();
   });
 
+  it("accepts the canonical precompile with no bytecode concept", () => {
+    const result = runPreflight(baseConfig(), observation());
+    expect(result.ok).toBe(true);
+    expect(result.chainId).toBe(102031);
+  });
+
+  it("accepts a compile-time decoder with no address", () => {
+    const config = baseConfig();
+    expect(config.asc.evmV1DecoderLibrary).toBe(ZERO);
+    expect(() => runPreflight(config, observation())).not.toThrow();
+  });
+
+  it("rejects a non-zero decoder address", () => {
+    const config = baseConfig({
+      asc: {
+        verifierPrecompile: VERIFIER_PRECOMPILE_ADDRESS,
+        evmV1DecoderLibrary: "0x04B9ae8562D8Cc5bbbBbBB759080dDC30B56D18B",
+      },
+    });
+    expect(() => runPreflight(config, observation())).toThrowError(PreflightError);
+  });
+
+  it("rejects a verifier identity mismatch", () => {
+    expect(() =>
+      runPreflight(baseConfig(), observation({ verifierAddress: ZERO })),
+    ).toThrowError(PreflightError);
+  });
+
+  it("rejects a non-allowlisted chain", () => {
+    const config = baseConfig({ chainId: 31337 });
+    expect(() => runPreflight(config, observation({ rpcChainId: 31337 }))).toThrowError(
+      PreflightError,
+    );
+  });
+
+  it("rejects an external dependency without bytecode", () => {
+    const obs = observation({
+      externalContracts: [
+        { label: "oracle", address: "0x2222222222222222222222222222222222222222", hasBytecode: false },
+      ],
+    });
+    expect(() => runPreflight(baseConfig(), obs)).toThrowError(PreflightError);
+  });
+
+  it("rejects a statically verified config without a live chain match", () => {
+    expect(() => runPreflight(baseConfig(), observation({ rpcChainId: 999999 }))).toThrowError(
+      PreflightError,
+    );
+  });
+
   it("redacts URLs and addresses from failure output", () => {
     try {
-      runPreflight(baseConfig(), {
-        rpcChainId: 999999,
-        verifierHasBytecode: true,
-        decoderHasBytecode: true,
-      });
+      runPreflight(baseConfig(), observation({ rpcChainId: 999999 }));
       expect.unreachable();
     } catch (error) {
       expect(error).toBeInstanceOf(PreflightError);
       const serialized = JSON.stringify(error);
       expect(serialized).not.toContain(RPC_URL);
-      expect(serialized).not.toContain("0x1111111111111111111111111111111111111111");
+      expect(serialized).not.toContain("0x2222222222222222222222222222222222222222");
     }
-  });
-
-  it("accepts one concrete valid observation fixture", () => {
-    const result = runPreflight(baseConfig(), {
-      rpcChainId: 102031,
-      verifierHasBytecode: true,
-      decoderHasBytecode: true,
-    });
-    expect(result.ok).toBe(true);
-    expect(result.chainId).toBe(102031);
   });
 });

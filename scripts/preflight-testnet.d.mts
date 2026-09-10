@@ -3,16 +3,14 @@ export const EXIT_USAGE: number;
 export const EXIT_NOT_READY: number;
 export const EXIT_TRANSPORT: number;
 
+export const VERIFIER_PRECOMPILE_ADDRESS: string;
+export const CREDITCOIN_CHAIN_IDS: number[];
+
 export class PreflightError extends Error {
   code: string;
   reason: string;
   details: Record<string, unknown>;
   constructor(reason: string, details?: Record<string, unknown>);
-}
-
-export interface AscAddresses {
-  verifierPrecompile: string;
-  evmV1DecoderLibrary: string;
 }
 
 export interface RpcTransportResponse {
@@ -29,10 +27,16 @@ export interface RpcTransport {
   timeoutMs?: number;
 }
 
+export interface ObservedExternalContract {
+  label: string;
+  address: string;
+  hasBytecode: boolean;
+}
+
 export interface ChainObservation {
   rpcChainId: number;
-  verifierHasBytecode: boolean;
-  decoderHasBytecode: boolean;
+  verifierAddress: string;
+  externalContracts: ObservedExternalContract[];
 }
 
 export interface PreflightConfig {
@@ -47,7 +51,10 @@ export interface PreflightConfig {
     symbol: string;
     decimals: number;
   };
-  asc: AscAddresses;
+  asc: {
+    verifierPrecompile: string;
+    evmV1DecoderLibrary: string;
+  };
   verified: boolean;
 }
 
@@ -55,9 +62,8 @@ export function parsePreflightConfig(input: unknown): PreflightConfig;
 
 export function fetchChainObservation(
   rpcUrl: string,
-  asc: AscAddresses,
   transport: RpcTransport,
-): Promise<ChainObservation>;
+): Promise<{ rpcChainId: number }>;
 
 export function runPreflight(
   config: PreflightConfig,

@@ -15,6 +15,12 @@ const UINT256_MAX = (1n << 256n) - 1n;
 const UINT32_MAX = 4294967295;
 const POLICY_VERSION_MAX = UINT32_MAX;
 
+/** Canonical native-verifier precompile: a protocol constant, not a deployment. */
+export const VERIFIER_PRECOMPILE_ADDRESS = "0x0000000000000000000000000000000000000FD2";
+
+/** Chain IDs whose EVM hosts the native verifier precompile (mirrors the pinned ASC package). */
+export const CREDITCOIN_CHAIN_IDS: readonly number[] = [102030, 102031, 102032];
+
 /** Chain IDs that must never be treated as disposable testnet identity. */
 const UNSAFE_CHAIN_IDS = new Set([1, 10, 56, 100, 137, 250, 8453, 42161, 43114, 59144, 534352]);
 
@@ -228,26 +234,70 @@ export function loadAdvanceTestnetConfig(input: string | URL | unknown): Advance
 
 /**
  * The only path that can accept `verified === true`: static config plus a
- * live observation with matching chain identity and deployed bytecode.
- * Details are redacted to reason codes — values never leave this boundary.
+ * live observation with matching allowlisted chain identity, the canonical
+ * verifier precompile identity (zero bytecode is valid for a precompile by
+ * design — never probed), a compile-time decoder acknowledgment (zero address;
+ * no decoder deployment exists), and bytecode evidence for every real external
+ * contract dependency. Details are redacted to reason codes — values never
+ * leave this boundary.
  */
 export function assertDeploymentReady(
   config: AdvanceTestnetConfig,
   observation: NetworkObservation,
 ): void {
-  const reasons: Array<[boolean, string]> = [
-    [config.verified === true, "unverified"],
-    [config.chainId > 0, "chain-unresolved"],
-    [observation.rpcChainId === config.chainId, "chain-mismatch"],
-    [config.asc.verifierPrecompile.toLowerCase() !== ZeroAddress, "verifier-not-deployed"],
-    [config.asc.evmV1DecoderLibrary.toLowerCase() !== ZeroAddress, "decoder-not-deployed"],
-    [observation.verifierHasBytecode === true, "verifier-no-bytecode"],
-    [observation.decoderHasBytecode === true, "decoder-no-bytecode"],
+  const reasons: Array<[boolean, string, Record<string, string>]> = [
+    [config.verified === true, "unverified", {}],
+    [config.chainId > 0, "chain-unresolved", {}],
+    [
+      observation.rpcChainId === config.chainId,
+      "chain-mismatch",
+      {
+        expectedChainId: String(config.chainId),
+        observedChainId: String(observation.rpcChainId),
+      },
+    ],
+    [
+      CREDITCOIN_CHAIN_IDS.includes(observation.rpcChainId),
+      "chain-not-allowlisted",
+      { observedChainId: String(observation.rpcChainId) },
+    ],
+    [
+      isAddress(observation.verifierAddress)
+        && observation.verifierAddress.toLowerCase() === VERIFIER_PRECOMPILE_ADDRESS.toLowerCase(),
+      "verifier-identity-mismatch",
+      {},
+    ],
+    [
+      isAddress(config.asc.verifierPrecompile)
+        && config.asc.verifierPrecompile.toLowerCase() === VERIFIER_PRECOMPILE_ADDRESS.toLowerCase(),
+      "verifier-not-canonical",
+      {},
+    ],
+    [
+      config.asc.evmV1DecoderLibrary.toLowerCase() === ZeroAddress.toLowerCase(),
+      "decoder-not-compile-time",
+      {},
+    ],
   ];
-  for (const [ok, reason] of reasons) {
+  for (const [ok, reason, details] of reasons) {
     if (!ok) {
       throw new DomainError("NETWORK_CONFIG_INVALID", "Advance Testnet is not deployment-ready.", {
         reason,
+        ...details,
+      });
+    }
+  }
+  for (const external of observation.externalContracts ?? []) {
+    if (!isAddress(external.address)) {
+      throw new DomainError("NETWORK_CONFIG_INVALID", "Advance Testnet is not deployment-ready.", {
+        reason: "external-invalid-address",
+        contract: external.label,
+      });
+    }
+    if (external.hasBytecode !== true) {
+      throw new DomainError("NETWORK_CONFIG_INVALID", "Advance Testnet is not deployment-ready.", {
+        reason: "external-no-bytecode",
+        contract: external.label,
       });
     }
   }

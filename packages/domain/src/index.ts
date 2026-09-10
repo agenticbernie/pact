@@ -2,6 +2,15 @@ export { FOUNDATION_MARKER } from "./bootstrap.js";
 export { DomainError } from "./errors.js";
 export type { DomainErrorCode } from "./errors.js";
 export {
+  parseEvidenceRecord,
+  transitionEvidenceStatus,
+  deriveEvidenceKey,
+  classifyProofOutcome,
+  sanitizeCategory,
+  CreditEvidenceRecordSchema,
+} from "./evidence.js";
+export type { CreditEvidenceRecord, EvidenceStatus } from "./evidence.js";
+export {
   CANONICAL_HASH_ABI_TYPES,
   NATIVE_ASSET_EVM_ADDRESS,
   canonicalIntentHash,
@@ -17,6 +26,8 @@ export {
   parseAdvanceTestnetConfig,
   parseAgentIntent,
   resolveOpenAIModel,
+  VERIFIER_PRECOMPILE_ADDRESS,
+  CREDITCOIN_CHAIN_IDS,
 } from "./schemas.js";
 export type {
   AdvanceTestnetConfig,
@@ -25,5 +36,6 @@ export type {
   MerchantCatalog,
   NativeAssetDescriptor,
   NetworkObservation,
+  ObservedExternalContract,
   OpenAIConfig,
 } from "./types.js";

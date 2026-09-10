@@ -1,0 +1,13 @@
+{
+  "sourceChainKey": 1,
+  "allowedSourceChainKeys": [1],
+  "sourceContract": "",
+  "sourceRpc": "",
+  "creditcoinRpc": "",
+  "proofBuilderUrl": "https://prover.cc3-testnet.creditcoin.network",
+  "maxAttempts": 3,
+  "retryDelayMs": 5000,
+  "maxLogBlockRange": 50,
+  "attestationTimeoutMs": 1200000,
+  "note": "Copy to a local untracked file and fill the empty values. Source chain key 1 is the official example default and must be confirmed against the proof-builder registry before live use. Never commit populated values."
+}

@@ -92,10 +92,13 @@ conversion, or a production OpenAI fallback model.
 
 ## Repository Structure at Scan Time
 
-The repository holds the planning-and-harness workspace plus the Phase 01
-foundation outputs: root Node/Yarn tooling, the pure domain package with its
-Vitest suite, canonical network/AI configuration, AICD source with its
-validator and generated diagram, and the preflight/secret-scan scripts.
+The repository holds the planning-and-harness workspace plus the Phase 01–03
+outputs: root Node/Yarn tooling, the pure domain package with its Vitest suite,
+canonical network/AI configuration, AICD source with its validator and generated
+diagram, preflight/secret-scan scripts, Phase 02 payment contracts (green) with
+local deployment artifacts, and Phase 03 ASC credit evidence (source emitter,
+ASC verifier, proof worker, evidence schema, rehearsal gate, single-proof live
+manifest).
 
 ```
 pact/
@@ -105,18 +108,22 @@ pact/
 ├── architecture/                    -- AICD fragments, schema, scenario registry, generated diagram
 ├── config/ai/                       -- pinned OpenAI provider config
 ├── config/networks/                 -- canonical Advance Testnet config (verified: false)
-├── contracts/                       -- Foundry config only; Solidity sources arrive in Phase 02
+├── contracts/                       -- Foundry project: sources, tests, deploy script (Phases 02–03 green: payment + ASC/source)
 ├── docs/superpowers/
 │   ├── specs/                       -- Pact MVP and AICD design
 │   └── plans/                       -- Superpowers implementation plan
-├── packages/domain/                 -- shared schemas, canonical hash, config loaders, tests
+├── packages/domain/                 -- shared schemas, canonical hash, config loaders, evidence types, tests
+├── packages/pact-sdk/               -- generated contract ABIs + local deployment addresses
+├── services/asc-proof-worker/       -- proof-client/worker/state-store/source-scanner + tests (Phase 03 green)
+├── config/asc/                      -- evidence manifest schema, proof-worker example (Phase 03)
+├── config/deployments/              -- local payment manifest + Task 5B single-proof evidence manifest (redacted)
 ├── process/
 │   ├── _seeds/                      -- read-only Vibecode setup templates
 │   ├── context/                     -- this router, planning, and test context
 │   ├── development-protocols/       -- managed workflow and gate protocols
 │   ├── features/pact/active/         -- Pact umbrella and phase plans
 │   └── general-plans/                -- general active/completed/backlog lanes
-├── scripts/                         -- validate-aicd, preflight-testnet, check-no-secrets, print-config
+├── scripts/                         -- validate-aicd, preflight-testnet, check-no-secrets, print-config, asc gates (step-0 + rehearsal)
 ├── AGENTS.md                        -- managed project workflow entrypoint
 ├── CLAUDE.md                        -- managed project workflow entrypoint
 ├── package.json / yarn.lock         -- Yarn Classic 1.22.22 workspace root
@@ -124,8 +131,8 @@ pact/
 ```
 
 Still planned by later phases (not present): `packages/asc/`,
-`packages/pact-sdk/`, `supabase/`, `apps/web/`, `apps/edge/`, `services/`,
-`e2e/`, contract sources under `contracts/src/`, and `.github/workflows/`.
+`supabase/`, `apps/web/`, `apps/edge/`,
+`e2e/`, and `.github/workflows/`.
 
 ## Technology and Runtime
 
@@ -268,10 +275,10 @@ and `node .claude/skills/vc-audit-context/scripts/validate-context-discovery.mjs
 
 ## Scan Metadata
 
-- Generated: 2026-09-09 (refreshed after Phase 01 foundation execution)
-- HEAD: `main` (Phase 01 execution branch; see phase plan Validate Contract)
-- Mode: refresh after Phase 01 Tasks 1–4; Pact plans preserved
+- Generated: 2026-09-10 (refreshed after Phase 03 Task 5B single-proof + EVL PASS; Pact plans preserved)
+- HEAD: `main` (Phase 03 closeout, uncommitted pending review)
+- Mode: closeout after Phase 03 Tasks 1–5B; research/PVL artifacts preserved byte-identically
 - Package manager: Yarn Classic `1.22.22` via Corepack; manifest and lockfile present
-- Source scan: `packages/domain` source + tests, `config/`, `architecture/`,
-  and `scripts/` materialized and gated; contract sources, Supabase, web,
-  services, and e2e remain planned
+- Source scan: `packages/domain` + `packages/pact-sdk`, `contracts/` (sources, tests,
+  deploy script), `config/`, `architecture/`, and `scripts/` materialized and gated;
+  Supabase, web, services, and e2e remain planned

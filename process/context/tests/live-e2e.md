@@ -3,7 +3,7 @@ name: context:live-e2e
 description: Pact Advance Testnet preflight, deployment verification, model access, and evidence-lane checks.
 keywords: live, advance, testnet, rpc, deployment, preflight, evidence, asc, model, region
 related: [context:all-tests]
-date: 09-09-26
+date: 10-09-26
 ---
 
 # Advance Testnet and Live Evidence
@@ -41,9 +41,17 @@ explorer links, while never claiming settlement from a single signal.
 
 ## Current Blockers
 
-The network config, deployment manifest, live scripts, exact Advance Testnet
-identity, ASC verifier details, and provider access are not materialized or
-verified at setup time. No live testnet action has been run.
+Setup-time blockers (network config, deployment manifest, live scripts, exact
+Advance identity, ASC verifier details, provider access) are resolved for the
+Phase 03 Task 5B single-proof lane only: source 11155111 / target 102031 /
+chainKey 1 verified; preflight exit 0 via untracked verified config; one
+Sepolia `recordCredit` → proof → Advance `execute` → `CreditVerified` recorded
+in `config/deployments/asc-evidence-rehearsal.json` (schema-valid, EVL PASS
+2026-09-10). No second proof performed.
+
+Remaining for Phase 07 full demo: model/region live access, production-shaped
+deployment manifest parity, Playwright demo path, and runbook rehearsal. No
+further live testnet action without a new lane approval.
 
 ## Update Triggers
 

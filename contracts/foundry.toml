@@ -1,13 +1,16 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["node_modules"]
+libs = ["node_modules", "lib"]
 solc_version = "0.8.30"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
+evm_version = "shanghai"
+allow_paths = ["../node_modules"]
 
 remappings = [
-  "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
-  "@gluwa/asc-contracts/=node_modules/@gluwa/asc-contracts/contracts/",
+  "@openzeppelin/contracts/=../node_modules/@openzeppelin/contracts/",
+  "@gluwa/asc-contracts/=../node_modules/@gluwa/asc-contracts/contracts/",
+  "forge-std/=lib/forge-std/src/",
 ]
