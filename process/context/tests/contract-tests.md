@@ -22,17 +22,19 @@ The planned source/test paths are:
   serialization, hashes, asset/merchant conversion, errors, network config,
   and preflight fixtures;
 - `contracts/src/` and `contracts/test/` for `PactCardController`,
-  `PactCreditPool`, `MerchantSimulator`, shared types/errors, policy checks,
-  atomicity, replay protection, and invariants;
+  `PactCreditPool`, `MerchantSimulator`, `PactCreditSource`, `PactCreditASC`,
+  shared types/errors, policy checks, atomicity, replay protection, and invariants;
 - `contracts/script/DeployPaymentSystem.s.sol` for local deployment/readback.
+- `services/asc-proof-worker/src/` and `test/` for proof mapping, worker
+  idempotency, source scanning, and staged/rehearsal gates (Phase 03 green).
 
 None of the contract sources existed at the `vc-setup` scan. The
 `packages/domain` side (schemas, canonical serialization, hashes,
 asset/merchant conversion, errors, network config, preflight fixtures) is
 implemented and green, as is the `contracts/` side (`PactCardController`,
-`PactCreditPool`, `MerchantSimulator`, policy/atomicity/invariant suites, local
-deployment script with SDK export) — 64 Forge tests green on solc 0.8.30,
-`evm_version` shanghai.
+`PactCreditPool`, `MerchantSimulator`, `PactCreditSource`, `PactCreditASC`,
+policy/atomicity/invariant suites, local deployment script with SDK export) — Phase 02 64 Forge tests green
+plus Phase 03 ASC/source suites green on solc 0.8.30, `evm_version` shanghai.
 
 ## Commands
 

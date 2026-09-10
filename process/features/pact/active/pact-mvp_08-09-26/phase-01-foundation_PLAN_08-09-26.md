@@ -115,6 +115,37 @@ fail-closed hybrid gate.
   making AICD a prose-only diagram; and using mock green results for unavailable
   Advance/ASC identity.
 
+### Readiness revision — R-E (cross-phase, applied 2026-09-09)
+
+Required by Phase 03 Task 5 hybrid use (see Phase 03 supplement R-E). Phase 03
+research proved, from the pinned ASC package source, that the `0xFD2` verifier is a
+protocol precompile (zero bytecode by design) and the EVM decoder is compile-time
+(fully inlined, no address). The previous readiness rule — non-empty verifier and
+decoder bytecode — could therefore never open on the real chain.
+
+Revised semantics (implemented; TDD RED→GREEN in the same pass):
+
+- `NetworkObservation` is now `{rpcChainId, verifierAddress, externalContracts[]}`.
+  No bytecode is probed: chain identity comes from `eth_chainId` alone.
+- `assertDeploymentReady` requires, in order: `verified === true`; resolvable chain
+  ID; RPC/config chain match; chain ID in the package-mirrored allowlist
+  {102030, 102031, 102032}; observation and config verifier both equal the canonical
+  `0xFD2` constant; config decoder exactly zero (compile-time acknowledgment — any
+  other value claims a phantom deployment); every listed external contract with
+  non-empty bytecode (empty list in the MVP). All failures stay redacted reason codes.
+- New domain exports: `VERIFIER_PRECOMPILE_ADDRESS`, `CREDITCOIN_CHAIN_IDS`,
+  `ObservedExternalContract`.
+- `scripts/preflight-testnet.mjs` (+ `.d.mts`) rewritten to the same semantics;
+  CLI still short-circuits on `verified:false` with exit 2 and no RPC.
+- `scripts/print-config.mjs` now reports `verifierIsCanonical` and
+  `decoderCompileTime` instead of the retired `ascWired` flag.
+- `config/networks/advance-testnet.json` intentionally unchanged (placeholder values
+  with `verified:false` remain fail-closed under the new rules).
+- R-F (`tsconfig` covering `services/*`) was already satisfied during Phase 03
+  execution; verified present, no change needed here.
+- Phase 07's plan still references verifier/decoder bytecode checks; flagged for its
+  PVL (out of scope for this supplement — no Phase 07 file touched).
+
 ## Global Constraints
 
 - The approved Pact design is the product and architecture authority.
