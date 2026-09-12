@@ -1,6 +1,6 @@
 import { AbiCoder, getAddress, keccak256, toUtf8Bytes } from "ethers";
-import { DomainError } from "./errors.js";
-import type { CanonicalIntentInput } from "./types.js";
+import { DomainError } from "./errors.ts";
+import type { CanonicalIntentInput } from "./types.ts";
 
 /**
  * Canonical intent hashing (Phase 01 contract, consumed by Phase 02 Solidity).

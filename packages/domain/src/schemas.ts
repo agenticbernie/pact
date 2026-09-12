@@ -2,14 +2,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { getAddress, isAddress, ZeroAddress } from "ethers";
 import { z } from "zod";
-import { DomainError } from "./errors.js";
+import { DomainError } from "./errors.ts";
 import type {
   AdvanceTestnetConfig,
   AgentIntent,
   MerchantCatalog,
   NetworkObservation,
   OpenAIConfig,
-} from "./types.js";
+} from "./types.ts";
 
 const UINT256_MAX = (1n << 256n) - 1n;
 const UINT32_MAX = 4294967295;
@@ -323,9 +323,41 @@ export function loadOpenAIConfig(input: string | URL | unknown): OpenAIConfig {
   return result.data;
 }
 
-/** Runtime guard: the environment may leave the model unset, but never substitute it silently. */
-export function resolveOpenAIModel(config: OpenAIConfig): "gpt-5.6-luna" {
-  const override = process.env["OPENAI_MODEL"];
+/**
+ * Edge-compatible entry (C4): parses already-loaded JSON text with the SAME
+ * strict schema. Serve adapters bundle the pinned JSON statically
+ * (`import ... with { type: "json" }`) or inject it — no disk read on Edge.
+ */
+export function parseOpenAIConfigJson(jsonText: string): OpenAIConfig {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText) as unknown;
+  } catch {
+    throw new DomainError("AI_CONFIG_INVALID", "OpenAI provider config is invalid.", {
+      reason: "unreadable-config",
+    });
+  }
+  const result = OpenAIConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new DomainError("AI_CONFIG_INVALID", "OpenAI provider config is invalid.", {
+      reason: "schema-rejected",
+    });
+  }
+  return result.data;
+}
+
+/**
+ * Runtime guard: the environment may leave the model unset, but never substitute it silently.
+ * Edge callers pass the explicit `envModel` dep (`Deno.env.get("OPENAI_MODEL") ?? undefined`);
+ * the Node default path is preserved verbatim for scripts/tests.
+ */
+export function resolveOpenAIModel(config: OpenAIConfig, envModel?: string): "gpt-5.6-luna" {
+  const override =
+    envModel !== undefined
+      ? envModel
+      : typeof process !== "undefined"
+        ? process.env["OPENAI_MODEL"]
+        : undefined;
   if (override !== undefined && override !== config.model) {
     throw new DomainError("AI_CONFIG_INVALID", "Model substitution rejected.", {
       env: "OPENAI_MODEL",

@@ -58,6 +58,29 @@ export type SessionStore = {
   sessions: Map<string, SessionRecord>;
 };
 
+export type SessionPersistence = {
+  insertChallenge(row: ChallengeRecord): Promise<void>;
+  consumeChallenge(nonceHash: string): Promise<ChallengeRecord | null>;
+  insertSession(row: SessionRecord): Promise<void>;
+  findSession(tokenHash: string, wallet: string): Promise<SessionRecord | null>;
+  revokeSession(tokenHash: string, wallet: string, nowMs: number): Promise<boolean>;
+};
+
+export type SessionRuntime = {
+  requestChallenge(input: { wallet: string; domain: string; chainLabel: string; nowMs?: number }): Promise<{
+    nonce: string;
+    message: string;
+    expiresAt: string;
+  }>;
+  verifyChallenge(input: {
+    nonce: string;
+    signature: string;
+    nowMs?: number;
+    verifyFn?: VerifyFn;
+  }): Promise<{ token: string; sessionId: string }>;
+  revokeSession(input: { token: string; nowMs?: number }): Promise<{ revoked: boolean }>;
+};
+
 export function createSessionStore(): SessionStore {
   return { challenges: new Map(), sessions: new Map() };
 }
@@ -167,4 +190,178 @@ export function revokeSession(
     }
   }
   return { revoked: true };
+}
+
+/** Runtime composition for an RLS-safe/PostgREST-shaped persistence port. */
+export function createSessionRuntime(input: {
+  persistence: SessionPersistence;
+  secret: string;
+  previousSecret?: string;
+}): SessionRuntime {
+  return {
+    async requestChallenge(challengeInput) {
+      const temporary = createSessionStore();
+      const result = requestChallenge(temporary, challengeInput);
+      const row = temporary.challenges.get(hashNonce(result.nonce));
+      if (row === undefined) throw sessionError("AUTH_INVALID");
+      await input.persistence.insertChallenge(row);
+      return result;
+    },
+    async verifyChallenge(verifyInput) {
+      const now = verifyInput.nowMs ?? Date.now();
+      const nonceHash = hashNonce(verifyInput.nonce);
+      const row = await input.persistence.consumeChallenge(nonceHash);
+      if (row === null) throw sessionError("AUTH_INVALID");
+      if (row.expiresAtMs <= now) throw sessionError("AUTH_EXPIRED");
+      let wallet: string;
+      try {
+        wallet = (verifyInput.verifyFn ?? ethersVerify)(row.message, verifyInput.signature).toLowerCase();
+      } catch {
+        throw sessionError("AUTH_INVALID");
+      }
+      if (wallet !== row.wallet) throw sessionError("AUTH_INVALID");
+      const sessionId = randomBytes(16).toString("hex");
+      const token = issueSessionToken({ sessionId, wallet: row.wallet, role: "user" }, input.secret, now);
+      await input.persistence.insertSession({
+        id: sessionId,
+        tokenHash: hashToken(token),
+        wallet: row.wallet,
+        role: "user",
+        issuedAtMs: now,
+        expiresAtMs: now + SESSION_TTL_MS,
+        revokedAtMs: null,
+      });
+      return { token, sessionId };
+    },
+    async revokeSession(revokeInput) {
+      const now = revokeInput.nowMs ?? Date.now();
+      let payload: ReturnType<typeof verifySessionToken>;
+      try {
+        payload = verifySessionToken(revokeInput.token, input.secret, now, undefined, input.previousSecret);
+      } catch {
+        throw sessionError("AUTH_INVALID");
+      }
+      const revoked = await input.persistence.revokeSession(hashToken(revokeInput.token), payload.wallet, now);
+      return { revoked };
+    },
+  };
+}
+
+export function createSessionHttpHandler(runtime: SessionRuntime, options: {
+  nowMs?: number;
+  verifyFn?: VerifyFn;
+} = {}): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const requestId = request.headers.get("x-request-id") ?? "req-session";
+    const path = new URL(request.url).pathname;
+    if (request.method !== "POST" || !path.startsWith("/v1/session/")) {
+      return sessionResponse({ requestId, code: "INPUT_INVALID", message: "Unsupported session route." }, 404);
+    }
+    try {
+      const body = path.endsWith("/revoke")
+        ? {}
+        : (await request.json()) as Record<string, unknown>;
+      if (path.endsWith("/challenge")) {
+        const result = await runtime.requestChallenge({
+          wallet: String(body.wallet ?? ""),
+          domain: String(body.domain ?? "pact.test"),
+          chainLabel: String(body.chainLabel ?? "advance-testnet"),
+          nowMs: options.nowMs,
+        });
+        return sessionResponse({ requestId, ...result });
+      }
+      if (path.endsWith("/verify")) {
+        const result = await runtime.verifyChallenge({
+          nonce: String(body.nonce ?? ""),
+          signature: String(body.signature ?? ""),
+          nowMs: options.nowMs,
+          verifyFn: options.verifyFn,
+        });
+        return sessionResponse({ requestId, ...result });
+      }
+      if (path.endsWith("/revoke")) {
+        const token = request.headers.get("authorization")?.replace(/^Bearer\s+/, "") ?? "";
+        return sessionResponse({ requestId, ...(await runtime.revokeSession({ token, nowMs: options.nowMs })) });
+      }
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? String(error.code) : "AUTH_INVALID";
+      return sessionResponse({ requestId, code, message: "Authentication request failed." }, 401);
+    }
+    return sessionResponse({ requestId, code: "INPUT_INVALID", message: "Unsupported session route." }, 404);
+  };
+}
+
+declare const Deno: {
+  env: { get(name: string): string | undefined };
+  serve(handler: (request: Request) => Response | Promise<Response>): void;
+};
+
+const EXPECTED_REGION = "us-east-1";
+
+export function createSessionEntrypointHandler(input: {
+  runtime?: SessionRuntime;
+  configuredRegion?: string;
+  expectedRegion?: string;
+  options?: Parameters<typeof createSessionHttpHandler>[1];
+} = {}): (request: Request) => Promise<Response> {
+  if (input.runtime === undefined || input.configuredRegion !== (input.expectedRegion ?? EXPECTED_REGION)) {
+    return async (request) => sessionResponse({
+      requestId: request.headers.get("x-request-id") ?? "req-session",
+      code: "PROVIDER_UNAVAILABLE",
+      message: "Session persistence runtime is unavailable.",
+    }, 503);
+  }
+  return createSessionHttpHandler(input.runtime, input.options);
+}
+
+type RuntimeEnv = Record<string, string | undefined>;
+type Server = (handler: (request: Request) => Response | Promise<Response>) => void;
+
+export function createSessionCompositionRoot(input: {
+  env?: RuntimeEnv;
+  persistence?: SessionPersistence;
+  options?: Parameters<typeof createSessionHttpHandler>[1];
+} = {}): (request: Request) => Promise<Response> {
+  const env = input.env ?? {};
+  const expectedRegion = EXPECTED_REGION;
+  const configuredRegion = env.SUPABASE_FUNCTION_REGION;
+  const secret = env.SESSION_HMAC_SECRET;
+  if (configuredRegion !== expectedRegion || secret === undefined || input.persistence === undefined) {
+    return createSessionEntrypointHandler({ configuredRegion, expectedRegion });
+  }
+  return createSessionEntrypointHandler({
+    runtime: createSessionRuntime({ persistence: input.persistence, secret }),
+    configuredRegion,
+    expectedRegion,
+    options: input.options,
+  });
+}
+
+export function startSessionServer(input: {
+  serve: Server;
+  env?: RuntimeEnv;
+  persistence?: SessionPersistence;
+  options?: Parameters<typeof createSessionHttpHandler>[1];
+}): void {
+  input.serve(createSessionCompositionRoot(input));
+}
+
+function sessionResponse(body: unknown, status = 200): Response {
+  const requestId = typeof body === "object" && body !== null && "requestId" in body
+    ? String((body as { requestId: unknown }).requestId)
+    : "req-session";
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", "x-request-id": requestId },
+  });
+}
+
+if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
+  startSessionServer({
+    serve: Deno.serve,
+    env: {
+      SUPABASE_FUNCTION_REGION: Deno.env.get("SUPABASE_FUNCTION_REGION"),
+      SESSION_HMAC_SECRET: Deno.env.get(SESSION_HMAC_SECRET_NAME),
+    },
+  });
 }

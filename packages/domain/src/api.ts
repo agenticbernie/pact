@@ -1,6 +1,6 @@
-import { DomainError } from "./errors.js";
-import type { DomainErrorCode } from "./errors.js";
-import type { AgentIntent } from "./types.js";
+import { DomainError } from "./errors.ts";
+import type { DomainErrorCode } from "./errors.ts";
+import type { AgentIntent } from "./types.ts";
 
 /**
  * Phase 04 API envelopes + closed error taxonomy.

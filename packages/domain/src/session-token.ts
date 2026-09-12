@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { DomainError } from "./errors.js";
+import { DomainError } from "./errors.ts";
 /**
  * Hybrid session token logic (C-SESSION, pure / Vitest-testable).
  *

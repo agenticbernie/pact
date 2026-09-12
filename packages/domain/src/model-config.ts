@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { DomainError } from "./errors.js";
+import { DomainError } from "./errors.ts";
 
 /**
  * Single model truth (C-MODEL): `config/ai/model-config.json` is the ONLY
@@ -44,6 +44,29 @@ function readJsonInput(input: unknown): unknown {
 /** Strict loader for `config/ai/model-config.json` (the single source of truth). */
 export function loadModelConfig(input: string | URL | unknown): ModelConfig {
   const result = ModelConfigSchema.safeParse(readJsonInput(input));
+  if (!result.success) {
+    throw new DomainError("AI_CONFIG_INVALID", "Model config is invalid.", {
+      reason: "schema-rejected",
+    });
+  }
+  return result.data;
+}
+
+/**
+ * Edge-compatible entry (C4): parses already-loaded JSON text with the SAME
+ * strict schema. Serve adapters bundle the pinned JSON statically
+ * (`import ... with { type: "json" }`) or inject it — no disk read on Edge.
+ */
+export function parseModelConfigJson(jsonText: string): ModelConfig {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText) as unknown;
+  } catch {
+    throw new DomainError("AI_CONFIG_INVALID", "Model config is invalid.", {
+      reason: "unreadable-config",
+    });
+  }
+  const result = ModelConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new DomainError("AI_CONFIG_INVALID", "Model config is invalid.", {
       reason: "schema-rejected",

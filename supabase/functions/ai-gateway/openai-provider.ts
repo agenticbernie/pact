@@ -56,12 +56,14 @@ export class OpenAiProvider implements AiProvider {
   private readonly region: string;
   private readonly baseUrl: string;
   private readonly fetchFn: FetchFn;
+  private readonly apiKey?: string;
 
-  constructor(input: { modelConfig: ModelConfig; region?: string; baseUrl?: string; fetchFn: FetchFn }) {
+  constructor(input: { modelConfig: ModelConfig; region?: string; baseUrl?: string; apiKey?: string; fetchFn: FetchFn }) {
     this.modelConfig = input.modelConfig;
     this.region = input.region ?? "us-east-1";
     this.baseUrl = input.baseUrl ?? "https://api.openai.com";
     this.fetchFn = input.fetchFn;
+    this.apiKey = input.apiKey;
   }
 
   async parseIntent(input: {
@@ -115,7 +117,10 @@ export class OpenAiProvider implements AiProvider {
       void started;
       const response = await this.fetchFn(`${this.baseUrl}/v1/responses`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(this.apiKey === undefined ? {} : { authorization: `Bearer ${this.apiKey}` }),
+        },
         body: payload,
       });
       lastStatus = response.status;

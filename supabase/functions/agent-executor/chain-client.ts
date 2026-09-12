@@ -42,6 +42,57 @@ export interface PaymentClient {
   findByNonce(cardId: string, nonce: string): Promise<ReceiptResult | null>;
 }
 
+export type ReadOnlyRpcTransport = (method: "eth_chainId" | "eth_call", params: unknown[]) => Promise<unknown>;
+
+export function createFetchRpcTransport(rpcUrl: string, fetchFn: typeof fetch = fetch): ReadOnlyRpcTransport {
+  return async (method, params) => {
+    const response = await fetchFn(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    if (!response.ok) throw new Error("RPC request failed.");
+    const body = await response.json() as { result?: unknown; error?: unknown };
+    if (body.error !== undefined || !("result" in body)) throw new Error("RPC response failed.");
+    return body.result;
+  };
+}
+
+export type ReadOnlyRpcPaymentClient = {
+  readCard(cardId: string): Promise<OnChainCardSnapshot>;
+  preflight(input: PayInput): Promise<PreflightResult>;
+};
+
+/** Injectable static-call boundary. It deliberately has no send/broadcast methods. */
+export function createReadOnlyRpcPaymentClient(input: {
+  rpcUrl: string;
+  expectedChainId: number;
+  agent?: string;
+  transport: ReadOnlyRpcTransport;
+}): ReadOnlyRpcPaymentClient {
+  if (input.rpcUrl.length === 0) throw new Error("RPC endpoint is required.");
+  const agent = input.agent ?? "0x0000000000000000000000000000000000000000";
+  async function assertNetwork(): Promise<void> {
+    const value = await input.transport("eth_chainId", []);
+    const chainId = typeof value === "string" ? Number.parseInt(value, 16) : Number(value);
+    if (chainId !== input.expectedChainId) throw Object.assign(new Error("Chain mismatch."), { code: "NETWORK_CONFIG_INVALID" });
+  }
+  return {
+    async readCard(cardId) {
+      await assertNetwork();
+      const value = await input.transport("eth_call", [{ from: agent, kind: "readCard", cardId }, "latest"]);
+      if (typeof value !== "object" || value === null) throw new Error("Card read failed.");
+      return value as OnChainCardSnapshot;
+    },
+    async preflight(payInput) {
+      await assertNetwork();
+      const value = await input.transport("eth_call", [{ from: agent, kind: "preflightPay", ...payInput }, "latest"]);
+      if (typeof value !== "object" || value === null) throw new Error("Preflight failed.");
+      return value as PreflightResult;
+    },
+  };
+}
+
 /** Gas-only signer policy: `pay` submission only, no policy mutation path. */
 export const SIGNER_POLICY = "gas-only" as const;
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DomainError } from "./errors.js";
+import { DomainError } from "./errors.ts";
 
 const bytes32Schema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
