@@ -12,7 +12,7 @@ metadata:
 # Pact MVP — Umbrella Implementation Plan
 
 **Date**: 2026-09-08
-**Status**: ⏳ PLANNED
+**Status**: 🧪 TESTING — Phase 04 complete with approval-gated gaps
 **Complexity**: COMPLEX / PHASE PROGRAM
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
@@ -121,13 +121,14 @@ START: Phase 01 — Foundation, Domain Contracts & AICD; loop step PLAN-SUPPLEME
 
 ## Current Execution State
 
-Last updated: 2026-09-10
+Last updated: 2026-09-12
 Current phase: 4 of 7
 Phase 4 name: AI Gateway & Executor
-Phase 4 status: 🔨 CODE DONE (LOCAL GATES GREEN reported 2026-09-10; H1–H3 hybrid pending explicit approval; VERIFIED confirmation outstanding)
-Phase 4 EVL-local: green reported (domain 91 + edge/gateway/executor fake-backed suites; typecheck/lint/AICD clean; secret scan 954 files 0 findings; Forge 101 regression; sendPayment==0 fail-closed + store-before-wait + never-settled-on-uncertain; commits 8c5e23c/77e5d25/ad6d50b local, unpushed)
+Phase 4 status: 🧪 COMPLETE WITH GAPS (Option A persistence foundation EVL GREEN 2026-09-12 local/static only; staging migration approval + post-foundation G13 redeploy + H1–H3 pending explicit approvals)
+Phase 4 EVL-local: green (persistence foundation: focused 7/49, full 29/171, G18/G19/G20 16/16/G21 GREEN, G22 UNKNOWN/HYBRID-ONLY, G1-G6/G8 GREEN, G7 CI-only, G12a 6/6, G12b GREEN under Deno 2.9.6 3+3, typecheck/lint/AICD GREEN, secret scan 989/0, diff-check GREEN, no deno.lock, AGENT_SIGNER_PRIVATE_KEY absent, V1 staleness doc-only; prior G14-G17 local 4/4 + 119/119 + 13/13 preserved; migration 202609120001 created/static-only NOT applied, staging unchanged, G13 evidence preserved but predates foundation, remote UNKNOWN/HYBRID-ONLY)
 Phase 4 report: process/features/pact/active/pact-mvp_08-09-26/phase-04-ai-gateway-executor_REPORT_08-09-26.md
-Next phase: H1–H3 hybrid lane under separate explicit approval (live model call + regional preflight + URL/region record), then 5 — Indexer/read model (entry: Phase 04 API/event contracts stable; implementation committed locally)
+Phase 4 supplement: process/features/pact/active/pact-mvp_08-09-26/phase-04-session-intent-card-persistence-supplement_PLAN_12-09-26.md
+Next phase: staging migration approval for 202609120001_persistence_contracts.sql, then post-foundation G13 staging redeploy under separate explicit approval, then H1–H3 under their own approvals; only after those gates, Phase 05 — Indexer/read model (entry: Phase 04 API/event contracts stable; current staging does not reflect new persistence foundation)
 
 Phase 1 status: 🔨 CODE DONE (VERIFIED confirmation outstanding).
 Phase 2 Validate Contract: CONDITIONAL accepted with C-P2a–C-P2d (2026-09-09);
@@ -234,7 +235,7 @@ Reports stay flat inside the program task folder. The folder moves as one unit w
 | 01 — Foundation | 🔨 CODE DONE |
 | 02 — Payment contracts | ✅ VERIFIED |
 | 03 — ASC credit evidence | ✅ VERIFIED |
-| 04 — AI gateway/executor | 🔨 CODE DONE |
+| 04 — AI gateway/executor | 🧪 TESTING |
 | 05 — Indexer/read model | ⏳ PLANNED |
 | 06 — Web UI/UX | ⏳ PLANNED |
 | 07 — Integrated deployment/demo | ⏳ PLANNED |

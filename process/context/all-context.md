@@ -150,7 +150,8 @@ Still planned by later phases (not present): `packages/asc/`,
   ambient `yarn` for project commands).
 - Root manifest and lockfile exist; `packages/domain` with Vitest `3.2.4`,
   `forge`/`cast`/`anvil` (Foundry `1.7.1`), and `wrangler` are available.
-- `supabase` and `deno` are not installed (needed from Phase 04/05).
+- Deno `2.9.6` and Supabase CLI `2.117.0` are verified for the Phase 04
+  hosted bundle-resolution supplement; local Supabase serve was not run.
 
 ### Approved implementation target
 
@@ -281,10 +282,56 @@ and `node .claude/skills/vc-audit-context/scripts/validate-context-discovery.mjs
 
 ## Scan Metadata
 
-- Generated: 2026-09-10 (refreshed after Phase 04 Tasks 1–6 local EXIT; Pact plans preserved)
+- Generated: 2026-09-12 (refreshed after Phase 04 Option A persistence foundation EVL GREEN local/static only; Pact plans preserved)
 - HEAD: `main` (Phase 04 closeout, process commit pending review; implementation commits local)
-- Mode: closeout after Phase 04 Tasks 1–6 local green (H1–H3 hybrid pending); research/PVL artifacts preserved byte-identically
+- Mode: closeout after Phase 04 Option A persistence foundation EVL GREEN (staging migration approval + post-foundation G13 redeploy + H1–H3 pending); original V1–V7, prior deployment-only G13 success, and failed bare-ethers G13 evidence preserved unchanged
 - Package manager: Yarn Classic `1.22.22` via Corepack; manifest and lockfile present
 - Source scan: `packages/domain` + `packages/pact-sdk`, `contracts/` (sources, tests,
   deploy script), `config/`, `architecture/`, and `scripts/` materialized and gated;
   Supabase, web, services, and e2e remain planned
+
+### Phase 04 G14-G17 EVL note (2026-09-11)
+
+Genuine RED was captured before implementation for G14-G17. Focused tests are
+4/4 GREEN, relevant Vitest is 119/119 GREEN, and function regression is 13/13
+GREEN. G1-G6/G8 are GREEN; G7 is CI-only/non-binding; G12a is 6/6 GREEN; and
+G12b is GREEN under Deno 2.9.6. Typecheck, lint, AICD, and diff-check are
+GREEN. Secret scan is 975/0. Local session, gateway, executor, and health
+behavior is verified. `deno.lock` and `AGENT_SIGNER_PRIVATE_KEY` are absent.
+Remote schema parity remains UNKNOWN/HYBRID-ONLY.
+
+The newly implemented G14-G17 runtime wiring has not been deployed and current
+staging does not reflect it. The earlier G13 deployment-only success remains
+preserved; a post-runtime G13 staging redeploy is required before H1-H3. H1-H3
+are NOT RUN and remain separately approval-gated. No deployment, migration,
+OpenAI/RPC call, transaction, or secret access is implied by local EVL.
+
+### Phase 04 G12b verification note (2026-09-11)
+
+Deno `2.9.6` independently verified the ambient `randomUUID` crypto typing fix:
+the focused `ai-gateway` check, all `3/3` per-function checks, and all `3/3`
+per-function bundles passed using supported `deno bundle --no-lock -c
+<function>/deno.json -o <output> <entrypoint>` syntax. G12a `6/6`, full Vitest
+`145/145`, typecheck, lint, AICD, secret scan `970/0`, and `git diff --check`
+also passed. The implementation scope was only
+`supabase/functions/ai-gateway/index.ts` and
+`supabase/functions/agent-executor/index.ts`; the fix is ambient typing-only,
+with no runtime or business-behavior drift. `deno.lock` and
+`AGENT_SIGNER_PRIVATE_KEY` are absent. The original G13 bare-ethers failure is
+preserved unchanged; G13/H1/H2/H3 remain NOT RUN.
+
+### Phase 04 Option A persistence foundation EVL note (2026-09-12)
+
+Persistence foundation is EVL GREEN (local/static only): focused `7/49`,
+full `29/171`, G18 GREEN, G19 GREEN, G20 `16/16` GREEN, G21 GREEN, G22
+UNKNOWN/HYBRID-ONLY, G1-G6/G8 GREEN, G7 CI-only, G12a `6/6`, G12b GREEN
+under Deno `2.9.6` (`3+3`), typecheck/lint/AICD GREEN, secret scan `989/0`,
+`git diff --check` GREEN, no `deno.lock`, `AGENT_SIGNER_PRIVATE_KEY` absent,
+V1 staleness doc-only.
+
+Migration `supabase/migrations/202609120001_persistence_contracts.sql` is
+created/static-only and NOT applied; staging is unchanged. G13 evidence is
+preserved but predates the foundation. Post-foundation migration + G13
+staging redeploy are required before H1-H3; H1-H3 remain gated and NOT RUN.
+Remote schema parity is UNKNOWN/HYBRID-ONLY. V1-V7, G13 failure/success, and
+G14-G17 local records are preserved with no rewrite.

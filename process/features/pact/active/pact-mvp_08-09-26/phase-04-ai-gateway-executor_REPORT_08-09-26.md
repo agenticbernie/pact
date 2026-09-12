@@ -1,7 +1,7 @@
 ---
 phase: phase-04-ai-gateway-executor
 date: 2026-09-10
-status: CODE_COMPLETE_LOCAL_GREEN
+status: COMPLETE_WITH_GAPS
 feature: pact
 plan: process/features/pact/active/pact-mvp_08-09-26/phase-04-ai-gateway-executor_PLAN_08-09-26.md
 ---
@@ -13,6 +13,141 @@ Tasks 1–6 RED → GREEN complete; binding local gates G1–G6 plus G8 GREEN (r
 G7 Deno/Supabase is CI-only and non-binding locally (CLIs absent).
 H1–H3 live hybrid lanes NOT executed — separate explicit approval required.
 No push performed for the implementation commits in this closeout.
+
+## Hosted Bundle-Resolution Supplement EVL (2026-09-11)
+
+The hosted bundle-resolution supplement is **VERIFIED**. This covers the
+deterministic local equivalent of hosted resolution and does not claim a hosted
+deployment. The original failed G13 evidence remains unchanged in the Phase 04
+plan.
+
+- Deno `2.9.6` and Supabase CLI `2.117.0` verified.
+- Function-local compatibility test: `6/6` passed.
+- `session`, `ai-gateway`, and `agent-executor` function-local `deno.json`
+  files verified with the exact pinned `ethers@6.17.0` and `zod@3.25.76` maps.
+- Per-function `deno check` and `deno bundle` passed for all three entrypoints.
+- G1-G4/G5/G6/G8/G12a/G12b GREEN; secret scan `970` scanned, `0` findings.
+- No generated `deno.lock` remains; `AGENT_SIGNER_PRIVATE_KEY` was absent;
+  `SUPABASE_REGIONAL_FUNCTION_URL` was absent by design as a post-deployment
+  output.
+- Local Supabase serve was **NOT RUN**.
+- G13 retry and H1/H2/H3 remain pending and separately approval-gated. No
+  deployment, migration, OpenAI/RPC call, transaction, or secret access
+  occurred.
+
+## G12b Crypto-Typing Fix Verification (2026-09-11)
+
+Independent verification confirmed the ambient `randomUUID` crypto typing fix.
+This is a typing-only correction with no runtime or business-behavior drift.
+
+- Deno `2.9.6`; focused `ai-gateway` check GREEN.
+- Per-function checks: `3/3` GREEN.
+- Per-function bundles: `3/3` GREEN with the supported command shape
+  `deno bundle --no-lock -c <function>/deno.json -o <output> <entrypoint>`.
+- G12a `6/6`; full Vitest `145/145`; typecheck, lint, and AICD GREEN.
+- Secret scan: `970` scanned, `0` findings. `git diff --check` GREEN.
+- `deno.lock` absent; `AGENT_SIGNER_PRIVATE_KEY` absent by name.
+- Implementation fix scope was limited to
+  `supabase/functions/ai-gateway/index.ts` and
+  `supabase/functions/agent-executor/index.ts`.
+
+The original G13 bare-ethers failure remains preserved unchanged. G13, H1, H2,
+and H3 remain **NOT RUN**. No deployment, OpenAI/RPC call, migration,
+transaction, secret-value access, commit, or push occurred.
+
+## What Was Done
+
+Verified the function-local Deno configuration supplement and its compatibility,
+typecheck, and bundle evidence. Updated Phase 04 process state without changing
+implementation source or the original V1-V7 contract.
+
+## What Was Skipped or Deferred
+
+G13 hosted deployment retry, H1 live model access, H2 regional static-call
+evidence, and H3 deployed URL/region confirmation remain pending. Local
+Supabase serve was not run. No migration, external call, secret access, commit,
+or push was performed in this update pass.
+
+## Test Gate Outcomes
+
+The compatibility test passed `6/6`; all three entrypoints passed Deno check and
+bundle under Deno `2.9.6` with Supabase CLI `2.117.0` recorded. G1-G4, G5, G6,
+G8, G12a, and G12b are GREEN. Secret scan reported `970` scanned and `0`
+findings. No generated Deno lockfile remains.
+
+## Plan Deviations
+
+The plan remains in `active/` because G13 and H1-H3 are still approval-gated.
+The hosted supplement is verified without changing the original V1-V7 contract
+or the original failed G13 evidence.
+
+## Test Infra Gaps Found
+
+The local Supabase serve check was not run because the local Supabase stack was
+not started. Hosted deployment and regional URL derivation remain unverified.
+
+## SPEC Achievement
+
+- Bundle-resolution compatibility: **met** (compatibility test `6/6` and six
+  per-function Deno check/bundle commands passed).
+- Local Phase 04 behavior guards: **met** (G1-G6, G8, G12a, G12b, and secret
+  scan `970/0`).
+- Hosted deployment and regional runtime behavior: **unmet -> pending G13/H1/H2/H3**.
+
+## SPEC Gaps
+
+G13 hosted deployment acceptance, H1 live model call, H2 regional preflight,
+and H3 fixed URL/region confirmation remain open. Existing approval-gated
+follow-ups already own these gaps; no duplicate backlog note is created.
+
+## Closeout Packet
+
+1. **Selected plan path:** `process/features/pact/active/pact-mvp_08-09-26/phase-04-ai-gateway-executor_PLAN_08-09-26.md`
+2. **Closeout classification:** `Keep in active/ — needs further testing`
+3. **What was finished:** Hosted bundle-resolution supplement verified locally;
+   function-local configs, compatibility, Deno checks, and bundles are green.
+4. **Verified vs unverified:** G1-G6/G8/G12a/G12b and secret scan are green;
+   G13/H1/H2/H3 remain unverified. The original V1-V7 contract is preserved.
+5. **Cleanup:** Report, plan handoff, umbrella state, backend context, and
+   live-lane routing updated; hosted deployment approval remains needed.
+6. **Single best next valid state:** Explicitly approve the G13 staging-only
+   retry after confirming the exact toolchain; keep H1-H3 separately gated.
+7. **Commit checkpoint:** Invoke `vc-git-manager` after review; do not commit or
+   push in this session.
+8. **Regression status:** G1-G6/G8/G12a/G12b and reported Phase 02/03
+   regression surfaces remain green; no implementation source changed here.
+9. **SPEC achievement:** Bundle-resolution criterion met by the `6/6` test and
+   per-function checks/bundles; hosted/live criteria remain pending.
+
+## Forward Preview
+
+### Test Infra Found
+
+Function-local `deno.json` files provide a deterministic hosted-resolution
+equivalent. Local Supabase serve remains not run.
+
+### Blast Radius Changes
+
+No implementation blast-radius change in this update pass. Process and context
+artifacts only.
+
+### Commands to Stay Green
+
+`corepack yarn vitest run supabase/functions/_shared/test/deploy-compat.vitest.test.ts`
+plus the three per-function Deno `check`/`bundle` command pairs from the hosted
+bundle-resolution supplement and G1-G6/G8.
+
+### Dependency Changes
+
+Downstream work may rely on the three function-local config boundaries and the
+verified Deno `2.9.6` / Supabase CLI `2.117.0` toolchain. Hosted deployment and
+regional URL facts are not available yet.
+
+## Update Process Handoff
+
+Phase 04 remains active with `COMPLETE_WITH_GAPS`: the hosted bundle-resolution
+supplement is verified, while G13 retry and H1-H3 remain pending. Do not archive
+the plan or advance to Phase 05 on this supplement alone.
 
 ## Toolchain (recorded)
 
@@ -160,3 +295,112 @@ pending. AC-17 unaffected (no AICD component changes; validator 0 failures).
 No push was performed in this UPDATE PROCESS session. The three implementation
 commits (`8c5e23c`, `77e5d25`, `ad6d50b`) remain local. Only a process-only docs
 commit is created below, also unpushed.
+
+## Appendix H — Hybrid lane STOPPED at Step 0 (2026-09-10, redacted)
+
+- Verdict: STOPPED at Step 0 (presence-by-name). Zero live calls. Never green.
+- Entry gates (read from this report, no re-run, no Deno): G1–G6 + G8 GREEN
+  reported 2026-09-10; G7 CI-only/non-binding (Deno/Supabase CLIs absent, recorded).
+  Implementation commits `8c5e23c`, `77e5d25`, `ad6d50b` present locally (verified).
+- Step 0 presence-by-name (names only, zero values): server secret names 1/4 set
+  (1/3 excluding service-role-if-unused); operational input names 1/5 set;
+  `AGENT_SIGNER_PRIVATE_KEY` ABSENT by name enumeration (required absent, holds).
+  Abort per §3/§6 — required names missing in lane shell. No values checked.
+- Pre-call asserts (§4): NOT EXECUTED (lane aborted before Step 1). File pin
+  observed but not claimed as lane evidence: `config/ai/model-config.json`
+  parses as pinned shape (no lane assert run, no network).
+- H1: NOT EXECUTED. Log shape only (no IDs, no latency, no bodies):
+  `{provider:"openai", model:"gpt-5.6-luna", providerRequestId:"<not-run>", latencyMs:"<not-run>", decision:"<not-run>", storeConfirmed:"<not-run>", allowFallbackAsserted:"<not-run>"}`.
+  Billable calls used: 0/3. Retries used: 0 (policy: once only on 502/503/429).
+- H2: NOT EXECUTED. Evidence shape only:
+  `{decision:"<not-run>", reasonCode:"<not-run>", chainId:"<not-run>", checkedAt:"<not-run>", correlationIds:{requestId:"<not-run>", intentId:"<not-run>"}}`.
+  Read-only RPC attempts used: 0/3. Transactions: 0. Gas: 0. Signer ops: 0.
+  No mainnet chain ID anywhere in lane commands/evidence/appendix.
+- H3: NOT EXECUTED. Record shape only:
+  `{regionalUrl:"<not-run>", expectedRegion:"<not-run>", actualRegion:"<not-run>", regionsMatch:"<not-run>", wranglerBindings:["SUPABASE_REGIONAL_FUNCTION_URL","ALLOWED_ORIGIN","RATE_LIMITER"], health:{requestId:"<not-run>", chainId:"<not-run>", provider:"openai", modelAvailable:"<not-run>"}}`.
+  Repo `wrangler.toml` holds empty/placeholder binding values only (no secret).
+- Cleanup (§9): lane-created sessions/intents 0 → revoked 0, expired 0, deleted 0;
+  demo credential revocations 0 (none issued); final row counts 0/0;
+  `SESSION_HMAC_SECRET` untouched (no lane rotation; operator out-of-lane only).
+- Verification: `node scripts/check-no-secrets.mjs` 0 findings;
+  `git status` clean-of-secrets (only untracked hybrid-gate-pack file, no key
+  material); `git diff --check` clean; no `openai` SDK import added (raw-fetch
+  port only); no fallback, no retry, no arbitrary upstream, no signer demand.
+- Blocker (bounded): disposable lane env absent in lane shell per §3.
+  Safe next action: operator provisions staging/disposable env via dashboard/CLI
+  (never repo), confirms §3 input contract + §2 prerequisites, then re-opens the
+  lane with a new explicit approval. Do not use production keys. No commit/push.
+
+## EVL Green Record — G14-G17 Runtime Wiring (2026-09-11)
+
+This is a process-only record of the post-implementation local EVL. Earlier
+report sections and all historical V1-V7/G13 evidence remain unchanged.
+
+### Evidence
+
+- Genuine RED was captured for each G14-G17 focused test before implementation.
+- Focused G14-G17 tests: **4/4 GREEN**.
+- Relevant Vitest suite: **119/119 GREEN**.
+- Function regression: **13/13 GREEN**.
+- G1-G6 and G8: **GREEN**.
+- G7: **CI-only/non-binding**.
+- G12a: **6/6 GREEN**.
+- G12b: **GREEN under Deno 2.9.6**.
+- Typecheck, lint, AICD, and `git diff --check`: **GREEN**.
+- Secret scan: **975 scanned / 0 findings**.
+- `deno.lock` absent; `AGENT_SIGNER_PRIVATE_KEY` absent by name.
+- Local session, gateway, executor, and health behavior verified.
+- Remote schema parity remains **UNKNOWN / HYBRID-ONLY**.
+
+### Deployment and Approval Boundary
+
+The prior G13 deployment-only success remains preserved. The newly implemented
+G14-G17 runtime wiring has **not** been deployed, and current staging does not
+reflect the new runtime wiring. A post-runtime G13 staging redeploy is required
+before H1-H3. H1, H2, and H3 are **NOT RUN** and remain separately
+approval-gated. No deployment, migration, OpenAI/RPC call, transaction, secret
+access, commit, or push occurred in this EVL/update pass.
+
+**EVL classification:** LOCAL G14-G17 GREEN; post-runtime G13 redeploy
+PENDING; H1-H3 NOT RUN; remote schema parity UNKNOWN/HYBRID-ONLY.
+
+## EVL Green Record — Option A Persistence Foundation (2026-09-12)
+
+This is a process-only closeout record for the Phase 04 persistence
+supplement (`phase-04-session-intent-card-persistence-supplement_PLAN_12-09-26.md`,
+Option A server-only PostgREST). Earlier report sections and all historical
+V1-V7/G13/G14-G17 evidence remain unchanged.
+
+### Evidence (reported persistence-foundation EVL)
+
+- Focused persistence suites: **7/49 GREEN**.
+- Full relevant Vitest: **29/171 GREEN**.
+- G18 GREEN; G19 GREEN; G20 **16/16 GREEN**; G21 GREEN.
+- G22 **UNKNOWN / HYBRID-ONLY** (no remote parity claimed).
+- G1-G6/G8 GREEN; G7 CI-only/non-binding; G12a 6/6 GREEN; G12b GREEN under
+  Deno `2.9.6` (`3+3` per-function check/bundle).
+- Typecheck, lint, AICD GREEN; secret scan **989/0**; `git diff --check`
+  GREEN.
+- No `deno.lock`; `AGENT_SIGNER_PRIVATE_KEY` absent by name.
+- V1 staleness is **doc-only** (no V1 rewrite; no behavior claim).
+
+### Migration and Approval Boundary (CRITICAL)
+
+- Migration `supabase/migrations/202609120001_persistence_contracts.sql` is
+  **created/static-only, NOT applied**. No migration execution, DB reset,
+  `db push`, deployment, OpenAI/RPC call, transaction, or secret access
+  occurred or is claimed.
+- Staging is **unchanged** and does not reflect the new persistence
+  foundation.
+- G13 evidence is **preserved but predates the foundation**: the historical
+  G13 failure record and the historical deployment-only success record remain
+  byte-identical and are not persistence/schema proof.
+- Required next before H1-H3: **post-foundation migration + G13 staging
+  redeploy under separate explicit approvals**. H1-H3 remain gated and
+  NOT RUN.
+- Remote schema parity is **UNKNOWN / HYBRID-ONLY**; G22 is the sole
+  hybrid-only parity lane and is a hard stop before H1-H3.
+
+**EVL classification:** OPTION A PERSISTENCE FOUNDATION GREEN (local/static
+only); STAGING MIGRATION APPROVAL PENDING; G13 REDEPLOY PENDING; H1-H3 NOT
+RUN; remote UNKNOWN/HYBRID-ONLY.

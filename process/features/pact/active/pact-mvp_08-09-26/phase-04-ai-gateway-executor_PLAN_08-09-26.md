@@ -12,7 +12,7 @@ metadata:
 # Phase 04 — AI Gateway & Agent Executor
 
 **Date**: 2026-09-08
-**Status**: ⏳ PLANNED
+**Status**: COMPLETE WITH GAPS — HOSTED BUNDLE SUPPLEMENT VERIFIED; G13/H1–H3 PENDING
 **Complexity**: COMPLEX
 **Program:** pact-mvp
 **Umbrella plan:** process/features/pact/active/pact-mvp_08-09-26/pact-mvp-umbrella_PLAN_08-09-26.md
@@ -421,10 +421,23 @@ git diff --check
 ## Resume and Execution Handoff
 
 - Selected plan: process/features/pact/active/pact-mvp_08-09-26/phase-04-ai-gateway-executor_PLAN_08-09-26.md
-- Last completed step: Tasks 1–6 RED→GREEN + local EXIT 2026-09-10 (G1–G6+G8 green reported; G7 CI-only non-binding; commits 8c5e23c/77e5d25/ad6d50b local, unpushed)
+- Last completed step: hosted bundle-resolution supplement EVL VERIFIED 2026-09-11 (Deno 2.9.6; Supabase CLI 2.117.0; compatibility 6/6; per-function checks/bundles; G1–G6+G8+G12a+G12b green; secret scan 970/0)
 - Validate-contract status: CONDITIONAL accepted 2026-09-10 (C-SESSION/C-DDL/C-MODEL pinned verbatim in code+migration+tests; C-TOOL informational)
-- Next Step: H1–H3 hybrid lane (live model call + regional preflight + URL/region record) under SEPARATE explicit approval; G7 stays CI-only/non-binding; no fallback permitted.
+- Next Step: G13 staging-only retry under separate explicit approval, then H1–H3 hybrid lane under separate explicit approval; G7 stays CI-only/non-binding; no fallback permitted.
 - On ✅ VERIFIED, continue to phase-05-indexer-read-model_PLAN_08-09-26.md.
+
+## Update Process Handoff — Hosted Bundle-Resolution Supplement (2026-09-11)
+
+- Hosted bundle-resolution supplement: **VERIFIED**.
+- Function-local `deno.json` files for all three deployable functions are
+  verified; no generated `deno.lock` remains.
+- `AGENT_SIGNER_PRIVATE_KEY` is absent and
+  `SUPABASE_REGIONAL_FUNCTION_URL` is absent by design until deployment output.
+- Local Supabase serve was **NOT RUN**. G13 retry and H1/H2/H3 remain pending.
+- The plan stays in `active/`; no deployment, migration, external call, secret
+  access, commit, or push is authorized by this handoff.
+- Original V1-V7 Validate Contract and original failed G13 evidence are
+  preserved unchanged.
 
 ## Validate Contract
 
@@ -630,3 +643,818 @@ Hard stops carried into EXECUTE (verbatim for /goal block):
 
 - PLAN-SUPPLEMENT is done via this section (checkbox §Phase Loop Progress updated accordingly).
 - PVL / EXECUTE / EVL / UPDATE PROCESS remain pending; PVL must encode S1–S7 required tests and H1–H3 hybrid gates into the Validate Contract before EXECUTE.
+
+---
+
+## Plan Supplement — Deno/Supabase Compatibility (11-09-26)
+
+**Mode:** PLAN-SUPPLEMENT · **Scope:** plan files only. No implementation, deployment,
+OpenAI call, RPC call, transaction, secret access, commit, or push performed or
+authorized by this section.
+
+**Provenance (frozen inputs, do not re-debate):**
+- Phase 04 local EXIT green (G1–G6 + G8; G7 CI-only/non-binding); H1–H3 NOT executed.
+- Observed staging deploy failures (staging session, project ref allowlisted below):
+  - `functions deploy ai-gateway`: local bundle `failed to create the graph:
+    Relative import path "ethers" not prefixed with / or ./ or ../ ...
+    at .../supabase/functions/ai-gateway/index.ts:14:28`, plus
+    `WARN: failed to read file: open packages/domain/src/types.js` and
+    `.../errors.js`.
+  - `functions deploy session --use-api`: server bundle `400: Failed to bundle
+    the function (reason: Relative import path "ethers" ... at
+    .../supabase/functions/session/index.ts:21:31)`.
+  - `functions list` after attempts: empty (zero partial deploys).
+- Verified source facts (read-only scan):
+  - Bare npm specifiers in function graph: `from "ethers"` in
+    `supabase/functions/session/index.ts:21`, `supabase/functions/ai-gateway/index.ts:14`,
+    `packages/domain/src/schemas.ts:3`, `packages/domain/src/canonical-hash.ts:1`;
+    `from "zod"` across `packages/domain/src/*.ts`. Root `package.json` pins
+    `ethers@6.17.0`, `zod@3.25.76`.
+  - NodeNext `.js`-suffixed intra-domain imports throughout
+    `packages/domain/src/` (e.g. `./errors.js`, `./types.js`, `./schemas.js`);
+    function-to-domain imports already use explicit `.ts` and DO upload
+    (server log showed `Uploading asset ... packages/domain/src/session-token.ts`).
+  - `Deno.serve` / `import.meta.main` confirmed ABSENT in all function modules:
+    current `index.ts` files export pure handlers only and are not valid Edge
+    entrypoints as-is.
+  - Node-only runtime in function path: `readFileSync` from `node:fs`
+    (`packages/domain/src/schemas.ts:1`, `model-config.ts:1`),
+    `process.env["OPENAI_MODEL"]` (`schemas.ts:328`),
+    `randomBytes`/`createHash`/`createHmac` from `node:crypto`
+    (`session/index.ts:20`, `session-token.ts:1`).
+  - Platform constraint observed: `supabase secrets set` rejects the
+    `SUPABASE_` prefix (`SUPABASE_FUNCTION_REGION`, `SUPABASE_URL`,
+    `SUPABASE_ANON_KEY` skipped as reserved). Custom secrets that DID set:
+    `OPENAI_API_KEY`, `SESSION_HMAC_SECRET`, `OPENAI_MODEL`,
+    `CREDITCOIN_RPC_URL`, `DEMO_TOKEN` (verified by name+digest list).
+  - Toolchain: supabase CLI `2.117.0` via npx; `deno` CLI ABSENT.
+- Scope rule: this supplement only ADDS deployment-compatibility work (C1–C6
+  below). No prior section semantics change. Where this supplement explicitly
+  overrides (mechanical import-suffix normalization, guarded serve adapters),
+  this supplement plus its required test wins; everything else from the plan,
+  S1–S7, C-SESSION / C-DDL / C-MODEL pins, and the 15-code mapper is preserved
+  byte-for-byte in behavior.
+
+### C1 — Pinned Deno-compatible npm import strategy
+
+- Chosen: one import map at `supabase/functions/deno.json` pinning EXACTLY the
+  root-manifest versions — `ethers` → `npm:ethers@6.17.0`,
+  `zod` → `npm:zod@3.25.76`. Every bare `from "ethers"` / `from "zod"`
+  specifier in the function bundle graph resolves through this map; no other
+  version may appear.
+- Rejected: bare npm specifiers (the observed bundle failure); unpinned CDN
+  URLs (`esm.sh`/`cdn.skypack`/bare `jsr:` without version — non-reproducible);
+  vendoring `ethers` into the repo (supply-chain bloat); adding an `openai`
+  package under any specifier (S1 forbids it).
+- Acceptance: `deno.json` pin versions equal `package.json` versions exactly
+  (compat test asserts string equality); `rg` for unmapped bare `ethers`/`zod`
+  imports in the graph returns zero; no second ethers/zod version anywhere
+  (manifest + lockfile + map agree).
+- Gate class: G12a static (binding now) + G12b real bundle (binding at deploy).
+
+### C2 — Domain import strategy: single authority, explicit `.ts`, no fork
+
+- Chosen: `packages/domain` stays the SOLE authority (S2 reuse rule holds).
+  Mechanical normalization only — rewrite intra-domain relative imports from
+  NodeNext `.js` suffixes to explicit `.ts` suffixes (e.g. `./errors.js` →
+  `./errors.ts`); function-to-domain imports keep their existing explicit
+  `.ts` form; `supabase/functions/_shared/*.ts` stay thin re-exports (no logic
+  fork). Rationale: Deno requires explicit extensions and cannot resolve
+  `.js`→`.ts`; Vitest/Vite resolve `.ts` suffixes fine and `tsconfig.json`
+  already sets `allowImportingTsExtensions` with `tsc --noEmit` only (no emit
+  to break).
+- Rejected: vendored domain copies under `supabase/functions/` (second truth,
+  hash-drift risk); per-file import-map shims for each `.js` specifier
+  (brittle, silently rots); leaving `.js` suffixes (observed WARNs become
+  hard bundle errors once `ethers` is fixed).
+- Behavior guard (hard): existing `intent-shape` hash-stability,
+  `api-error-codes` keys==15 + no-`as string`, and `session-token` HMAC
+  vector tests stay UNCHANGED and green — any hash/code/vector drift fails
+  the lane (proves zero behavior change from a mechanical rename).
+- Gate class: G1 (existing, binding) + G12a (binding now).
+
+### C3 — `Deno.serve` adapters for `session`, `ai-gateway`, `agent-executor`
+
+- Chosen: append a guarded serve-adapter block to each EXISTING `index.ts`
+  (no file renames, no export-signature changes, existing Vitest import paths
+  untouched). Guard shape: `if (typeof Deno !== "undefined" &&
+  typeof (Deno as unknown as { serve?: unknown }).serve === "function")`
+  so Node/Vitest never executes it. Each adapter wires: method/path dispatch
+  for its plan routes (`/v1/session/*`, `/v1/agent/intents`,
+  `/v1/payments/preflight`, `/v1/payments/execute`), 64 KB JSON body cap
+  (parity with edge), `x-request-id` require-or-generate, wallet-session
+  check via existing `requireSession`, expected-vs-actual region comparison
+  BEFORE any provider call (ai-gateway), and redacted `ApiError` mapping via
+  the shared `errors.ts`/`redaction.ts` (never raw bodies/headers/prompts/keys).
+- Rejected: handler→`handler.ts` renames (test churn across all Vitest
+  mirrors); separate `serve.ts` + entrypoint overrides (Supabase serves
+  `<slug>/index.ts` by convention — override fragility); unguarded top-level
+  `Deno.serve` (breaks Vitest import of the module).
+- Missing-entrypoint hard stop: any of the three `index.ts` without a guarded
+  `Deno.serve` block fails G12a.
+- Gate class: G12a static (binding now) + live-shape proof deferred to G13.
+
+### C4 — Node-only runtime boundaries (function path only)
+
+- `node:fs` config reads (`loadOpenAIConfig`/`loadModelConfig` file-path
+  branch): functions MUST NOT read config from disk at runtime (no such files
+  on Edge). Add pure-JSON parse entries (`parseModelConfigJson`,
+  `parseOpenAIConfigJson`) reusing the SAME strict Zod schemas; serve
+  adapters bundle the pinned JSON statically (`import ... with
+  { type: "json" }`) or receive it as injected dep. Node/Vitest loader paths
+  stay for scripts/tests. Pin semantics (`gpt-5.6-luna`, `allowFallback:false`,
+  unset-or-equal) unchanged.
+- `process.env["OPENAI_MODEL"]` (`resolveOpenAIModel`): add explicit
+  `envModel?: string` parameter; serve adapters pass
+  `Deno.env.get("OPENAI_MODEL") ?? undefined`; Node path keeps current
+  behavior as default. Unset-or-equal-or-throw semantics verbatim.
+- `node:crypto` (`createHash`/`createHmac`/`randomBytes`): RETAINED (resolvable
+  by the Edge bundler; no sync→async Web-Crypto rewrite — avoids token-format
+  drift). Existing HMAC vectors authoritative: any byte drift fails G1.
+- Forbidden in function graph: NEW `node:` imports beyond `node:crypto`,
+  `Buffer`, `node:fs` at function runtime, direct `process.env` reads in
+  `supabase/functions/**` (must flow through explicit params). G12a scans fail
+  on any occurrence.
+- Gate class: G12a static (binding now) + G1 vectors (binding).
+
+### C5 — Shared-code strategy (no duplicated authority)
+
+- Authority table (unchanged, restated for the bundle): canonical hash,
+  `AgentIntentSchema`, merchant conversion, asset descriptor, 15-code mapper,
+  session-token logic, model-config schema live ONLY in `packages/domain`;
+  `supabase/functions/_shared/` re-exports thinly; `catalog.ts`,
+  `provider-port.ts`, `chain-client.ts`, `payment-reconciler.ts` keep their
+  current ownership (S1/S2/S5). Compat work adds NO logic copies — only
+  specifier normalization (C2), import map (C1), and serve wiring (C3/C4).
+- Drift tripwires (existing, binding): import-graph test (gateway↛signer),
+  `model-config.json` assert-equal, hash-stability, keys==15. Any new
+  canonicalization, mapper, or pin copy fails G1/G6.
+- Gate class: existing G1/G6 (binding, unchanged).
+
+### C6 — Gates: G12 compat + G13 staging-deploy, G7 stays non-binding
+
+- G7 UNCHANGED: Deno test suites (`session.test.ts`, `ai-gateway.test.ts`,
+  `executor.test.ts`) remain NON-BINDING CI references; absence of `deno` CLI
+  is recorded, never a failure, never a substitute for G12.
+- G12a — static compat scan (BINDING now, Vitest, no `deno` needed). Exact
+  command: `corepack yarn vitest run supabase/functions/_shared/test/deploy-compat.vitest.test.ts`.
+  New test file (compat EXECUTE creates it) asserts on the CURRENT tree first
+  (RED proof of the observed failure, no deploy needed): zero bare
+  `from "ethers"`/`from "zod"`; zero `.js"`-suffixed relative imports in the
+  function bundle graph; zero `node:fs`/`process.env`/`Buffer` in
+  `supabase/functions/**` (excluding `*.test.ts` fixtures that assert on
+  sources by text); `Deno.serve` guard present in all three `index.ts`;
+  `deno.json` pins equal root `package.json`; no `SUPABASE_*` names in the
+  secrets-set allowlist. RED → STOP (this is the checked-in proof of the
+  staging failure); GREEN after C1–C4.
+- G12b — real typecheck+bundle (BINDING before any staging deploy; runs where
+  the toolchain exists): `deno check` over the three entrypoints (once `deno`
+  present) AND successful bundle proven by the deploy itself (G13). `deno`
+  absence still never fails G1–G6+G8+G12a; it only gates G13.
+- G13 — staging-only deployment acceptance (HYBRID-adjacent, approval-gated,
+  separate from H1–H3): `supabase functions deploy session ai-gateway
+  agent-executor --project-ref myotkovmgzdabuirkqlx` succeeds for ALL three
+  slugs; `functions list` shows all three; derived
+  `SUPABASE_REGIONAL_FUNCTION_URL` recorded per slug post-deploy (output
+  only, never pre-required); expected region `us-east-1` matches project
+  region (East US); NO `db push`/migration re-run (Phase 04 migration already
+  applied); NO production project ref (allowlist is exactly
+  `myotkovmgzdabuirkqlx`); H1/H2/H3 remain NOT RUN.
+- G1–G6 + G8 stay binding and unchanged throughout compat work.
+
+### Secrets contract (names only — no values in source, logs, or evidence)
+
+- Function secrets (via dashboard/CLI, never repo): `OPENAI_API_KEY`,
+  `SESSION_HMAC_SECRET`, `DEMO_TOKEN`, `OPENAI_MODEL` (unset-or-exactly
+  `gpt-5.6-luna`), `CREDITCOIN_RPC_URL`.
+- Platform built-ins (not settable, reserved prefix — observed): `SUPABASE_URL`,
+  `SUPABASE_ANON_KEY` auto-provided; expected region is a PINNED CONSTANT
+  (`us-east-1`) in serve wiring + compat test (NOT a custom secret); actual
+  region source resolved at compat-EXECUTE from verified runtime docs with a
+  fail-closed default on any doubt.
+- ABSENT by rule in this lane: `AGENT_SIGNER_PRIVATE_KEY` (no signer path
+  exercised — static/bundle/serve-shape only; any step demanding it aborts as
+  scope breach), `SUPABASE_REGIONAL_FUNCTION_URL` as input (output-only,
+  derived after G13).
+- Presence rule (G13 Step 0, names only): the 5 function secrets present-by-name;
+  signer absent; regional URL absent pre-deploy without blocking.
+
+### Hard stops (any one aborts the lane)
+
+Unresolved bare/` .js`-suffixed import; missing `Deno.serve` guard in any of
+the three entrypoints; `deno.json` pin ≠ root manifest pin; NEW `node:` import
+beyond `node:crypto`; `Buffer`/`node:fs`/`process.env` in function runtime;
+16th API code or `as string` escape; hash/vector/model-pin drift (G1 red);
+any behavior change to 15-code mapper, C-SESSION TTLs/predicates, C-DDL DDL
+text/ordering, model pin, or fail-closed zero-send semantics; bundle/deploy
+target other than allowlisted staging ref; migration re-run; `SUPABASE_*`
+custom-secret attempt; secret value in source/log/evidence; H1/H2/H3 execution
+under this supplement (explicitly out of scope — separate approval).
+
+### Acceptance (compat lane EXIT)
+
+- `ai-gateway`, `session`, `agent-executor` bundle successfully for Supabase
+  (G12b/G13 green).
+- G1–G6 + G8 + G12a green; G7 still non-binding; zero behavior drift per the
+  guards above.
+- Staging deployment may resume ONLY after G12a + G12b green; H1–H3 stay
+  unexecuted and require their own approval.
+
+### Loop-state note (this supplement)
+
+- PLAN-SUPPLEMENT (Deno/Supabase compat) is done via this section.
+- Next: PVL must encode C1–C6 with gates G12a/G12b/G13 into the Validate
+  Contract delta before any compat EXECUTE. Compat EXECUTE needs explicit
+  `ENTER EXECUTE MODE` with this plan path; staging deploy (G13) needs a
+  second explicit approval and may not piggyback on compat approval.
+
+---
+
+## PVL Delta — Deno/Supabase Compatibility Supplement (11-09-26)
+
+**Mode:** VALIDATE · **Scope:** this delta ONLY. The original Validate Contract
+V1–V7 above is preserved byte-identically and is NOT restated, amended, or
+re-gated here. No implementation, test file, deployment, OpenAI/RPC call,
+transaction, secret access, commit, or push performed in PVL (verified: planned
+paths `supabase/functions/deno.json` and
+`supabase/functions/_shared/test/deploy-compat.vitest.test.ts` confirmed ABSENT;
+`deno` CLI confirmed ABSENT; worktree shows plan-only diff).
+
+**Evidence base (read-only):** original V1–V7 text; compat supplement C1–C6;
+observed deploy errors (bare-`ethers` graph failure at
+`ai-gateway/index.ts:14` + `session/index.ts:21`, `.js` WARNs, empty
+`functions list`); execution report (G1–G6+G8 green, G7 non-binding, H1–H3 not
+run); source scans (bare `ethers`/`zod`, `.js`-suffix domain imports,
+`Deno.serve` absent, `node:fs`/`process.env`/`node:crypto` sites, reserved
+`SUPABASE_` secret prefix); root `package.json` (`ethers@6.17.0`,
+`zod@3.25.76`); repo state above.
+
+### D1 — Pins (supplement §C1): PASS (conditional on exact implementation)
+
+- `npm:ethers@6.17.0` / `npm:zod@3.25.76` match root manifest exactly
+  (verified by read). Delta requires string-equality assertion in G12a —
+  any drift fails the lane. No unpinned CDN, no vendoring, no `openai`
+  package under any specifier (S1 upheld). No second version permitted
+  across manifest/lockfile/map.
+
+### D2 — Domain boundary (§C2): PASS with noted override
+
+- Single authority (`packages/domain`) restated; `.js`→`.ts` normalization is
+  explicit and mechanical; no logic fork (`_shared` stays re-export).
+- Override flagged and accepted: suffix edits touch Phase 01-consumed files,
+  authorized ONLY as mechanical renames guarded by UNCHANGED
+  `intent-shape` hash-stability + `api-error-codes` keys==15/no-`as string` +
+  `session-token` HMAC vectors (all binding G1). Any drift = lane failure.
+- Function-to-domain `.ts` imports proven uploadable by server log evidence.
+
+### D3 — Runtime boundary (§C3/C4): PASS
+
+- Guarded `Deno.serve` in all three existing `index.ts` (guard shape pins
+  `typeof Deno` check so Node/Vitest never executes); no renames, no export
+  changes, Vitest paths untouched. Missing guard in any entrypoint = G12a
+  failure. Correctly rejects unguarded-serve and entrypoint-override designs.
+- `node:crypto` retention is explicit and bounded (avoids sync→async token
+  drift; vectors authoritative). `node:fs`/`process.env` removal via
+  pure-JSON parse entries + explicit `envModel` param preserves pin and
+  unset-or-equal semantics verbatim. New `node:`/`Buffer` forbidden and
+  scanned.
+
+### D4 — Behavior preservation: PASS (mapped, no gaps)
+
+| Invariant | Guard (all binding, unchanged) |
+|---|---|
+| 15-code mapper | `api-error-codes` keys==15 + no-`as string` + identical-code fixtures (G1/G6) |
+| C-SESSION TTL/hash/consume | `session-token` vectors + fake-store consume-once/revoke (G1/G3-shape) + migration predicates |
+| C-DDL/idempotency/reconcile | `payment` state machine + one-send/store-before-wait/reconcile asserts (G1/G4-shape) |
+| `gpt-5.6-luna` + `allowFallback:false` | `provider-config` pin/fallback-reject (G1/G3-shape) |
+| Zero-send fail-closed | `sendPayment==0` asserts every failure class (G3/G4) |
+| No second truth | import-graph gateway↛signer + assert-equal model config (G4/G6) |
+
+### D5 — Gates: PASS
+
+- G1–G6 + G8 binding unchanged; G7 CI-only/non-binding unchanged (correctly
+  NOT widened). G12a binding Vitest with exact command pinned. G12b binding
+  pre-deploy (`deno check` + bundle-via-deploy). G13 staging-only with exact
+  ref `myotkovmgzdabuirkqlx`, no `db push`, URL output-only, H1–H3 excluded.
+
+### D6 — RED-first: PASS
+
+- G12a asserts fail on the CURRENT tree on every clause (bare `ethers` at two
+  cited sites + domain-wide, `.js` suffixes domain-wide, `Deno.serve` absent
+  in all three, `deno.json` absent) — genuine RED available without deploying.
+  Planned-path absence is valid pre-EXECUTE state. PVL created zero files
+  (verified above).
+
+### D7 — Secrets (names only): PASS
+
+- Five function-secret names + built-ins + pinned-region constant (correctly
+  encodes the observed reserved-prefix constraint instead of fighting it);
+  actual-region source honestly deferred to verified docs with fail-closed
+  default. Signer-absent + URL-output-only rules explicit with abort
+  semantics. No value printed, accessed, or persisted in PVL.
+
+### D8 — Hard stops: PASS (complete)
+
+- Covers unresolved imports, missing entrypoints, pin drift, behavior drift,
+  wrong project, migration re-run, `SUPABASE_*` set attempt, secret leakage,
+  any OpenAI/RPC/transaction, any H1/H2/H3. No gap found vs. the 8 assigned
+  validation dimensions.
+
+### Toolchain note (per instruction — no faked pass, no scope widening)
+
+- `deno` CLI ABSENT on this machine → **G12b recorded PENDING/CONDITIONAL**:
+  not runnable here, not claimed, and not re-scoped onto G7 (G7 stays test-only
+  non-binding). G12a + all behavior guards are fully runnable without `deno`.
+  G13 additionally requires the second explicit approval named in the
+  supplement.
+
+### Net gate: CONDITIONAL PASS (delta only)
+
+- Zero FAILs across D1–D8; one PENDING (G12b toolchain, environmental — not a
+  content defect). Original V1–V7 gate (CONDITIONAL) is neither improved nor
+  worsened by this delta.
+- Authorized next: compat EXECUTE (C1–C4 + G12a RED→GREEN, G1–G6+G8 held
+  green) ONLY on explicit `ENTER EXECUTE MODE` with this plan path. G13
+  staging deploy needs its own second approval. H1/H2/H3 remain out of scope.
+
+---
+
+## Compatibility Execute Result (11-09-26)
+
+**Status:** IMPLEMENTED · G12a GREEN · G12b PENDING/CONDITIONAL · G13 NOT RUN
+
+- RED-first completed: created
+  `supabase/functions/_shared/test/deploy-compat.vitest.test.ts`; the initial
+  focused run was genuine RED (6/6 clauses failed) on the pre-compat tree:
+  missing `deno.json`, bare/unmapped imports, `.js` domain suffixes, missing
+  `Deno.serve` adapters, missing pure-JSON config boundary, and missing region
+  wiring.
+- C1–C4 implemented: exact `supabase/functions/deno.json` pins; mechanical
+  domain `.js`→`.ts` imports; guarded `Deno.serve` adapters in all three
+  required slugs; pure JSON model-config parsers and explicit `envModel`
+  boundary; no new `node:`/`Buffer` runtime usage. Existing `node:crypto`
+  remains the explicitly retained boundary and is not claimed uploadable until
+  G12b runs.
+- G12a exact focused command GREEN: 6 tests passed. Static scan covers pins,
+  no openai/CDN/vendoring, import normalization, three slugs/guards, runtime
+  boundaries, and expected-region wiring.
+- Binding local verification GREEN: G1 domain 91/91; G2 edge 5/5; G3 gateway
+  4/4; G4 executor 5/5; G5 typecheck, lint, AICD clean; G6 secret scan 967
+  scanned/0 findings + `git diff --check`; full Vitest 23 files/145 tests.
+  G8 remains satisfied by the existing redaction/error-copy review and no
+  behavior-preservation test drift was observed.
+- G7 remains CI-only/non-binding. `deno` is absent on this machine, so G12b
+  `deno check`/local bundle validation is **PENDING/CONDITIONAL**, not faked.
+  No Supabase deploy, migration, OpenAI call, RPC call, transaction, G13, or
+  H1/H2/H3 execution occurred. `AGENT_SIGNER_PRIVATE_KEY` was not requested
+  or accessed; the regional function URL remains deployment output-only.
+- Scope guard: no Phase 01–03 behavior was changed; domain edits are the
+  supplement-authorized mechanical import-suffix normalization plus the
+  explicit C4 parser/env boundary required to make the shared authority
+  consumable by Edge. No exports were renamed and Vitest paths remain intact.
+
+**Handoff:** G12a GREEN; G12b honestly PENDING/CONDITIONAL; G13 NOT RUN;
+H1/H2/H3 NOT RUN. A Deno-enabled validation environment must run G12b before
+any staging deployment approval.
+
+---
+
+## Compatibility EVL Result (11-09-26)
+
+**Status:** EVL COMPLETE · G12a GREEN · G12b PENDING/CONDITIONAL · G13/H1/H2/H3 NOT RUN
+
+- Independent G12a rerun: 6/6 tests passed.
+- Independent G1 rerun: domain 13 files, 91 tests passed. Independent G2–G4
+  rerun: edge 5, gateway 4, executor 5 tests passed (14/14 total).
+- G5 rerun: typecheck passed; lint passed; AICD validation reported 0
+  failures. G6 rerun: secret scan 967 scanned / 0 findings; `git diff --check`
+  passed. G8 review remains clean: fixed redaction/error-copy boundaries,
+  request IDs, retryability, and demo-token separation remain intact.
+- Behavior preservation verified by the unchanged passing guards: 15-code
+  mapper, C-SESSION TTL/hash/atomic consume, C-DDL idempotency/reconcile and
+  store-before-wait, pinned `gpt-5.6-luna` with `allowFallback:false`, and
+  zero `sendPayment` on fail-closed paths.
+- Name-only environment check: `AGENT_SIGNER_PRIVATE_KEY` ABSENT;
+  `SUPABASE_REGIONAL_FUNCTION_URL` ABSENT as required before deployment;
+  no secret values were printed or accessed. `deno` ABSENT, therefore G12b
+  remains PENDING/CONDITIONAL and no bundle result is claimed.
+- EVL invoked no OpenAI/RPC/transaction/deployment activity and did not run
+  G13 or H1/H2/H3. No implementation files were modified during EVL.
+
+---
+
+## Plan Supplement — Pin Deno Toolchain for G12b (11-09-26)
+
+**Mode:** PLAN-SUPPLEMENT · **Scope:** plan files only. This pin validates
+local Deno compatibility; it does not prove the hosted Supabase runtime and
+does not authorize G13, H1, H2, or H3.
+
+### Pin
+
+- Exact Deno version: **2.9.6**.
+- No range, `latest`, floating channel, or ambient system Deno is permitted.
+- Repository inspection found no existing Deno version pin, CI setup, toolchain
+  file, or lockfile convention to reuse. The pin is therefore recorded in this
+  Phase 04 plan as the authoritative G12b bootstrap requirement without
+  changing `package.json`, application files, or lockfiles.
+
+### Official installation and verification
+
+On a machine where `deno` is absent, install the exact release using the
+official Deno installer with the version argument:
+
+```bash
+curl -fsSL https://deno.land/install.sh | sh -s v2.9.6
+export DENO_INSTALL="$HOME/.deno"
+export PATH="$DENO_INSTALL/bin:$PATH"
+deno --version
+```
+
+Required version output prefix:
+
+```text
+deno 2.9.6
+```
+
+The first line of `deno --version` must be exactly `deno 2.9.6`; the V8 and
+TypeScript lines are emitted by that release and are not independently pinned
+by this repository. Any other Deno version is a hard stop. Installation must
+be performed only in the operator's
+tool environment, never committed or persisted in the repository.
+
+### G12b procedure after bootstrap
+
+Run the exact version check, then the binding local checks:
+
+```bash
+deno --version
+deno check --config supabase/functions/deno.json \
+  supabase/functions/session/index.ts \
+  supabase/functions/ai-gateway/index.ts \
+  supabase/functions/agent-executor/index.ts
+```
+
+Local bundle validation must use Deno 2.9.6 without deployment. The bundle
+probe must resolve the same `supabase/functions/deno.json` import map and must
+fail closed on unresolved imports, missing `Deno.serve`, or Node-only runtime
+boundaries. A successful local Deno check/probe is G12b local evidence only.
+
+### Compatibility and hosted-runtime boundary
+
+- Static plan review found no known conflict between Deno 2.9.6, the pinned
+  `npm:ethers@6.17.0` / `npm:zod@3.25.76` map, or the repository's Node/Yarn
+  constraints. This is not a runtime pass; G12b remains pending until the
+  exact tool is installed and commands execute.
+- Any Deno 2.9.6 import-map, typecheck, or bundle conflict is a hard stop:
+  report the exact conflict and do not change application behavior or pins
+  silently.
+- Supabase hosted bundling/runtime acceptance remains reserved for G13 and
+  requires separate approval with project ref `myotkovmgzdabuirkqlx`.
+
+### Safety and status
+
+- No Deno installation, G12b execution, Supabase link/deploy, migration,
+  OpenAI/RPC call, transaction, secret access, commit, or push occurs in this
+  PLAN-SUPPLEMENT mode.
+- `AGENT_SIGNER_PRIVATE_KEY` remains absent; `SUPABASE_REGIONAL_FUNCTION_URL`
+  remains deployment output-only.
+- H1/H2/H3 and G13 remain NOT RUN.
+- Next state: PVL must validate this exact pin and command contract before
+  G12b bootstrap/EXECUTE resumes.
+
+---
+
+## Deno Pin PVL Result (11-09-26)
+
+**Status:** PVL COMPLETE · CONDITIONAL PASS · READY FOR EXECUTE
+
+- **Exact pin — PASS:** the new supplement records only Deno `2.9.6` as the
+  authoritative G12b version. No Deno range, `latest`, floating channel, or
+  second repository pin was found in the inspected package, lockfile, CI, or
+  toolchain surfaces. The repository still has no installed `deno` binary.
+- **Installer/verification — PASS:** the exact recorded installer command is
+  `curl -fsSL https://deno.land/install.sh | sh -s v2.9.6`; the required first
+  version line is exactly `deno 2.9.6`. No installation was performed in PVL.
+- **G12b command — PASS:** the recorded `deno check` command explicitly uses
+  `--config supabase/functions/deno.json` and all three function entrypoints.
+- **Compatibility — PASS (static only):** no static conflict was found with
+  `npm:ethers@6.17.0`, `npm:zod@3.25.76`, Node `>=20`, or Yarn `1.22.22`.
+  Runtime compatibility remains unproven until G12b executes under Deno
+  2.9.6.
+- **Runtime boundary — PASS:** the supplement explicitly limits this pin to
+  local Deno compatibility. Hosted Supabase bundling/runtime acceptance stays
+  reserved for G13, with project ref `myotkovmgzdabuirkqlx`.
+- **Gate status — PASS:** G12b remains binding before G13. G13, H1, H2, and
+  H3 remain explicitly NOT RUN.
+- **Concern C-PIN-BUNDLE-SCOPE:** original G12b text describes successful
+  bundle proof via deployment/G13, while the pin supplement describes a
+  no-deployment local bundle probe. These are retained as separate evidence:
+  local probe is G12b local evidence; hosted Supabase bundle acceptance is
+  G13 evidence. EXECUTE must not claim G12b hosted-bundle proof from the local
+  probe alone.
+- **Safety verification:** plan-only validation; no Deno installation,
+  implementation change, Supabase link/deploy, OpenAI/RPC/transaction call,
+  secret access, commit, or push. H1/H2/H3/G13 remain NOT RUN.
+
+---
+
+## G12b Execute Result (11-09-26)
+
+**Status:** G12b GREEN · G12a GREEN · G13/H1/H2/H3 NOT RUN
+
+- Installed the exact pinned toolchain with the approved command:
+  `curl -fsSL https://deno.land/install.sh | sh -s v2.9.6` (exit 0).
+- `deno --version` (exit 0) output:
+
+  ```text
+  deno 2.9.6 (stable, release, x86_64-unknown-linux-gnu)
+  v8 15.0.245.2-rusty
+  typescript 6.0.3
+  ```
+
+- Exact G12b check (exit 0):
+
+  ```bash
+  deno check --config supabase/functions/deno.json \
+    supabase/functions/session/index.ts \
+    supabase/functions/ai-gateway/index.ts \
+    supabase/functions/agent-executor/index.ts
+  ```
+
+  Redacted output: `Check supabase/functions/session/index.ts`,
+  `Check supabase/functions/ai-gateway/index.ts`, and `Check
+  supabase/functions/agent-executor/index.ts`.
+- Local bundle validation (exit 0 for all three; output files only under
+  `/tmp/opencode`, not the repository):
+
+  ```bash
+  deno bundle --config supabase/functions/deno.json \
+    supabase/functions/session/index.ts \
+    --output /tmp/opencode/pact-session.js
+  deno bundle --config supabase/functions/deno.json \
+    supabase/functions/ai-gateway/index.ts \
+    --output /tmp/opencode/pact-ai-gateway.js
+  deno bundle --config supabase/functions/deno.json \
+    supabase/functions/agent-executor/index.ts \
+    --output /tmp/opencode/pact-agent-executor.js
+  ```
+
+  Redacted results: `Bundled 172 modules`, `Bundled 184 modules`, and
+  `Bundled 6 modules`; output sizes were `105.4KB`, `241.76KB`, and `9.73KB`.
+  The first exploratory invocation used an invalid positional output argument
+  and returned `No such file or directory`; it was not treated as a pass and
+  was corrected using Deno 2.9.6's documented `--output` option.
+- G12a rerun: 6/6 passed. Domain G1: 13 files / 91 tests passed. Edge,
+  gateway, executor G2–G4: 14/14 passed. Typecheck, lint, AICD, secret scan
+  (`967 scanned`, `0 findings`), and `git diff --check` passed.
+- Name-only safety check: `AGENT_SIGNER_PRIVATE_KEY: ABSENT`;
+  `SUPABASE_REGIONAL_FUNCTION_URL: ABSENT`. No secrets were printed or
+  accessed. No source files were modified by bootstrap or G12b. No Supabase
+  deployment/link, migration, OpenAI/RPC call, or transaction occurred.
+
+---
+
+## Plan Supplement — Hosted Supabase Bundle Resolution (11-09-26)
+
+**Mode:** PLAN-SUPPLEMENT · **Scope:** plan/spec only. G13 is not retried by
+this supplement. The failed hosted G13 evidence above remains unchanged and
+authoritative.
+
+### Factual diagnosis
+
+- Local G12b resolved `ethers` and `zod` through the repository-level
+  `supabase/functions/deno.json`, because the explicit local commands supplied
+  that config with `--config`.
+- The hosted Supabase 2.117.0 deploy path did not consume that repository-level
+  config for the uploaded function graph. It uploaded `session/index.ts` and
+  `ai-gateway/index.ts`, then resolved their bare `from "ethers"` imports as
+  hosted relative imports and failed with the recorded 400 error.
+- `supabase/config.toml` is absent, so there is no existing project-level
+  `import_map` wiring to rely on. The current root `supabase/functions/deno.json`
+  is therefore insufficient evidence for hosted resolution.
+- `agent-executor` does not import `ethers` directly, but its reachable shared
+  graph is included in the same deterministic-resolution requirement; all three
+  deployable functions must carry their own config boundary.
+
+### Decision — function-local `deno.json` per deployable function
+
+Chosen strategy: add one identical, function-local config at each exact
+deployable boundary:
+
+```text
+supabase/functions/session/deno.json
+supabase/functions/ai-gateway/deno.json
+supabase/functions/agent-executor/deno.json
+```
+
+Each file must contain only the pinned mappings:
+
+```json
+{
+  "imports": {
+    "ethers": "npm:ethers@6.17.0",
+    "zod": "npm:zod@3.25.76"
+  }
+}
+```
+
+Rationale: the config travels with every uploaded function and does not depend
+on a global/root import-map lookup. It changes resolution only; it does not
+duplicate domain logic or alter API behavior.
+
+Rejected alternatives:
+
+- **Explicit `npm:` imports at shared/domain boundaries:** rejected because it
+  would modify the Phase 01-consumed shared import surface and create a larger
+  cross-runtime behavior blast radius than config-only wiring.
+- **`supabase/config.toml` import-map wiring:** unavailable because the file is
+  absent, and introducing project-level wiring would not prove that the hosted
+  per-function upload path consumes it.
+- **Repository-root-only `supabase/functions/deno.json`:** rejected by the
+  actual G13 failure; local G12b success through `--config` did not transfer to
+  hosted bundling.
+- **CDN, floating, or unpinned mappings:** forbidden. No `openai` package is
+  permitted.
+
+### Import-graph and behavior boundary
+
+- All reachable imports from `session`, `ai-gateway`, and `agent-executor` must
+  resolve through the function-local config. The graph must retain explicit
+  `.ts` local imports and the exact `ethers@6.17.0` / `zod@3.25.76` mappings.
+- `packages/domain` remains the sole authority for canonical hash, schemas,
+  merchant conversion, asset descriptor, error mapper, session-token logic,
+  model configuration, and payment state. Function-local configs contain no
+  implementation logic.
+- Preserve unchanged: 15-code mapper; merchantId-only output; pinned
+  `gpt-5.6-luna`; `allowFallback:false`; Responses `store:false`; C-SESSION
+  TTL/hash/atomic-consume rules; C-DDL/idempotency/reconcile ordering;
+  `sendPayment` zero on failure; and no settlement on uncertain result.
+- Existing G1/G3/G4/G6 tripwires remain binding: keys==15, hash stability,
+  HMAC vectors, model equality, gateway↛signer graph, zero-send failure
+  assertions, and no secret material.
+
+### RED-first compatibility gate
+
+Add the planned compatibility assertion to the existing deploy-compat test
+surface without implementing it in this PLAN-SUPPLEMENT:
+
+```text
+supabase/functions/_shared/test/deploy-compat.vitest.test.ts
+```
+
+The new RED clause must fail on the current tree because the three
+function-local configs do not exist, even though root `deno.json` exists. It
+becomes GREEN only when all three exact files exist and:
+
+- each JSON map equals the two exact pinned mappings;
+- no function relies on the root map alone;
+- all three entrypoints have a reachable local-config resolution boundary;
+- no CDN, range, floating mapping, vendored runtime, or `openai` package is
+  present; and
+- the existing import, Deno.serve, Node-boundary, slug, and behavior tripwires
+  remain green.
+
+### Revised G12b — deterministic local equivalent of hosted resolution
+
+G12b must no longer run only with the root config. After EXECUTE creates the
+three local configs, run with Deno 2.9.6:
+
+```bash
+deno --version
+deno check --config supabase/functions/session/deno.json \
+  supabase/functions/session/index.ts
+deno check --config supabase/functions/ai-gateway/deno.json \
+  supabase/functions/ai-gateway/index.ts
+deno check --config supabase/functions/agent-executor/deno.json \
+  supabase/functions/agent-executor/index.ts
+deno bundle --config supabase/functions/session/deno.json \
+  supabase/functions/session/index.ts \
+  --output /tmp/opencode/pact-session-hosted-equivalent.js
+deno bundle --config supabase/functions/ai-gateway/deno.json \
+  supabase/functions/ai-gateway/index.ts \
+  --output /tmp/opencode/pact-ai-gateway-hosted-equivalent.js
+deno bundle --config supabase/functions/agent-executor/deno.json \
+  supabase/functions/agent-executor/index.ts \
+  --output /tmp/opencode/pact-agent-executor-hosted-equivalent.js
+```
+
+The exact CLI/toolchain pins are Supabase CLI `2.117.0` and Deno `2.9.6`.
+The local CLI/runtime preflight is:
+
+```bash
+npx supabase --version
+npx supabase functions serve session ai-gateway agent-executor \
+  --no-verify-jwt
+```
+
+The serve command is local-only and must be terminated after the bundle/startup
+check; it must not receive a production URL, call OpenAI, call RPC, or mutate
+chain/database state. G12b is GREEN only if `npx supabase --version` reports
+`2.117.0`, all six Deno check/bundle commands succeed, the local serve startup
+resolves all three function-local configs, the compatibility test is GREEN,
+and the existing G1–G6/G8 gates remain green. A local pass is not a hosted
+deployment pass.
+
+### Revised G13 proof, deferred and approval-gated
+
+After the revised G12b GREEN result and a new explicit deployment approval:
+
+1. Verify project ref `myotkovmgzdabuirkqlx` immediately before mutation.
+2. Deploy only `session`, `ai-gateway`, and `agent-executor` with Supabase CLI
+   `2.117.0`; do not rerun or modify migrations.
+3. Stop immediately on any bundle/deploy error; do not retry blindly.
+4. Query `supabase functions list --project-ref myotkovmgzdabuirkqlx` and
+   confirm all three exact slugs and deployment status.
+5. Derive the real regional function URL only from successful deployment or
+   project output. Never prepopulate or invent
+   `SUPABASE_REGIONAL_FUNCTION_URL`.
+6. Record redacted deployment evidence only: project ref, slug, status,
+   version/timestamp, and returned URL metadata. Never record secret values.
+7. G13 does not run H1, H2, or H3; those remain separately approval-gated.
+
+### Safety and status
+
+- This supplement performs no code change, deployment, migration, OpenAI/RPC
+  call, transaction, secret access/write, commit, or push.
+- The failed G13 evidence is preserved exactly; no successful hosted deployment
+  or function URL is claimed.
+- `AGENT_SIGNER_PRIVATE_KEY` remains absent. H1/H2/H3/G13 remain NOT RUN.
+
+**Handoff:** HOSTED BUNDLE RESOLUTION PLAN SUPPLEMENT COMPLETE — READY FOR PVL
+
+---
+
+## Hosted Bundle Resolution Execute Result (11-09-26)
+
+**Status:** IMPLEMENTED · G12a GREEN · revised G12b GREEN · READY FOR EVL ·
+G13/H1/H2/H3 NOT RUN
+
+- Toolchain gate: Deno `2.9.6` and Supabase CLI `2.117.0` matched exactly.
+- RED-first: updated `deploy-compat.vitest.test.ts` to require a function-local
+  map for each slug. Before implementation, the focused suite failed 2/6:
+  `session/deno.json must exist` and missing local config resolution. The other
+  four existing compatibility clauses passed.
+- Minimum implementation files added, each containing only the exact pinned
+  `ethers` and `zod` mappings:
+  - `supabase/functions/session/deno.json`
+  - `supabase/functions/ai-gateway/deno.json`
+  - `supabase/functions/agent-executor/deno.json`
+- No entrypoint, domain implementation, export, adapter, or Phase 04 behavior
+  changed. The root `supabase/functions/deno.json` remains unchanged.
+- GREEN: focused compatibility suite 6/6 passed.
+- Revised G12b: all three per-function `deno check` commands passed; all three
+  per-function `deno bundle` commands passed. Bundles were written only under
+  `/tmp/opencode`.
+- Regression gates: G1 domain 91 tests passed; G2–G4 edge/gateway/executor
+  14 tests passed; typecheck, lint, AICD, secret scan (`970 scanned`, `0
+  findings`), and `git diff --check` passed. G8 review found no new error-copy,
+  redaction, request-ID, retryability, or demo-token boundary drift.
+- Local Supabase CLI preflight reported `2.117.0`. The prescribed local serve
+  command stopped with `supabase start is not running`; no local stack was
+  started and no external call or mutation occurred. This is a known local
+  environment concern, not a hosted deployment result.
+- Generated `session/deno.lock` and `ai-gateway/deno.lock` artifacts were
+  removed; no generated Deno lockfile remains in the repository.
+- Safety: `AGENT_SIGNER_PRIVATE_KEY` absent; deployment URL remains unset and
+  output-only. No G13 retry, migration, OpenAI/RPC call, transaction, secret
+  access/write, commit, or push occurred. Failed G13 evidence remains
+  preserved unchanged.
+
+**Exact implementation files changed:**
+
+```text
+supabase/functions/_shared/test/deploy-compat.vitest.test.ts
+supabase/functions/session/deno.json
+supabase/functions/ai-gateway/deno.json
+supabase/functions/agent-executor/deno.json
+```
+
+**Handoff:** HOSTED BUNDLE RESOLUTION IMPLEMENTATION COMPLETE — READY FOR EVL
+
+---
+
+## G12b Crypto-Typing Fix Verification (11-09-26)
+
+**Status:** VERIFIED · G12a GREEN · G13/H1/H2/H3 NOT RUN
+
+Independent EVL verification recorded the ambient `randomUUID` crypto typing fix.
+The change is typing-only: it does not alter runtime behavior, API behavior, or
+business logic.
+
+- Toolchain: Deno `2.9.6`.
+- Focused `ai-gateway` check: GREEN.
+- Per-function checks: `3/3` GREEN.
+- Per-function bundles: `3/3` GREEN using the supported command shape
+  `deno bundle --no-lock -c <function>/deno.json -o <output> <entrypoint>`.
+- Regressions: G12a `6/6`; full Vitest `145/145`; typecheck, lint, and AICD
+  GREEN; secret scan `970/0`; `git diff --check` GREEN.
+- Lockfile and secret-name boundaries: `deno.lock` absent;
+  `AGENT_SIGNER_PRIVATE_KEY` absent.
+- Implementation fix scope only: `supabase/functions/ai-gateway/index.ts`
+  and `supabase/functions/agent-executor/index.ts`.
+- Scope boundary: ambient `randomUUID` typing only; no runtime or
+  business-behavior drift.
+
+The original G13 bare-ethers failure is preserved unchanged. G13, H1, H2, and
+H3 remain **NOT RUN**. No deployment, OpenAI/RPC call, migration, transaction,
+secret-value access, commit, or push occurred in this verification.
