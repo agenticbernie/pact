@@ -142,10 +142,75 @@ describe("deploy-compat G12a (C1–C4)", () => {
     expect(schemas, "resolveOpenAIModel must accept an explicit envModel dep").toMatch(/envModel/);
   });
 
-  it("pins the expected region constant in serve wiring (no SUPABASE_* custom secret)", () => {
+  it("uses the explicit expected-region binding and observed runtime region in serve wiring", () => {
     for (const slug of SLUGS) {
       const src = readFileSync(join(FUNCTIONS_DIR, slug, "index.ts"), "utf8");
-      expect(src, `${slug} serve wiring must pin the expected region`).toMatch(/us-east-1/);
+      const serveBlock = src.slice(src.lastIndexOf("if (typeof Deno"));
+      expect(serveBlock, `${slug} serve wiring must read PACT_EXPECTED_REGION`).toMatch(/PACT_EXPECTED_REGION/);
+      expect(serveBlock, `${slug} serve wiring must read observed SB_REGION`).toMatch(/SB_REGION/);
+      expect(serveBlock, `${slug} serve wiring must not use legacy region binding`).not.toMatch(/SUPABASE_FUNCTION_REGION/);
+      expect(src, `${slug} must not carry a deployed region fallback`).not.toMatch(
+        /(?:PACT_EXPECTED_REGION|SB_REGION)[^;\n]*\?\?\s*["'][^"']+["']/,
+      );
+      expect(src, `${slug} must not hard-code an expected region`).not.toMatch(
+        /EXPECTED_REGION\s*=\s*["'][^"']+["']/,
+      );
     }
+  });
+
+  it("routes hosted prefixes through the shared own-slug normalizer (G23, no generic strip)", () => {
+    const normalizerRel = join("supabase", "functions", "_shared", "path-prefix.ts");
+    expect(existsSync(join(ROOT, normalizerRel)), "shared path-prefix.ts must exist").toBe(true);
+    const normalizer = read(normalizerRel);
+    expect(normalizer).toMatch(/export const FUNCTION_SLUGS/);
+    expect(normalizer).toMatch(/"session"/);
+    expect(normalizer).toMatch(/"ai-gateway"/);
+    expect(normalizer).toMatch(/"agent-executor"/);
+    expect(normalizer).toMatch(/export function normalizeFunctionPath/);
+    expect(normalizer, "normalizer must compare the literal own-slug prefix").toMatch(
+      /"\/functions\/v1\/" \+ ownSlug/,
+    );
+    const ownLiterals: Record<string, string> = {
+      session: '"session"',
+      "ai-gateway": '"ai-gateway"',
+      "agent-executor": '"agent-executor"',
+    };
+    for (const slug of SLUGS) {
+      const src = readFileSync(join(FUNCTIONS_DIR, slug, "index.ts"), "utf8");
+      expect(src, `${slug}/index.ts must import the shared normalizer`).toMatch(/normalizeFunctionPath/);
+      expect(src, `${slug}/index.ts must import from the shared module`).toMatch(
+        /from\s+["']\.\.\/_shared\/path-prefix\.ts["']/,
+      );
+      expect(src, `${slug}/index.ts must call the normalizer with its own literal slug`).toMatch(
+        new RegExp(`normalizeFunctionPath\\([\\s\\S]*?${ownLiterals[slug] ?? ""}`),
+      );
+      expect(src, `${slug}/index.ts must not regex-strip an arbitrary slug`).not.toMatch(/\[\^\/\]\+/);
+      expect(src, `${slug}/index.ts must not replace-strip the prefix`).not.toMatch(
+        /replace\(\s*["']\/functions\/v1\//,
+      );
+      expect(src, `${slug}/index.ts must not split-and-drop prefix segments`).not.toMatch(
+        /\.split\(\s*["']\/["']\s*\)\s*\.\s*slice/,
+      );
+    }
+  });
+
+  it("accepts the proven slug-preserved form via own-literal single-segment comparison (true-fix §16, no arbitrary strip)", () => {
+    const normalizerRel = join("supabase", "functions", "_shared", "path-prefix.ts");
+    const normalizer = read(normalizerRel);
+    expect(normalizer, "normalizer must compare the own-literal single-segment prefix").toMatch(
+      /"\/" \+ ownSlug/,
+    );
+    expect(normalizer, "wrong single-segment slugs must be rejected via the closed slug list").toMatch(
+      /FUNCTION_SLUGS/,
+    );
+    expect(normalizer, "normalizer must not regex-strip an arbitrary first segment").not.toMatch(
+      /\[\^\/\]\+/,
+    );
+    expect(normalizer, "normalizer must not replace-strip an arbitrary prefix").not.toMatch(
+      /replace\(\s*["']\//,
+    );
+    expect(normalizer, "normalizer must not split-and-drop arbitrary segments").not.toMatch(
+      /\.split\(\s*["']\/["']\s*\)\s*\.\s*slice/,
+    );
   });
 });

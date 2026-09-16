@@ -59,7 +59,7 @@ describe("G21 composition roots (Option A explicit selection)", () => {
       serve: (handler) => {
         served = handler;
       },
-      env: { SUPABASE_FUNCTION_REGION: "us-east-1", SESSION_HMAC_SECRET: "local-secret" },
+      env: { PACT_EXPECTED_REGION: "ap-southeast-1", SB_REGION: "ap-southeast-1", SESSION_HMAC_SECRET: "local-secret" },
       persistence: createFakePersistence().session,
     });
     expect(served).toBeDefined();

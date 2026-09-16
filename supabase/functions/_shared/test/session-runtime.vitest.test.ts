@@ -14,7 +14,7 @@ describe("G14 session runtime persistence boundary", () => {
     let served: ((request: Request) => Response | Promise<Response>) | undefined;
     startSessionServer({
       serve: (handler) => { served = handler; },
-      env: { SUPABASE_FUNCTION_REGION: "us-east-1", SESSION_HMAC_SECRET: SECRET },
+      env: { PACT_EXPECTED_REGION: "ap-southeast-1", SB_REGION: "ap-southeast-1", SESSION_HMAC_SECRET: SECRET },
       persistence: {
         insertChallenge: async () => undefined,
         consumeChallenge: async () => null,
@@ -49,7 +49,9 @@ describe("G14 session runtime persistence boundary", () => {
     const runtime = createSessionRuntime({ persistence, secret: SECRET });
     const handler = createSessionEntrypointHandler({
       runtime,
-      configuredRegion: "us-east-1",
+       configuredRegion: "ap-southeast-1",
+       expectedRegion: "ap-southeast-1",
+       actualRegion: "ap-southeast-1",
       options: { nowMs: 1_000, verifyFn: (_message, signature) => signature.slice(4) },
     });
     const challengeResponse = await handler(new Request("https://regional.invalid/v1/session/challenge", {

@@ -57,13 +57,22 @@ export class OpenAiProvider implements AiProvider {
   private readonly baseUrl: string;
   private readonly fetchFn: FetchFn;
   private readonly apiKey?: string;
+  private readonly envModel?: string;
 
-  constructor(input: { modelConfig: ModelConfig; region?: string; baseUrl?: string; apiKey?: string; fetchFn: FetchFn }) {
+  constructor(input: {
+    modelConfig: ModelConfig;
+    region?: string;
+    envModel?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    fetchFn: FetchFn;
+  }) {
     this.modelConfig = input.modelConfig;
-    this.region = input.region ?? "us-east-1";
+    this.region = input.region ?? "";
     this.baseUrl = input.baseUrl ?? "https://api.openai.com";
     this.fetchFn = input.fetchFn;
     this.apiKey = input.apiKey;
+    this.envModel = input.envModel;
   }
 
   async parseIntent(input: {
@@ -72,7 +81,7 @@ export class OpenAiProvider implements AiProvider {
     merchants: ReadonlyArray<MerchantCatalogItem>;
   }): Promise<ProviderIntentResult> {
     assertModelConfigAllowsCall(this.modelConfig);
-    const model = resolveOpenAIModel({ ...this.modelConfig, region: this.region });
+    const model = resolveOpenAIModel({ ...this.modelConfig, region: this.region }, this.envModel);
     const body = {
       model,
       store: false,

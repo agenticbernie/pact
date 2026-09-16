@@ -4,7 +4,9 @@ import type { PostgrestRequest } from "../persistence-ports.ts";
 import type { AgentIntent } from "../../../../packages/domain/src/types.ts";
 
 const AGENT = "0x1111111111111111111111111111111111111111";
+const OTHER_AGENT = "0x3333333333333333333333333333333333333333";
 const OWNER = "0x2222222222222222222222222222222222222222";
+const OTHER_OWNER = "0x4444444444444444444444444444444444444444";
 const CARD = "7";
 const NOW_MS = Date.parse("2026-09-12T00:00:00.000Z");
 
@@ -47,6 +49,7 @@ function dbRow(from: AgentIntent, overrides: Record<string, unknown> = {}) {
     idempotency_key: "idem-1",
     created_at: from.createdAt,
     expires_at: from.expiresAt,
+    cards: { owner_address: OWNER.toLowerCase() },
     ...overrides,
   };
 }
@@ -108,12 +111,18 @@ describe("G21 IntentStore (Option A PostgREST)", () => {
 
   it("replays equal idempotency safely and rejects conflicting idempotency", async () => {
     const existing = intent();
+    const replayRequests: PostgrestRequest[] = [];
     const equalStore = createPostgrestIntentStore(CONFIG, async (req) => {
+      replayRequests.push(req);
       if (req.method === "GET" && req.path.startsWith("/rest/v1/cards")) {
         return { status: 200, body: [{ card_id: CARD, agent_id: AGENT.toLowerCase(), owner_address: OWNER.toLowerCase(), status: "ACTIVE" }] };
       }
       if (req.method === "POST") return { status: 409, body: { message: "duplicate" } };
       if (req.method === "GET" && req.path.startsWith(INTENTS_PATH)) {
+        expect(req.path).toContain("idempotency_key=eq.idem-1");
+        expect(req.path).toContain(`agent_id=eq.${AGENT.toLowerCase()}`);
+        expect(req.path).toContain(`cards!inner(owner_address)`);
+        expect(req.path).toContain(`cards.owner_address=eq.${OWNER.toLowerCase()}`);
         return { status: 200, body: [dbRow(existing)] };
       }
       return { status: 200, body: [] };
@@ -125,6 +134,7 @@ describe("G21 IntentStore (Option A PostgREST)", () => {
       requestId: "req-1",
     });
     expect(replayed.intentId).toBe(existing.intentId);
+    expect(replayRequests.filter((req) => req.method === "GET" && req.path.startsWith(INTENTS_PATH))).toHaveLength(1);
 
     const conflictStore = createPostgrestIntentStore(CONFIG, async (req) => {
       if (req.method === "GET" && req.path.startsWith("/rest/v1/cards")) {
@@ -132,6 +142,8 @@ describe("G21 IntentStore (Option A PostgREST)", () => {
       }
       if (req.method === "POST") return { status: 409, body: { message: "duplicate" } };
       if (req.method === "GET" && req.path.startsWith(INTENTS_PATH)) {
+        expect(req.path).toContain(`agent_id=eq.${AGENT.toLowerCase()}`);
+        expect(req.path).toContain(`cards.owner_address=eq.${OWNER.toLowerCase()}`);
         return { status: 200, body: [dbRow(existing, { amount_base_units: "9999" })] };
       }
       return { status: 200, body: [] };
@@ -150,6 +162,9 @@ describe("G21 IntentStore (Option A PostgREST)", () => {
     const scoped = createPostgrestIntentStore(CONFIG, async (req) => {
       if (req.path.startsWith(INTENTS_PATH) && req.method === "GET") {
         expect(req.path).toContain("intent_id=eq.intent-req-1");
+        expect(req.path).toContain(`agent_id=eq.${AGENT.toLowerCase()}`);
+        expect(req.path).toContain("cards!inner(owner_address)");
+        expect(req.path).toContain(`cards.owner_address=eq.${OWNER.toLowerCase()}`);
         return { status: 200, body: [dbRow(intent())] };
       }
       if (req.path.startsWith("/rest/v1/cards")) {
@@ -159,6 +174,42 @@ describe("G21 IntentStore (Option A PostgREST)", () => {
     });
     const found = await scoped.getById({ intentId: "intent-req-1", ownerAddress: OWNER, agentId: AGENT });
     expect(found?.intentId).toBe("intent-req-1");
+
+    const idempotencyRequests: PostgrestRequest[] = [];
+    const byKey = createPostgrestIntentStore(CONFIG, async (req) => {
+      if (req.method === "GET" && req.path.startsWith(INTENTS_PATH)) {
+        idempotencyRequests.push(req);
+        return { status: 200, body: [dbRow(intent())] };
+      }
+      return { status: 200, body: [] };
+    });
+    const foundByKey = await byKey.getByIdempotencyKey({
+      idempotencyKey: "idem-1",
+      ownerAddress: OWNER,
+      agentId: AGENT,
+    });
+    expect(foundByKey?.intentId).toBe("intent-req-1");
+    expect(idempotencyRequests[0]?.path).toContain("idempotency_key=eq.idem-1");
+    expect(idempotencyRequests[0]?.path).toContain(`agent_id=eq.${AGENT.toLowerCase()}`);
+    expect(idempotencyRequests[0]?.path).toContain(`cards.owner_address=eq.${OWNER.toLowerCase()}`);
+
+    const mismatched = createPostgrestIntentStore(CONFIG, async (req) => {
+      if (req.method === "GET" && req.path.startsWith(INTENTS_PATH)) {
+        expect(req.path).toContain(`agent_id=eq.${AGENT.toLowerCase()}`);
+        expect(req.path).toContain(`cards.owner_address=eq.${OWNER.toLowerCase()}`);
+        return {
+          status: 200,
+          body: [dbRow(intent({ agentId: OTHER_AGENT }), { cards: { owner_address: OTHER_OWNER.toLowerCase() } })],
+        };
+      }
+      return { status: 200, body: [] };
+    });
+    await expect(mismatched.getById({ intentId: "intent-req-1", ownerAddress: OWNER, agentId: AGENT })).resolves.toBeNull();
+    await expect(mismatched.getByIdempotencyKey({
+      idempotencyKey: "idem-1",
+      ownerAddress: OWNER,
+      agentId: AGENT,
+    })).resolves.toBeNull();
 
     const dup = createPostgrestIntentStore(CONFIG, async (req) => {
       if (req.path.startsWith(INTENTS_PATH)) return { status: 200, body: [dbRow(intent()), dbRow(intent())] };

@@ -30,14 +30,28 @@ begin
   end if;
 end $$;
 
--- Session challenge checks and lookups.
-alter table if exists session_challenges
-  add constraint if not exists session_challenges_nonce_hash_hex
-  check (nonce_hash ~ '^[0-9a-f]{64}$'),
-  add constraint if not exists session_challenges_wallet_address_fmt
-  check (wallet_address ~ '^0x[0-9a-f]{40}$'),
-  add constraint if not exists session_challenges_expiry_after_issue
-  check (expires_at > issued_at);
+-- Session challenge checks and lookups (Postgres has no ADD CONSTRAINT IF NOT EXISTS).
+do $$
+begin
+  if to_regclass('public.session_challenges') is not null
+     and not exists (select 1 from pg_constraint where conname = 'session_challenges_nonce_hash_hex') then
+    alter table session_challenges
+      add constraint session_challenges_nonce_hash_hex
+      check (nonce_hash ~ '^[0-9a-f]{64}$');
+  end if;
+  if to_regclass('public.session_challenges') is not null
+     and not exists (select 1 from pg_constraint where conname = 'session_challenges_wallet_address_fmt') then
+    alter table session_challenges
+      add constraint session_challenges_wallet_address_fmt
+      check (wallet_address ~ '^0x[0-9a-f]{40}$');
+  end if;
+  if to_regclass('public.session_challenges') is not null
+     and not exists (select 1 from pg_constraint where conname = 'session_challenges_expiry_after_issue') then
+    alter table session_challenges
+      add constraint session_challenges_expiry_after_issue
+      check (expires_at > issued_at);
+  end if;
+end $$;
 
 create index if not exists session_challenges_wallet_issued_idx
   on session_challenges (wallet_address, issued_at desc);
@@ -54,23 +68,6 @@ alter table if exists session_challenges
 alter table if exists intents
   add column if not exists agent_id text,
   add column if not exists idempotency_key text;
-
--- Backfill agent from the authoritative card source. Rows with no card,
--- invalid agent, or agent mismatch are invalid and block promotion.
-do $$
-declare
-  invalid_intents integer;
-begin
-  select count(*) into invalid_intents
-    from intents i
-    left join cards c on c.card_id = i.card_id
-    where i.agent_id is null
-      or c.card_id is null
-      or lower(i.agent_id) <> lower(c.agent_id);
-  if invalid_intents > 0 then
-    raise exception 'invalid legacy intents rows: % must be quarantined before promotion', invalid_intents;
-  end if;
-end $$;
 
 -- 3. cards cache table (off-chain lookup only; controller remains authority).
 create table if not exists cards (
@@ -95,18 +92,53 @@ create table if not exists cards (
   check (expires_at > created_at)
 );
 
--- Card intent ownership link.
-alter table if exists intents
-  add constraint if not exists intents_card_id_fkey
-  foreign key (card_id) references cards (card_id);
+-- Backfill validation against the authoritative card source. Rows with no
+-- card, invalid agent, or agent mismatch are invalid and block promotion.
+-- Cards is created above, so this reference is safe.
+do $$
+declare
+  invalid_intents integer;
+begin
+  select count(*) into invalid_intents
+    from intents i
+    left join cards c on c.card_id = i.card_id
+    where i.agent_id is null
+      or c.card_id is null
+      or lower(i.agent_id) <> lower(c.agent_id);
+  if invalid_intents > 0 then
+    raise exception 'invalid legacy intents rows: % must be quarantined before promotion', invalid_intents;
+  end if;
+end $$;
 
-alter table if exists intents
-  add constraint if not exists intents_agent_id_fmt
-  check (agent_id ~ '^0x[0-9a-f]{40}$'),
-  add constraint if not exists intents_intent_hash_unique
-  unique (intent_hash),
-  add constraint if not exists intents_idempotency_key_unique
-  unique (idempotency_key);
+-- Card intent ownership link (Postgres has no ADD CONSTRAINT IF NOT EXISTS).
+do $$
+begin
+  if to_regclass('public.intents') is not null
+     and to_regclass('public.cards') is not null
+     and not exists (select 1 from pg_constraint where conname = 'intents_card_id_fkey') then
+    alter table intents
+      add constraint intents_card_id_fkey
+      foreign key (card_id) references cards (card_id);
+  end if;
+  if to_regclass('public.intents') is not null
+     and not exists (select 1 from pg_constraint where conname = 'intents_agent_id_fmt') then
+    alter table intents
+      add constraint intents_agent_id_fmt
+      check (agent_id ~ '^0x[0-9a-f]{40}$');
+  end if;
+  if to_regclass('public.intents') is not null
+     and not exists (select 1 from pg_constraint where conname = 'intents_intent_hash_unique') then
+    alter table intents
+      add constraint intents_intent_hash_unique
+      unique (intent_hash);
+  end if;
+  if to_regclass('public.intents') is not null
+     and not exists (select 1 from pg_constraint where conname = 'intents_idempotency_key_unique') then
+    alter table intents
+      add constraint intents_idempotency_key_unique
+      unique (idempotency_key);
+  end if;
+end $$;
 
 alter table if exists intents
   alter column agent_id set not null,

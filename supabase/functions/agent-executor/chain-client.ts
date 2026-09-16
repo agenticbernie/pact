@@ -32,10 +32,17 @@ export type PayInput = {
   idempotencyKey: string;
   cardId: string;
   nonce: string;
+  /** Server-bound values required by PactCardController.preflightPay. */
+  amountBaseUnits?: string;
+  deadline?: number;
+  merchantId?: string;
+  asset?: "native-testnet-ctc";
+  policyVersion?: number;
+  agent?: string;
 };
 
 export interface PaymentClient {
-  readCard(cardId: string): Promise<OnChainCardSnapshot>;
+  readCard(cardId: string, agent?: string): Promise<OnChainCardSnapshot>;
   preflight(input: PayInput): Promise<PreflightResult>;
   sendPayment(input: PayInput): Promise<{ txHash: string }>;
   waitForReceipt(txHash: string): Promise<ReceiptResult>;
@@ -59,7 +66,7 @@ export function createFetchRpcTransport(rpcUrl: string, fetchFn: typeof fetch = 
 }
 
 export type ReadOnlyRpcPaymentClient = {
-  readCard(cardId: string): Promise<OnChainCardSnapshot>;
+  readCard(cardId: string, agent?: string): Promise<OnChainCardSnapshot>;
   preflight(input: PayInput): Promise<PreflightResult>;
 };
 
@@ -71,22 +78,22 @@ export function createReadOnlyRpcPaymentClient(input: {
   transport: ReadOnlyRpcTransport;
 }): ReadOnlyRpcPaymentClient {
   if (input.rpcUrl.length === 0) throw new Error("RPC endpoint is required.");
-  const agent = input.agent ?? "0x0000000000000000000000000000000000000000";
+  const defaultAgent = input.agent;
   async function assertNetwork(): Promise<void> {
     const value = await input.transport("eth_chainId", []);
     const chainId = typeof value === "string" ? Number.parseInt(value, 16) : Number(value);
     if (chainId !== input.expectedChainId) throw Object.assign(new Error("Chain mismatch."), { code: "NETWORK_CONFIG_INVALID" });
   }
   return {
-    async readCard(cardId) {
+    async readCard(cardId, callerAgent) {
       await assertNetwork();
-      const value = await input.transport("eth_call", [{ from: agent, kind: "readCard", cardId }, "latest"]);
+      const value = await input.transport("eth_call", [{ from: callerAgent ?? defaultAgent, kind: "readCard", cardId }, "latest"]);
       if (typeof value !== "object" || value === null) throw new Error("Card read failed.");
       return value as OnChainCardSnapshot;
     },
     async preflight(payInput) {
       await assertNetwork();
-      const value = await input.transport("eth_call", [{ from: agent, kind: "preflightPay", ...payInput }, "latest"]);
+      const value = await input.transport("eth_call", [{ from: payInput.agent ?? defaultAgent, kind: "preflightPay", ...payInput }, "latest"]);
       if (typeof value !== "object" || value === null) throw new Error("Preflight failed.");
       return value as PreflightResult;
     },

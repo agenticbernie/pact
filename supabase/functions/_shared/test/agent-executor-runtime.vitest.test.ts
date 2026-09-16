@@ -7,7 +7,7 @@ describe("G16 read-only executor runtime boundary", () => {
     let served: ((request: Request) => Response | Promise<Response>) | undefined;
     startExecutorServer({
       serve: (handler) => { served = handler; },
-      env: { SUPABASE_FUNCTION_REGION: "us-east-1", CREDITCOIN_RPC_URL: "http://local-rpc.invalid" },
+      env: { PACT_EXPECTED_REGION: "ap-southeast-1", SB_REGION: "ap-southeast-1", CREDITCOIN_RPC_URL: "http://local-rpc.invalid" },
       transport: async (method) => method === "eth_chainId" ? "0x18e8f" : { ok: true },
     });
     expect(served).toBeDefined();
@@ -30,7 +30,7 @@ describe("G16 read-only executor runtime boundary", () => {
       },
     });
     const handler = createExecutorCompositionRoot({
-      env: { SUPABASE_FUNCTION_REGION: "us-east-1", CREDITCOIN_RPC_URL: "http://local-rpc.invalid" },
+      env: { PACT_EXPECTED_REGION: "ap-southeast-1", SB_REGION: "ap-southeast-1", CREDITCOIN_RPC_URL: "http://local-rpc.invalid" },
       readOnlyClient: client,
     });
     const response = await handler(new Request("https://regional.invalid/v1/payments/preflight", {
@@ -42,5 +42,34 @@ describe("G16 read-only executor runtime boundary", () => {
     await expect(response.json()).resolves.toMatchObject({ ok: true, decision: "would_settle", requestId: "req-executor" });
     expect(calls.map((call) => call.method)).toEqual(["eth_chainId", "eth_call", "eth_chainId", "eth_call"]);
     expect(JSON.stringify(calls)).not.toMatch(/privateKey|sendRawTransaction|eth_sendTransaction/);
+  });
+
+  it("passes the server-bound amount and deadline to the static preflight call", async () => {
+    const calls: Array<{ method: string; params: unknown[] }> = [];
+    const client = createReadOnlyRpcPaymentClient({
+      rpcUrl: "http://local-rpc.invalid",
+      expectedChainId: 102031,
+      agent: "0x1111111111111111111111111111111111111111",
+      transport: async (method, params) => {
+        calls.push({ method, params });
+        return method === "eth_chainId" ? "0x18e8f" : { ok: true };
+      },
+    });
+
+    await client.preflight({
+      intentId: "intent-1",
+      idempotencyKey: "preflight",
+      cardId: "7",
+      nonce: "7:1",
+      amountBaseUnits: "250",
+      deadline: 1_789_000_000,
+    });
+
+    const call = calls.find((entry) => entry.method === "eth_call");
+    expect(call?.params[0]).toMatchObject({
+      kind: "preflightPay",
+      amountBaseUnits: "250",
+      deadline: 1_789_000_000,
+    });
   });
 });

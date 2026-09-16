@@ -315,3 +315,40 @@ A phase may be marked ✅ VERIFIED only after:
 ## Validate Contract
 
 (placeholder — vc-validate-agent writes this section before EXECUTE)
+
+## Additive Current Execution State (2026-09-13)
+
+This addendum is the current-state correction. All earlier umbrella state,
+phase history, and evidence remain immutable; this section does not rewrite the
+older Phase 04 status lines.
+
+- Phase 04 remains **NOT VERIFIED / NOT CLOSED**.
+- Independent local correction EVL is GREEN: G31 `2/2`, G32 `6/6` with the
+  mandatory owner predicate and conditional agent predicate, G33 `13/13`, and
+  post-correction G24-G30 `48/48`.
+- Prefix routing is `12/12`; deploy compatibility is `8/8`; full relevant
+  Vitest is `35 files / 198 tests`; typecheck, lint, AICD, and diff-check are
+  GREEN; secret scan is `1001/0`; diagnostic tokens are zero.
+- API codes remain exactly 15. No `openai` package/import exists. The read-only
+  executor path has no signer, broadcast, gas, send, or payment-send behavior.
+- Deno local checks were unavailable and are not claimed.
+- G22 exact linked diff against approved staging project/ref
+  `myotkovmgzdabuirkqlx` was non-empty after shadow application of migrations
+  `202609080001` and `202609120001`, including the `payment_attempts` RLS
+  enablement and `public.rls_auto_enable()` event-trigger definition. G22 is
+  **UNKNOWN / DRIFT**, not GREEN. No schema or migration was altered, and no
+  migration/reset/push occurred.
+- Historical G13 versions `v8`/`v9` and H1-H3 results predate the latest
+  correction and are not reused. The latest correction is not deployed.
+- Next exact action: separate corrected G13 staging redeploy approval, then
+  hosted smoke/health; fresh H1-H3 approval only after that. Any true G22
+  contract mismatch requires a later plan and separate approval.
+
+**Current Phase 04 state:** local correction EVL GREEN; G22 UNKNOWN/DRIFT;
+latest correction undeployed; Phase 04 NOT VERIFIED / NOT CLOSED.
+
+### G22 Migration-List Clarification (Additive)
+
+The approved staging migration list showed both `202609080001` and
+`202609120001` as applied. This records observed migration state only; the
+current update performed no migration, reset, schema change, or push.

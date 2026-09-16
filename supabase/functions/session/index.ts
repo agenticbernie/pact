@@ -29,6 +29,12 @@ import {
   issueSessionToken,
   verifySessionToken,
 } from "../_shared/session-token.ts";
+import { normalizeFunctionPath } from "../_shared/path-prefix.ts";
+import {
+  createPostgrestPersistenceFromEnv,
+  type PostgrestPersistence,
+} from "../_shared/persistence-composition.ts";
+import { regionsMatch, resolveRegionConfig } from "../_shared/region-config.ts";
 
 export { CHALLENGE_TTL_MS, SESSION_TTL_MS, SESSION_HMAC_SECRET_NAME };
 
@@ -252,16 +258,23 @@ export function createSessionHttpHandler(runtime: SessionRuntime, options: {
   verifyFn?: VerifyFn;
 } = {}): (request: Request) => Promise<Response> {
   return async (request) => {
+    const url = new URL(request.url);
+    const receivedPathname = url.pathname;
     const requestId = request.headers.get("x-request-id") ?? "req-session";
-    const path = new URL(request.url).pathname;
-    if (request.method !== "POST" || !path.startsWith("/v1/session/")) {
+    const normalized = normalizeFunctionPath(receivedPathname, "session");
+    if (!normalized.ok) {
+      return sessionResponse({ requestId, code: "INPUT_INVALID", message: "Unsupported session route." }, 404);
+    }
+    const path = normalized.path;
+    const sessionRoutes = new Set(["/v1/session/challenge", "/v1/session/verify", "/v1/session/revoke"]);
+    if (request.method !== "POST" || !sessionRoutes.has(path)) {
       return sessionResponse({ requestId, code: "INPUT_INVALID", message: "Unsupported session route." }, 404);
     }
     try {
       const body = path.endsWith("/revoke")
         ? {}
         : (await request.json()) as Record<string, unknown>;
-      if (path.endsWith("/challenge")) {
+      if (path === "/v1/session/challenge") {
         const result = await runtime.requestChallenge({
           wallet: String(body.wallet ?? ""),
           domain: String(body.domain ?? "pact.test"),
@@ -270,7 +283,7 @@ export function createSessionHttpHandler(runtime: SessionRuntime, options: {
         });
         return sessionResponse({ requestId, ...result });
       }
-      if (path.endsWith("/verify")) {
+      if (path === "/v1/session/verify") {
         const result = await runtime.verifyChallenge({
           nonce: String(body.nonce ?? ""),
           signature: String(body.signature ?? ""),
@@ -279,7 +292,7 @@ export function createSessionHttpHandler(runtime: SessionRuntime, options: {
         });
         return sessionResponse({ requestId, ...result });
       }
-      if (path.endsWith("/revoke")) {
+      if (path === "/v1/session/revoke") {
         const token = request.headers.get("authorization")?.replace(/^Bearer\s+/, "") ?? "";
         return sessionResponse({ requestId, ...(await runtime.revokeSession({ token, nowMs: options.nowMs })) });
       }
@@ -296,15 +309,18 @@ declare const Deno: {
   serve(handler: (request: Request) => Response | Promise<Response>): void;
 };
 
-const EXPECTED_REGION = "us-east-1";
-
 export function createSessionEntrypointHandler(input: {
   runtime?: SessionRuntime;
   configuredRegion?: string;
   expectedRegion?: string;
+  actualRegion?: string;
   options?: Parameters<typeof createSessionHttpHandler>[1];
 } = {}): (request: Request) => Promise<Response> {
-  if (input.runtime === undefined || input.configuredRegion !== (input.expectedRegion ?? EXPECTED_REGION)) {
+  if (
+    input.runtime === undefined ||
+    !regionsMatch(input.expectedRegion, input.actualRegion) ||
+    input.configuredRegion !== input.actualRegion
+  ) {
     return async (request) => sessionResponse({
       requestId: request.headers.get("x-request-id") ?? "req-session",
       code: "PROVIDER_UNAVAILABLE",
@@ -317,22 +333,51 @@ export function createSessionEntrypointHandler(input: {
 type RuntimeEnv = Record<string, string | undefined>;
 type Server = (handler: (request: Request) => Response | Promise<Response>) => void;
 
-export function createSessionCompositionRoot(input: {
+type SessionCompositionInput = {
   env?: RuntimeEnv;
   persistence?: SessionPersistence;
+  postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
   options?: Parameters<typeof createSessionHttpHandler>[1];
-} = {}): (request: Request) => Promise<Response> {
+};
+
+function unavailableSessionHandler(input: {
+  configuredRegion?: string;
+  expectedRegion: string;
+  actualRegion?: string;
+}): (request: Request) => Promise<Response> {
+  return createSessionEntrypointHandler(input);
+}
+
+export function createSessionCompositionRoot(input: SessionCompositionInput = {}): (request: Request) => Promise<Response> {
   const env = input.env ?? {};
-  const expectedRegion = EXPECTED_REGION;
-  const configuredRegion = env.SUPABASE_FUNCTION_REGION;
+  const region = resolveRegionConfig(env);
   const secret = env.SESSION_HMAC_SECRET;
-  if (configuredRegion !== expectedRegion || secret === undefined || input.persistence === undefined) {
-    return createSessionEntrypointHandler({ configuredRegion, expectedRegion });
+  if (secret === undefined || !regionsMatch(region.expectedRegion, region.observedRegion)) {
+    return unavailableSessionHandler({
+      configuredRegion: region.configuredRegion,
+      expectedRegion: region.expectedRegion ?? "unknown",
+      actualRegion: region.observedRegion,
+    });
+  }
+  let persistence = input.persistence;
+  if (persistence === undefined) {
+    let composed: PostgrestPersistence;
+    try {
+      composed = createPostgrestPersistenceFromEnv(env, input.postgrestTransport);
+    } catch {
+      return unavailableSessionHandler({
+        configuredRegion: region.configuredRegion,
+        expectedRegion: region.expectedRegion ?? "unknown",
+        actualRegion: region.observedRegion,
+      });
+    }
+    persistence = composed.session;
   }
   return createSessionEntrypointHandler({
-    runtime: createSessionRuntime({ persistence: input.persistence, secret }),
-    configuredRegion,
-    expectedRegion,
+    runtime: createSessionRuntime({ persistence, secret }),
+    configuredRegion: region.configuredRegion,
+    expectedRegion: region.expectedRegion,
+    actualRegion: region.observedRegion,
     options: input.options,
   });
 }
@@ -341,6 +386,7 @@ export function startSessionServer(input: {
   serve: Server;
   env?: RuntimeEnv;
   persistence?: SessionPersistence;
+  postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
   options?: Parameters<typeof createSessionHttpHandler>[1];
 }): void {
   input.serve(createSessionCompositionRoot(input));
@@ -360,7 +406,10 @@ if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   startSessionServer({
     serve: Deno.serve,
     env: {
-      SUPABASE_FUNCTION_REGION: Deno.env.get("SUPABASE_FUNCTION_REGION"),
+      PACT_EXPECTED_REGION: Deno.env.get("PACT_EXPECTED_REGION"),
+      SB_REGION: Deno.env.get("SB_REGION"),
+      SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
+      SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
       SESSION_HMAC_SECRET: Deno.env.get(SESSION_HMAC_SECRET_NAME),
     },
   });

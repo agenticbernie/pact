@@ -1,0 +1,9 @@
+# Application routes perform wallet-bound authentication themselves.
+[functions.session]
+verify_jwt = false
+
+[functions.ai-gateway]
+verify_jwt = false
+
+[functions.agent-executor]
+verify_jwt = false

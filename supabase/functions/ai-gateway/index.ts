@@ -1,8 +1,8 @@
 /**
  * Regional OpenAI gateway route (Task 3 + S1/S2): POST /v1/agent/intents.
  *
- * - Region is checked against configured SUPABASE_FUNCTION_REGION BEFORE any
- *   provider call (REGION_MISMATCH, zero chain calls).
+ * - Expected project region and observed execution region are validated before
+ *   any provider call (REGION_MISMATCH, zero chain calls).
  * - Provider output is merchantId-only; card ID, agent, asset, recipient,
  *   allowlist, policyVersion (from the on-chain card snapshot), and expiresAt
  *   (canonical UTC) are resolved server-side. Any model-supplied
@@ -25,10 +25,24 @@ import type { AgentIntent } from "../../../packages/domain/src/types.ts";
 import type { ApiError } from "../../../packages/domain/src/api.ts";
 import { OpenAiProvider, type FetchFn } from "./openai-provider.ts";
 import { parseModelConfigJson } from "../../../packages/domain/src/model-config.ts";
-import { assertMerchantInCatalog } from "./catalog.ts";
+import { assertMerchantInCatalog, loadMerchantCatalog } from "./catalog.ts";
 import type { AiProvider, MerchantCatalogItem, ProviderCardContext } from "./provider-port.ts";
 import { buildHealth } from "../_shared/health.ts";
+import { normalizeFunctionPath } from "../_shared/path-prefix.ts";
 import { TARGET_CHAIN_ID } from "../_shared/chain-config.ts";
+import { requireSession } from "../_shared/auth.ts";
+import { hashToken } from "../_shared/session-token.ts";
+import { toApiError } from "../_shared/errors.ts";
+import {
+  createPostgrestPersistenceFromEnv,
+  type PostgrestPersistence,
+} from "../_shared/persistence-composition.ts";
+import type { SessionPersistence } from "../session/index.ts";
+import type { CardStore } from "../_shared/card-store.ts";
+import { regionsMatch, resolveRegionConfig } from "../_shared/region-config.ts";
+
+import modelConfigJson from "../../../config/ai/model-config.json" with { type: "json" };
+import merchantCatalogJson from "../../../config/ai/merchant-catalog.json" with { type: "json" };
 
 export type GatewayDeps = {
   provider: AiProvider;
@@ -45,8 +59,12 @@ export type IntentStore = {
 
 export type GatewayRuntimeDeps = GatewayDeps & { store: IntentStore };
 
-export type GatewayRequestDeps = GatewayRuntimeDeps & {
+export type GatewayRequestDeps = Omit<GatewayRuntimeDeps, "card"> & {
+  card?: ProviderCardContext;
+  cardStore?: Pick<CardStore, "getById">;
   configuredRegion: string;
+  sessionSecret?: string;
+  sessionPersistence?: SessionPersistence;
 };
 
 export type GatewayResult =
@@ -57,24 +75,7 @@ const NATIVE_DECIMALS = 18;
 const INTENT_TTL_MS = 15 * 60 * 1000;
 
 function fail(requestId: string, code: string): GatewayResult {
-  const known: string[] = [
-    "AUTH_REQUIRED",
-    "AUTH_INVALID",
-    "AUTH_EXPIRED",
-    "INPUT_INVALID",
-    "NETWORK_CONFIG_INVALID",
-    "PROVIDER_UNAVAILABLE",
-    "PROVIDER_MODEL_UNAVAILABLE",
-    "PROVIDER_OUTPUT_INVALID",
-    "REGION_MISMATCH",
-    "CARD_NOT_ELIGIBLE",
-    "PREFLIGHT_DECLINED",
-    "PAYMENT_BROADCAST_TIMEOUT",
-    "PAYMENT_FAILED",
-    "PAYMENT_RECONCILIATION_REQUIRED",
-    "RATE_LIMITED",
-  ];
-  const safe = isApiErrorCode(code) && known.includes(code) ? code : "INPUT_INVALID";
+  const safe = isApiErrorCode(code) ? code : "INPUT_INVALID";
   return {
     ok: false,
     error: createApiError(safe, requestId),
@@ -86,8 +87,26 @@ export async function handleRuntimeIntentRequest(
   deps: GatewayRuntimeDeps,
 ): Promise<GatewayResult> {
   const result = await handleIntentRequest(input, deps);
-  if (result.ok) await deps.store.save(result.intent);
+  if (result.ok) {
+    try {
+      await deps.store.save(result.intent);
+    } catch (error) {
+      return { ok: false, error: toApiError(error, result.requestId) };
+    }
+  }
   return result;
+}
+
+function providerCardFromRecord(record: Awaited<ReturnType<CardStore["getById"]>>): ProviderCardContext | null {
+  if (record === null) return null;
+  return {
+    cardId: record.card_id,
+    agent: record.agent_id,
+    asset: record.asset,
+    // Merchant recipients are resolved by the controller/catalog path, never by the request.
+    recipient: "",
+    policyVersion: record.policy_version,
+  };
 }
 
 export async function handleHealthRequest(
@@ -119,26 +138,92 @@ export function createGatewayEntrypointHandler(input: {
   deps?: GatewayRequestDeps;
   configuredRegion?: string;
   expectedRegion?: string;
+  failureCode?: "PROVIDER_UNAVAILABLE" | "PROVIDER_MODEL_UNAVAILABLE" | "REGION_MISMATCH";
 } = {}): (request: Request) => Promise<Response> {
-  const expectedRegion = input.expectedRegion ?? "us-east-1";
+  const expectedRegion = input.expectedRegion ?? "unknown";
   return async (request) => {
-    const requestId = request.headers.get("x-request-id") ?? `req-${crypto.randomUUID()}`;
     const url = new URL(request.url);
-    if (url.pathname === "/health") {
-      return handleHealthRequest(request, {
-        configuredRegion: input.configuredRegion ?? input.deps?.configuredRegion ?? "unknown",
-        expectedRegion,
-        modelAvailable: false,
-      });
-    }
-    if (request.method !== "POST" || url.pathname !== "/v1/agent/intents") {
+    const receivedPathname = url.pathname;
+    const requestId = request.headers.get("x-request-id") ?? `req-${crypto.randomUUID()}`;
+    const normalized = normalizeFunctionPath(receivedPathname, "ai-gateway");
+    if (!normalized.ok) {
       return new Response(JSON.stringify({ requestId, code: "INPUT_INVALID", message: "Unsupported gateway route." }), {
         status: 404,
         headers: { "content-type": "application/json", "x-request-id": requestId },
       });
     }
-    if (input.deps === undefined || input.deps.configuredRegion !== expectedRegion) {
+    const path = normalized.path;
+    if (path === "/health") {
+      const healthRequest = path === url.pathname
+        ? request
+        : new Request(new URL(path, url).toString(), { method: request.method, headers: request.headers });
+      return handleHealthRequest(healthRequest, {
+        configuredRegion: input.configuredRegion ?? input.deps?.configuredRegion ?? "unknown",
+        expectedRegion,
+        modelAvailable: false,
+      });
+    }
+    if (request.method !== "POST" || path !== "/v1/agent/intents") {
+      return new Response(JSON.stringify({ requestId, code: "INPUT_INVALID", message: "Unsupported gateway route." }), {
+        status: 404,
+        headers: { "content-type": "application/json", "x-request-id": requestId },
+      });
+    }
+    if (input.deps === undefined) {
+      const code = input.failureCode ?? "PROVIDER_UNAVAILABLE";
+      return new Response(JSON.stringify(createApiError(code, requestId)), {
+        status: 503,
+        headers: { "content-type": "application/json", "x-request-id": requestId },
+      });
+    }
+    const sessionSecret = input.deps.sessionSecret;
+    if (typeof sessionSecret !== "string" || sessionSecret.trim().length === 0 || input.deps.sessionPersistence === undefined) {
+      return new Response(JSON.stringify(createApiError("PROVIDER_UNAVAILABLE", requestId)), {
+        status: 503,
+        headers: { "content-type": "application/json", "x-request-id": requestId },
+      });
+    }
+    if (!regionsMatch(expectedRegion, input.deps.actualRegion) || input.deps.configuredRegion !== input.deps.actualRegion) {
       return new Response(JSON.stringify({ requestId, code: "REGION_MISMATCH", message: "Function region mismatch." }), {
+        status: 503,
+        headers: { "content-type": "application/json", "x-request-id": requestId },
+      });
+    }
+    let sessionWallet: string | undefined;
+    try {
+      const session = requireSession({
+        authorization: request.headers.get("authorization") ?? undefined,
+        secret: sessionSecret,
+        nowMs: input.deps.nowMs,
+      });
+      sessionWallet = session.wallet;
+    } catch (error) {
+      const authError = toApiError(error, requestId);
+      return new Response(JSON.stringify(authError), {
+        status: 401,
+        headers: { "content-type": "application/json", "x-request-id": requestId },
+      });
+    }
+    const token = request.headers.get("authorization")?.slice("Bearer ".length) ?? "";
+    try {
+      const stored = await input.deps.sessionPersistence.findSession(hashToken(token), sessionWallet);
+      if (
+        stored === null ||
+        stored.tokenHash !== hashToken(token) ||
+        stored.wallet.toLowerCase() !== sessionWallet.toLowerCase() ||
+        stored.revokedAtMs !== null ||
+        stored.expiresAtMs <= input.deps.nowMs
+      ) {
+        throw new Error("Authentication is invalid.");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "Authentication is invalid.") {
+        return new Response(JSON.stringify(createApiError("AUTH_INVALID", requestId)), {
+          status: 401,
+          headers: { "content-type": "application/json", "x-request-id": requestId },
+        });
+      }
+      return new Response(JSON.stringify(createApiError("PROVIDER_UNAVAILABLE", requestId)), {
         status: 503,
         headers: { "content-type": "application/json", "x-request-id": requestId },
       });
@@ -152,11 +237,31 @@ export function createGatewayEntrypointHandler(input: {
         headers: { "content-type": "application/json", "x-request-id": requestId },
       });
     }
+    let card = input.deps.card;
+    if (card === undefined && input.deps.cardStore !== undefined) {
+      try {
+        const stored = await input.deps.cardStore.getById({ cardId: String(body.cardId ?? ""), ownerAddress: sessionWallet });
+        const resolved = providerCardFromRecord(stored);
+        if (resolved !== null) card = resolved;
+      } catch (error) {
+        const persistenceError = toApiError(error, requestId);
+        return new Response(JSON.stringify(persistenceError), {
+          status: 503,
+          headers: { "content-type": "application/json", "x-request-id": requestId },
+        });
+      }
+    }
+    if (card === undefined) {
+      return new Response(JSON.stringify(createApiError("CARD_NOT_ELIGIBLE", requestId)), {
+        status: 400,
+        headers: { "content-type": "application/json", "x-request-id": requestId },
+      });
+    }
     const result = await handleRuntimeIntentRequest({
       prompt: body.prompt,
       cardId: body.cardId,
       requestId,
-    }, input.deps);
+    }, { ...input.deps, card });
     return new Response(JSON.stringify(result.ok ? result : result.error), {
       status: result.ok ? 200 : 400,
       headers: { "content-type": "application/json", "x-request-id": requestId },
@@ -167,46 +272,91 @@ export function createGatewayEntrypointHandler(input: {
 type RuntimeEnv = Record<string, string | undefined>;
 type Server = (handler: (request: Request) => Response | Promise<Response>) => void;
 
-export function createGatewayCompositionRoot(input: {
+type GatewayCompositionInput = {
   env?: RuntimeEnv;
   provider?: AiProvider;
   card?: ProviderCardContext;
+  cardStore?: Pick<CardStore, "getById">;
   merchants?: ReadonlyArray<MerchantCatalogItem>;
   store?: IntentStore;
+  intentStore?: IntentStore;
+  sessionPersistence?: SessionPersistence;
+  persistence?: PostgrestPersistence;
+  postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
   fetchFn?: FetchFn;
-} = {}): (request: Request) => Promise<Response> {
+};
+
+export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}): (request: Request) => Promise<Response> {
   const env = input.env ?? {};
-  const configuredRegion = env.SUPABASE_FUNCTION_REGION;
-  const expectedRegion = "us-east-1";
+  const region = resolveRegionConfig(env);
+  const expectedRegion = region.expectedRegion ?? "unknown";
+  const actualRegion = region.observedRegion;
+  const configuredRegion = region.configuredRegion;
+  const healthRegion = configuredRegion;
+  const sessionSecret = env.SESSION_HMAC_SECRET;
+  if (!regionsMatch(region.expectedRegion, region.observedRegion)) {
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "REGION_MISMATCH" });
+  }
+  if (typeof sessionSecret !== "string" || sessionSecret.trim().length === 0) {
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+  }
+  const localInjection = input.provider !== undefined && input.card !== undefined &&
+    input.merchants !== undefined && input.store !== undefined;
+  let persistence = input.persistence;
+  if (persistence === undefined && !localInjection) {
+    try {
+      persistence = createPostgrestPersistenceFromEnv(env, input.postgrestTransport);
+    } catch {
+      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+    }
+  }
+  let merchants = input.merchants;
+  if (merchants === undefined) {
+    try {
+      merchants = loadMerchantCatalog(merchantCatalogJson).merchants;
+    } catch {
+      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+    }
+  }
   const provider = input.provider ?? (env.OPENAI_API_KEY === undefined || input.fetchFn === undefined
     ? undefined
     : new OpenAiProvider({
       apiKey: env.OPENAI_API_KEY,
-      region: configuredRegion,
-      modelConfig: parseModelConfigJson('{"provider":"openai","model":"gpt-5.6-luna","allowFallback":false}'),
+      region: actualRegion,
+      envModel: env.OPENAI_MODEL,
+      modelConfig: parseModelConfigJson(JSON.stringify(modelConfigJson)),
       fetchFn: input.fetchFn,
     }));
+  const cardStore = input.cardStore ?? persistence?.card;
+  const store = input.store ?? input.intentStore ?? persistence?.intent;
   if (
-    configuredRegion === undefined ||
+    configuredRegion === undefined || actualRegion === undefined ||
     provider === undefined ||
-    input.card === undefined ||
-    input.merchants === undefined ||
-    input.store === undefined
+    store === undefined ||
+    (input.card === undefined && cardStore === undefined)
+    || (input.sessionPersistence === undefined && persistence?.session === undefined)
   ) {
-    return createGatewayEntrypointHandler({ configuredRegion, expectedRegion });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
   }
+  if (configuredRegion === undefined) {
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+  }
+  const runtimeConfiguredRegion = configuredRegion;
   return createGatewayEntrypointHandler({
-    configuredRegion,
+    configuredRegion: healthRegion,
     expectedRegion,
     deps: {
       provider,
       card: input.card,
-      merchants: input.merchants,
+      cardStore,
+      merchants,
       expectedRegion,
-      actualRegion: configuredRegion,
+      actualRegion,
       nowMs: Date.now(),
-      store: input.store,
-      configuredRegion,
+      store,
+      configuredRegion: runtimeConfiguredRegion,
+      sessionSecret,
+      sessionPersistence: input.sessionPersistence ?? persistence?.session,
     },
   });
 }
@@ -216,8 +366,13 @@ export function startGatewayServer(input: {
   env?: RuntimeEnv;
   provider?: AiProvider;
   card?: ProviderCardContext;
+  cardStore?: Pick<CardStore, "getById">;
   merchants?: ReadonlyArray<MerchantCatalogItem>;
   store?: IntentStore;
+  intentStore?: IntentStore;
+  sessionPersistence?: SessionPersistence;
+  persistence?: PostgrestPersistence;
+  postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
   fetchFn?: FetchFn;
 }): void {
   input.serve(createGatewayCompositionRoot(input));
@@ -247,7 +402,7 @@ export async function handleIntentRequest(
     return fail(requestId, "CARD_NOT_ELIGIBLE");
   }
   // Region gate BEFORE any provider call.
-  if (deps.actualRegion !== deps.expectedRegion) {
+  if (!regionsMatch(deps.expectedRegion, deps.actualRegion)) {
     return fail(requestId, "REGION_MISMATCH");
   }
 
@@ -374,7 +529,15 @@ declare const crypto: { randomUUID(): string };
 if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   startGatewayServer({
     serve: Deno.serve,
-    env: { SUPABASE_FUNCTION_REGION: Deno.env.get("SUPABASE_FUNCTION_REGION"), OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY") },
+    env: {
+      PACT_EXPECTED_REGION: Deno.env.get("PACT_EXPECTED_REGION"),
+      SB_REGION: Deno.env.get("SB_REGION"),
+      SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
+      SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+      SESSION_HMAC_SECRET: Deno.env.get("SESSION_HMAC_SECRET"),
+      OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY"),
+      OPENAI_MODEL: Deno.env.get("OPENAI_MODEL"),
+    },
     fetchFn: fetch as unknown as FetchFn,
   });
 }

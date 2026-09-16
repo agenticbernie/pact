@@ -10,7 +10,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "types": ["node"],
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    "resolveJsonModule": true
   },
   "include": ["packages/*/src", "packages/*/test", "services/*/src", "services/*/test", "apps/edge/src", "apps/edge/test", "supabase/functions/**/*.ts"]
 }

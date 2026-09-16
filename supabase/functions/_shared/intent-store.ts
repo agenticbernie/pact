@@ -44,6 +44,7 @@ export type IntentGetInput = {
 export type IntentIdempotencyGetInput = {
   idempotencyKey: string;
   ownerAddress: string;
+  agentId: string;
 };
 
 export type IntentMarkStatusInput = {
@@ -111,6 +112,30 @@ function canonicalEqual(a: AgentIntent, b: AgentIntent): boolean {
     a.purpose === b.purpose &&
     a.policyVersion === b.policyVersion
   );
+}
+
+const INTENT_SELECT = "intent_id,card_id,agent_id,merchant_id,amount_base_units,asset,purpose,confidence,provider,model,created_at,expires_at,policy_version,intent_hash";
+
+function scopedIntentPath(predicate: string, ownerAddress: string, agentId?: string): string {
+  return `${INTENTS_PATH}?${predicate}` +
+    (agentId === undefined ? "" : `&agent_id=eq.${encodeURIComponent(agentId.toLowerCase())}`) +
+    `&cards.owner_address=eq.${encodeURIComponent(ownerAddress.toLowerCase())}` +
+    `&select=${INTENT_SELECT},cards!inner(owner_address)`;
+}
+
+function scopedIntentRow(
+  row: Record<string, unknown>,
+  ownerAddress: string,
+  agentId?: string,
+): Record<string, unknown> | null {
+  if (agentId !== undefined && String(row["agent_id"] ?? "").toLowerCase() !== agentId.toLowerCase()) return null;
+  const relation = row["cards"];
+  const card = Array.isArray(relation) ? (relation.length === 1 ? relation[0] : undefined) : relation;
+  if (typeof card !== "object" || card === null) return null;
+  if (String((card as Record<string, unknown>)["owner_address"] ?? "").toLowerCase() !== ownerAddress.toLowerCase()) {
+    return null;
+  }
+  return row;
 }
 
 function defaultTransport(config: PostgrestConfig): PostgrestTransport {
@@ -232,8 +257,7 @@ export function createPostgrestIntentStore(
           existing = await run({
             method: "GET",
             path:
-              `${INTENTS_PATH}?idempotency_key=eq.${encodeURIComponent(input.idempotencyKey)}` +
-              `&select=intent_id,card_id,agent_id,merchant_id,amount_base_units,asset,purpose,confidence,provider,model,created_at,expires_at,policy_version,intent_hash`,
+              scopedIntentPath(`idempotency_key=eq.${encodeURIComponent(input.idempotencyKey)}`, input.ownerAddress, input.intent.agentId),
           });
         } catch (error) {
           if (error instanceof PersistenceError) throw error;
@@ -246,7 +270,11 @@ export function createPostgrestIntentStore(
         if (rows.length > 1) {
           throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
         }
-        const prior = toAgentIntent(rows[0] as Record<string, unknown>);
+        const scopedPrior = scopedIntentRow(rows[0] as Record<string, unknown>, input.ownerAddress, input.intent.agentId);
+        if (scopedPrior === null) {
+          throw new PersistenceError("OWNERSHIP_DENIED", "Intent ownership denied.", false);
+        }
+        const prior = toAgentIntent(scopedPrior);
         if (canonicalEqual(prior, input.intent)) {
           return prior;
         }
@@ -269,9 +297,7 @@ export function createPostgrestIntentStore(
       try {
         result = await run({
           method: "GET",
-          path:
-            `${INTENTS_PATH}?intent_id=eq.${encodeURIComponent(input.intentId)}` +
-            `&select=intent_id,card_id,agent_id,merchant_id,amount_base_units,asset,purpose,confidence,provider,model,created_at,expires_at,policy_version,intent_hash`,
+          path: scopedIntentPath(`intent_id=eq.${encodeURIComponent(input.intentId)}`, input.ownerAddress, input.agentId),
         });
       } catch (error) {
         if (error instanceof PersistenceError) throw error;
@@ -285,17 +311,19 @@ export function createPostgrestIntentStore(
       if (body.length > 1) {
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
-      return toAgentIntent(body[0] as Record<string, unknown>);
+      const row = scopedIntentRow(body[0] as Record<string, unknown>, input.ownerAddress, input.agentId);
+      return row === null ? null : toAgentIntent(row);
     },
 
     async getByIdempotencyKey(input: IntentIdempotencyGetInput): Promise<AgentIntent | null> {
+      if (input.idempotencyKey.length === 0) {
+        throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
+      }
       let result;
       try {
         result = await run({
           method: "GET",
-          path:
-            `${INTENTS_PATH}?idempotency_key=eq.${encodeURIComponent(input.idempotencyKey)}` +
-            `&select=intent_id,card_id,agent_id,merchant_id,amount_base_units,asset,purpose,confidence,provider,model,created_at,expires_at,policy_version,intent_hash`,
+          path: scopedIntentPath(`idempotency_key=eq.${encodeURIComponent(input.idempotencyKey)}`, input.ownerAddress, input.agentId),
         });
       } catch (error) {
         if (error instanceof PersistenceError) throw error;
@@ -309,7 +337,8 @@ export function createPostgrestIntentStore(
       if (body.length > 1) {
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
-      return toAgentIntent(body[0] as Record<string, unknown>);
+      const row = scopedIntentRow(body[0] as Record<string, unknown>, input.ownerAddress, input.agentId);
+      return row === null ? null : toAgentIntent(row);
     },
 
     async markStatus(input: IntentMarkStatusInput): Promise<void> {

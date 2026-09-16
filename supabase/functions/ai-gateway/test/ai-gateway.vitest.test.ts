@@ -95,10 +95,10 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
         code: "PROVIDER_MODEL_UNAVAILABLE",
       },
       {
-        name: "wrong-region",
+        name: "invalid-observed-region",
         deps: depsWith(
           fakeProvider({ provider: "openai", model: "gpt-5.6-luna", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1 }),
-          { actualRegion: "eu-west-1" },
+          { actualRegion: "not_a_region" },
         ),
         code: "REGION_MISMATCH",
       },
