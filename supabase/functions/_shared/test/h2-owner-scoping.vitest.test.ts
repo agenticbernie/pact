@@ -190,6 +190,46 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
     expect(rpc.calls).toEqual(["eth_chainId", "eth_call", "eth_chainId", "eth_call"]);
   });
 
+  it("reaches the Arc static-call for the deployed intent-req-1 split-role registry entry", async () => {
+    const { token, persistence } = sessionFor(ARC_AGENT);
+    const stores = storesFor([cardRow()], [intentRow({ intent_id: "intent-req-1" })], "arc");
+    const rpc = rpcFake();
+    const { createArcCard1OwnerRegistry } = await loadAuthz();
+    const handler = createExecutorCompositionRoot({
+      env: { ...REGIONS, SESSION_HMAC_SECRET: SECRET, ARC_RPC_URL: "http://local-rpc.invalid" },
+      lane: "arc" as never,
+      transport: rpc.transport,
+      persistence: { session: persistence, ...stores } as never,
+      ownerAuthorizations: createArcCard1OwnerRegistry(),
+    });
+
+    const { status, body } = await preflight(handler, token, "intent-req-1");
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ decision: "would_settle", chainId: ARC_CHAIN });
+    expect(rpc.calls).toEqual(["eth_chainId", "eth_call", "eth_chainId", "eth_call"]);
+  });
+
+  it("stops an expired intent-req-1 before card or static-chain reads", async () => {
+    const { token, persistence } = sessionFor(ARC_AGENT);
+    const stores = storesFor([cardRow()], [intentRow({ intent_id: "intent-req-1", expires_at: PAST })], "arc");
+    const cardRead = vi.spyOn(stores.card, "getById");
+    const rpc = rpcFake();
+    const { createArcCard1OwnerRegistry } = await loadAuthz();
+    const handler = createExecutorCompositionRoot({
+      env: { ...REGIONS, SESSION_HMAC_SECRET: SECRET, ARC_RPC_URL: "http://local-rpc.invalid" },
+      lane: "arc" as never,
+      transport: rpc.transport,
+      persistence: { session: persistence, ...stores } as never,
+      ownerAuthorizations: createArcCard1OwnerRegistry(),
+    });
+
+    const { status, body } = await preflight(handler, token, "intent-req-1");
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: ARC_CHAIN });
+    expect(cardRead).not.toHaveBeenCalled();
+    expect(rpc.calls).toEqual([]);
+  });
+
   it("fails closed when no authorization exists for split roles", async () => {
     const { token, persistence } = sessionFor(ARC_AGENT);
     const stores = storesFor([cardRow()], [intentRow()], "arc");

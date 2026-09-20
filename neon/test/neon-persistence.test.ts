@@ -143,8 +143,11 @@ describe("Neon persistence adapter (RED-first, fake Pool)", () => {
     await persistence.card.getById({ cardId: "1", ownerAddress: OWNER, agentId: WALLET });
     expect(seen[0].text).toMatch(/owner_address = \$\d/);
     expect(seen[0].text).toMatch(/agent_id = \$\d/);
-    await persistence.intent.getById({ intentId: "x", ownerAddress: OWNER, agentId: WALLET });
+    expect(seen[0].params).toEqual(["1", OWNER.toLowerCase(), WALLET.toLowerCase()]);
+    await persistence.intent.getById({ intentId: "intent-req-1", ownerAddress: OWNER, agentId: WALLET });
     expect(seen[1].text).toMatch(/cards\.owner_address = \$\d/);
+    expect(seen[1].text).toMatch(/intents\.intent_id = \$1 AND intents\.agent_id = \$2 AND cards\.owner_address = \$3/);
+    expect(seen[1].params).toEqual(["intent-req-1", WALLET.toLowerCase(), OWNER.toLowerCase()]);
   });
 
   it("denies intent insert without a card and replays idempotency by content", async () => {

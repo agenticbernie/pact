@@ -255,3 +255,71 @@ created no rows.
 Make the seeded `intent-req-1` non-expired through an explicitly approved,
 bounded data-preparation lane, then obtain a new approval for one H2 attempt;
 do not retry this lane and do not run H1.
+
+## 13. H2 forensic preflight audit (2026-09-21)
+
+### Classification
+
+**`INTENT_EXPIRED`** — this is a data-preparation blocker, not an H2 runtime
+code defect. H2 remains **not VERIFIED** because this investigation made no
+live H2 call and therefore produced no usable static-call evidence.
+
+### Read-only Neon evidence
+
+One Node + `pg` transaction used `BEGIN READ ONLY` and parameterized `SELECT`
+statements only. It neither printed a connection value nor performed any DML.
+
+| Row | Read-only facts |
+| --- | --- |
+| `intents.intent_id = intent-req-1` | Present; `card_id=1`; `agent_id=0xdc26…31682`; `asset=arc-testnet-usdc`; `chain_id=5042002`; `policy_version=1`; `expires_at=2026-09-20T13:08:53.827Z` |
+| `cards.card_id = 1` | Present; `owner_address=0xb8bd…14d52`; `agent_id=0xdc26…31682`; `status=ACTIVE`; `asset=arc-testnet-usdc`; `chain_id=5042002`; `policy_version=1`; `expires_at=2026-09-20T17:18:16.000Z` |
+
+At audit time (2026-09-21), the intent had already expired. The intent and
+card agree on the requested card, agent, Arc asset, chain, and policy fields;
+this rules out an observed row-level intent/card binding miss as the immediate
+blocker. The card expiry is a separate future data-preparation concern, but
+the intent expiry is evaluated first.
+
+### Exact early-return trace
+
+1. The request authenticates as the card agent. The initial single-wallet
+   scoped intent read is expected to miss because the card owner differs from
+   the agent.
+2. The Arc owner registry has the exact `intent-req-1` / card `1` /
+   agent / chain `5042002` authorization entry.
+3. The split-role owner+agent re-read uses the Neon adapter's parameterized
+   predicate `intent_id + agent_id + cards.owner_address` and resolves the
+   intent.
+4. `handleReadOnlyPreflight` evaluates `expiresAt <= Date.now()` and returns
+   HTTP 200 `declined` / `PREFLIGHT_DECLINED` before `cards.getById`.
+5. Consequently neither `readCard` nor the static `preflightPay` call can run.
+
+The relevant source order is `supabase/functions/agent-executor/index.ts`
+lines 411–413 (intent expiry), 415 (card read), 504 (chain card read), and
+512 (static preflight). The Arc registry is
+`supabase/functions/_shared/owner-authorization.ts` lines 261–278; the Neon
+intent read predicate is in `neon/adapter/neon-persistence.ts` lines 373–391.
+
+### Local regression evidence
+
+Focused local tests passed: **24/24** across the H2 owner-scoping and Neon
+persistence suites. They cover the deployed `intent-req-1` split-role Arc
+registry entry reaching four expected static RPC operations when future-dated,
+the same intent declining with zero card/RPC reads when expired, and the exact
+parameterized Neon intent/agent/owner query shape. API envelope, server-side
+PVL, fail-closed behavior, and owner-agent authorization remain unchanged.
+
+### Artifact boundary and next approval
+
+Deployment ID `2` is recorded as active, but Neon CLI exposes no independent
+remote bundle/source digest. This limitation does not authorize speculation
+about deployed content; a deployment-content hash remains unproven. It also
+does not change the directly observed data blocker above.
+
+Do not retry H2, run H1/provider, deploy, or mutate the current rows under
+this audit. The bounded next action requires separate approval to refresh the
+expired `intent-req-1` preparation row (and assess/refresh the expired card
+row if the approved H2 scenario requires it), followed by a separately
+approved single H2 attempt. That later lane should verify the active deployment
+through the available Neon deployment metadata and capture fresh static-call
+evidence; it must not mark H2 VERIFIED beforehand.
