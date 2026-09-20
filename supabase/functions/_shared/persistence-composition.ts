@@ -25,6 +25,7 @@ import {
   type PostgrestConfig,
   type PostgrestTransport,
 } from "./persistence-ports.ts";
+import type { LaneConfig, LaneSelection } from "./lane-config.ts";
 
 export { requirePostgrestConfig } from "./persistence-ports.ts";
 
@@ -225,18 +226,20 @@ export function createFakePersistence(): FakePersistence {
 export function createPostgrestPersistence(
   config: PostgrestConfig,
   transport?: PostgrestTransport,
+  lane?: LaneSelection | LaneConfig,
 ): PostgrestPersistence {
   return {
     session: createPostgrestSessionPersistence(config, transport),
-    intent: createPostgrestIntentStore(config, transport),
-    card: createPostgrestCardStore(config, transport),
+    intent: createPostgrestIntentStore(config, transport, lane),
+    card: createPostgrestCardStore(config, transport, lane),
   };
 }
 
 export function createPostgrestPersistenceFromEnv(
   env: Record<string, string | undefined>,
   transport?: PostgrestTransport,
+  lane?: LaneSelection | LaneConfig,
 ): PostgrestPersistence {
   const config = requireConfig(env);
-  return createPostgrestPersistence(config, transport);
+  return createPostgrestPersistence(config, transport, lane);
 }

@@ -36,7 +36,7 @@ export type PayInput = {
   amountBaseUnits?: string;
   deadline?: number;
   merchantId?: string;
-  asset?: "native-testnet-ctc";
+  asset?: "native-testnet-ctc" | "arc-testnet-usdc";
   policyVersion?: number;
   agent?: string;
 };

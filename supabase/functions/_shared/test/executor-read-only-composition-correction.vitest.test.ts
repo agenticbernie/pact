@@ -52,7 +52,11 @@ describe("G28 executor read-only composition", () => {
       readFileSync(new URL("../../agent-executor/index.ts", import.meta.url), "utf8"),
       readFileSync(new URL("../../agent-executor/chain-client.ts", import.meta.url), "utf8"),
     ].join("\n");
-    expect(source).toMatch(/CREDITCOIN_RPC_URL/);
+    // Arc migration: production read-only RPC resolves from the lane env
+    // name (ARC_RPC_URL); the legacy name survives only in the domain lane
+    // module (covered by arc-lane.test.ts), never as a second default here.
+    expect(source).toMatch(/ARC_RPC_URL/);
+    expect(source).toMatch(/lane-config/);
     expect(source).toMatch(/eth_chainId/);
     expect(source).toMatch(/eth_call/);
     expect(source).not.toMatch(/new Wallet|AGENT_SIGNER_PRIVATE_KEY\s*[:=]\s*Deno/);

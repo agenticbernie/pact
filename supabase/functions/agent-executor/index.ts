@@ -32,6 +32,19 @@ import type { SessionPersistence } from "../session/index.ts";
 import type { IntentStoreAdapter } from "../_shared/intent-store.ts";
 import type { CardStore } from "../_shared/card-store.ts";
 import { regionsMatch, resolveRegionConfig } from "../_shared/region-config.ts";
+import {
+  resolveLane,
+  type LaneConfig,
+  type LaneSelection,
+} from "../_shared/lane-config.ts";
+import {
+  buildH2ValidationRecord,
+  createArcCard1OwnerRegistry,
+  validateOwnerAuthorization,
+  type H2ValidationRecord,
+  type OwnerAuthorization,
+  type OwnerAuthorizationRegistry,
+} from "../_shared/owner-authorization.ts";
 
 export type StoredIntent = {
   intentId: string;
@@ -39,7 +52,7 @@ export type StoredIntent = {
   cardId: string;
   merchantId: string;
   amountBaseUnits: string;
-  asset?: "native-testnet-ctc";
+  asset?: "native-testnet-ctc" | "arc-testnet-usdc";
   policyVersion: number;
   expiresAtMs: number;
 };
@@ -230,7 +243,10 @@ export function createExecutorEntrypointHandler(input: {
   sessionSecret?: string;
   sessionPersistence?: SessionPersistence;
   readOnlyComposition?: ReadOnlyComposition;
+  /** Execution lane. Injectable seam defaults legacy; production passes Arc. */
+  lane?: LaneSelection | LaneConfig;
 } = {}): (request: Request) => Promise<Response> {
+  const lane = resolveLane(input.lane);
   return async (request) => {
     const url = new URL(request.url);
     const receivedPathname = url.pathname;
@@ -243,7 +259,12 @@ export function createExecutorEntrypointHandler(input: {
     if (request.method !== "POST" || (path !== "/v1/payments/preflight" && path !== "/v1/payments/execute")) {
       return executorResponse({ requestId, code: "INPUT_INVALID", message: "Unsupported payment route." }, 404);
     }
-    if (!regionsMatch(input.expectedRegion, input.actualRegion) || input.configuredRegion !== input.actualRegion) {
+    // Validity-only region gate (no equality): the authoritative project
+    // region and the observed runtime region are separate facts. The old
+    // `configuredRegion !== actualRegion` comparison is removed — it was
+    // vacuous (observed-vs-observed) and would false-mismatch now that the
+    // configured value is authoritative.
+    if (!regionsMatch(input.expectedRegion, input.actualRegion)) {
       return executorResponse({ requestId, code: "NETWORK_CONFIG_INVALID", message: "Function region mismatch." }, 503);
     }
     if (input.deps === undefined && input.readOnlyClient === undefined && input.readOnlyComposition === undefined) {
@@ -286,9 +307,19 @@ export function createExecutorEntrypointHandler(input: {
       try {
         const result = await handleReadOnlyPreflight(
           { intentId: String(body.intentId ?? ""), requestId, sessionWallet },
-          input.readOnlyComposition,
+          { ...input.readOnlyComposition, lane },
         );
-        return executorResponse(result);
+        // PVL evidence stays server-side: the HTTP envelope keeps exactly
+        // requestId/intentId/decision/reasonCode?/chainId/checkedAt.
+        const { requestId: rid, intentId: iid, decision, reasonCode, chainId, checkedAt: at } = result;
+        return executorResponse({
+          requestId: rid,
+          intentId: iid,
+          decision,
+          ...(reasonCode === undefined ? {} : { reasonCode }),
+          chainId,
+          checkedAt: at,
+        });
       } catch (error) {
         const mapped = toApiError(error, requestId);
         return executorResponse({
@@ -304,7 +335,7 @@ export function createExecutorEntrypointHandler(input: {
       const nonce = String(body.nonce ?? "");
       await input.readOnlyClient.readCard(cardId);
       const result = await input.readOnlyClient.preflight({ intentId, idempotencyKey: "preflight", cardId, nonce });
-      return executorResponse({ requestId, ...result, decision: result.ok ? "would_settle" : "declined", chainId: 102031, checkedAt: new Date().toISOString() });
+      return executorResponse({ requestId, ...result, decision: result.ok ? "would_settle" : "declined", chainId: lane.chainId, checkedAt: new Date().toISOString() });
     }
     if (input.deps === undefined) return executorResponse({ requestId, code: "PREFLIGHT_DECLINED", message: "Payment boundary is unavailable." }, 503);
     const result = path === "/v1/payments/preflight"
@@ -321,6 +352,13 @@ type ReadOnlyComposition = {
   client: ReadOnlyRpcPaymentClient;
   intents: Pick<IntentStoreAdapter, "getById">;
   cards: Pick<CardStore, "getById">;
+  lane: LaneConfig;
+  /**
+   * Split-role owner-authorization seam (supplement §4/§9). Absent means
+   * single-wallet only — the legacy behavior. Consulted only when the lane
+   * carries a controller (Arc) and the single-wallet lookup misses.
+   */
+  ownerAuthorizations?: OwnerAuthorizationRegistry;
 };
 
 async function handleReadOnlyPreflight(
@@ -333,40 +371,143 @@ async function handleReadOnlyPreflight(
   reasonCode?: string;
   chainId: number;
   checkedAt: string;
+  /** PVL evidence record. Built whenever intent+card facts exist; the
+   * entrypoint strips it so the HTTP envelope never changes. */
+  validation?: H2ValidationRecord;
 }> {
   const checkedAt = new Date().toISOString();
-  const intent = await deps.intents.getById({
+  const lane = deps.lane;
+  // 1. Single-wallet attempt (legacy-compatible): owner == agent == session.
+  let intent = await deps.intents.getById({
     intentId: input.intentId,
     ownerAddress: input.sessionWallet,
     agentId: input.sessionWallet,
   });
+  // 2. Split-role attempt (supplement §9): only when the lane carries a
+  // controller (Arc) and a registry is injected. The re-read stays a
+  // G32-shaped owner+agent scoped read, predicated on the AUTHORIZED owner.
+  let authorization: OwnerAuthorization | null = null;
+  if (intent === null && lane.controller !== undefined && deps.ownerAuthorizations !== undefined) {
+    const candidate = await deps.ownerAuthorizations.findAuthorization({
+      intentId: input.intentId,
+      agentId: input.sessionWallet,
+      chainId: lane.chainId,
+    });
+    if (candidate !== null) {
+      const reread = await deps.intents.getById({
+        intentId: input.intentId,
+        ownerAddress: candidate.ownerAddress,
+        agentId: input.sessionWallet,
+      });
+      if (reread !== null) {
+        intent = reread;
+        authorization = candidate;
+      }
+    }
+  }
   if (intent === null) {
-    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: 102031, checkedAt };
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: lane.chainId, checkedAt };
   }
   const expiresAtMs = Date.parse(intent.expiresAt);
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: 102031, checkedAt };
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: lane.chainId, checkedAt };
   }
   const card = await deps.cards.getById({
     cardId: intent.cardId,
-    ownerAddress: input.sessionWallet,
+    ownerAddress: authorization?.ownerAddress ?? input.sessionWallet,
     agentId: intent.agentId,
   });
+  if (card === null) {
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: lane.chainId, checkedAt };
+  }
+  const pvl = (
+    decision: "would_settle" | "declined",
+    reasonCode?: string,
+  ): H2ValidationRecord =>
+    buildH2ValidationRecord({
+      sessionWallet: input.sessionWallet,
+      intent: {
+        intentId: intent.intentId,
+        agentId: intent.agentId,
+        cardId: intent.cardId,
+        merchantId: intent.merchantId,
+        amountBaseUnits: intent.amountBaseUnits,
+        asset: intent.asset,
+        policyVersion: intent.policyVersion,
+        intentHash: intent.intentHash,
+        expiresAt: intent.expiresAt,
+      },
+      card: {
+        card_id: card.card_id,
+        controller_address: card.controller_address,
+        owner_address: card.owner_address,
+        agent_id: card.agent_id,
+        asset: card.asset,
+        chain_id: card.chain_id,
+        policy_version: card.policy_version,
+        allowlist_hash: card.allowlist_hash,
+        source_block: card.source_block,
+        source_tx_hash: card.source_tx_hash,
+      },
+      lane,
+      authorization,
+      decision,
+      ...(reasonCode === undefined ? {} : { reasonCode }),
+      evaluatedAt: checkedAt,
+    });
+  // Lane binding: exact (chain, asset) pair plus the lane controller when
+  // the lane defines one. A CTC row in the Arc lane (or vice versa) and an
+  // Arc card under the wrong controller decline here, fail-closed.
   if (
-    card === null ||
-    card.asset !== "native-testnet-ctc" ||
+    card.asset !== lane.asset ||
+    card.chain_id !== lane.chainId ||
+    (lane.controller !== undefined &&
+      card.controller_address.toLowerCase() !== lane.controller.toLowerCase()) ||
     card.agent_id.toLowerCase() !== intent.agentId.toLowerCase() ||
     card.policy_version !== intent.policyVersion
   ) {
-    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: 102031, checkedAt };
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "CARD_NOT_ELIGIBLE") };
+  }
+  // Split-role authorization (authorized mode only): the registry entry must
+  // agree with the session, the intent, the seeded row, the lane, the
+  // creation provenance, the policy, and the owner-issued rule.
+  if (authorization !== null) {
+    const check = validateOwnerAuthorization(
+      authorization,
+      {
+        sessionWallet: input.sessionWallet,
+        intent: {
+          intentId: intent.intentId,
+          agentId: intent.agentId,
+          cardId: intent.cardId,
+          policyVersion: intent.policyVersion,
+        },
+        card: {
+          card_id: card.card_id,
+          controller_address: card.controller_address,
+          owner_address: card.owner_address,
+          agent_id: card.agent_id,
+          asset: card.asset,
+          chain_id: card.chain_id,
+          policy_version: card.policy_version,
+          allowlist_hash: card.allowlist_hash,
+          source_block: card.source_block,
+          source_tx_hash: card.source_tx_hash,
+        },
+        lane,
+      },
+    );
+    if (!check.ok) {
+      return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: check.code, chainId: lane.chainId, checkedAt, validation: pvl("declined", check.code) };
+    }
   }
   const chainCard = await deps.client.readCard(intent.cardId, intent.agentId);
   if (
-    chainCard.chainId !== 102031 ||
+    chainCard.chainId !== lane.chainId ||
     chainCard.agent.toLowerCase() !== intent.agentId.toLowerCase() ||
     chainCard.policyVersion !== intent.policyVersion
   ) {
-    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: 102031, checkedAt };
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "CARD_NOT_ELIGIBLE") };
   }
   const result = await deps.client.preflight({
     intentId: intent.intentId,
@@ -385,8 +526,9 @@ async function handleReadOnlyPreflight(
     intentId: input.intentId,
     decision: result.ok ? "would_settle" : "declined",
     ...(result.ok ? {} : { reasonCode: "PREFLIGHT_DECLINED" }),
-    chainId: 102031,
+    chainId: lane.chainId,
     checkedAt,
+    validation: pvl(result.ok ? "would_settle" : "declined", result.ok ? undefined : "PREFLIGHT_DECLINED"),
   };
 }
 
@@ -396,29 +538,38 @@ type ExecutorCompositionInput = {
   transport?: ReadOnlyRpcTransport;
   persistence?: PostgrestPersistence;
   postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
+  /** Execution lane. Injectable seam defaults legacy; production passes Arc. */
+  lane?: LaneSelection | LaneConfig;
+  /**
+   * Split-role registry seam. Absent means single-wallet only, even on Arc
+   * (fail closed when the dependency is missing). Production passes the Arc
+   * card-1 registry explicitly in its Deno block; tests inject variants.
+   */
+  ownerAuthorizations?: OwnerAuthorizationRegistry;
 };
 
 export function createExecutorCompositionRoot(input: ExecutorCompositionInput = {}): (request: Request) => Promise<Response> {
   const env = input.env ?? {};
+  const lane = resolveLane(input.lane);
   const region = resolveRegionConfig(env);
   const configuredRegion = region.configuredRegion;
   const expectedRegion = region.expectedRegion ?? "unknown";
   const localReadOnlyInjection = input.readOnlyClient !== undefined ||
     (input.transport !== undefined && env.SESSION_HMAC_SECRET === undefined);
-  const actualRegion = region.observedRegion;
-  if (!regionsMatch(region.expectedRegion, region.observedRegion)) {
+  const actualRegion = region.observedRuntimeRegion;
+  if (!regionsMatch(region.expectedRegion, region.observedRuntimeRegion)) {
     return createExecutorEntrypointHandler({ configuredRegion, expectedRegion, actualRegion });
   }
-  const rpcUrl = env.CREDITCOIN_RPC_URL;
+  const rpcUrl = env[lane.rpcEnvName];
   const readOnlyClient = input.readOnlyClient ?? (
     rpcUrl === undefined || input.transport === undefined
       ? undefined
-      : createReadOnlyRpcPaymentClient({ rpcUrl, expectedChainId: 102031, transport: input.transport })
+      : createReadOnlyRpcPaymentClient({ rpcUrl, expectedChainId: lane.chainId, transport: input.transport })
   );
   let persistence = input.persistence;
   if (persistence === undefined && !localReadOnlyInjection) {
     try {
-      persistence = createPostgrestPersistenceFromEnv(env, input.postgrestTransport);
+      persistence = createPostgrestPersistenceFromEnv(env, input.postgrestTransport, lane);
     } catch {
       return createExecutorEntrypointHandler({ configuredRegion: actualRegion, expectedRegion, actualRegion });
     }
@@ -437,8 +588,15 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
     sessionSecret: env.SESSION_HMAC_SECRET,
     sessionPersistence: persistence?.session,
     readOnlyComposition: !localReadOnlyInjection && persistence !== undefined
-      ? { client: readOnlyClient, intents: persistence.intent, cards: persistence.card }
+      ? {
+        client: readOnlyClient,
+        intents: persistence.intent,
+        cards: persistence.card,
+        lane,
+        ownerAuthorizations: input.ownerAuthorizations,
+      }
       : undefined,
+    lane,
   });
 }
 
@@ -449,6 +607,8 @@ export function startExecutorServer(input: {
   transport?: ReadOnlyRpcTransport;
   persistence?: PostgrestPersistence;
   postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
+  lane?: LaneSelection | LaneConfig;
+  ownerAuthorizations?: OwnerAuthorizationRegistry;
 }): void {
   input.serve(createExecutorCompositionRoot(input));
 }
@@ -470,14 +630,19 @@ declare const crypto: { randomUUID(): string };
 if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   startExecutorServer({
     serve: Deno.serve,
+    // H1/H2 production lane: Arc. Legacy lane remains available to the
+    // injectable seam (tests, history) but is not served here.
+    lane: "arc",
+    // Explicit split-role registry for Arc card 1 (supplement §6 facts).
+    ownerAuthorizations: createArcCard1OwnerRegistry(),
     env: {
       PACT_EXPECTED_REGION: Deno.env.get("PACT_EXPECTED_REGION"),
       SB_REGION: Deno.env.get("SB_REGION"),
-      CREDITCOIN_RPC_URL: Deno.env.get("CREDITCOIN_RPC_URL"),
+      ARC_RPC_URL: Deno.env.get("ARC_RPC_URL"),
       SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
       SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
       SESSION_HMAC_SECRET: Deno.env.get("SESSION_HMAC_SECRET"),
     },
-    transport: createFetchRpcTransport(Deno.env.get("CREDITCOIN_RPC_URL") ?? "", fetch),
+    transport: createFetchRpcTransport(Deno.env.get("ARC_RPC_URL") ?? "", fetch),
   });
 }

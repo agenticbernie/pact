@@ -1,0 +1,25 @@
+{
+  "protocol": "arc-evm",
+  "label": "arc-testnet",
+  "chainId": 5042002,
+  "rpcUrl": "https://rpc.testnet.arc.io",
+  "explorerUrl": "https://explorer.testnet.arc.io",
+  "deployer": "0xb8bdcc633cd8e67250358d807918f99dc0c14d52",
+  "merchantSimulator": "0xaC030dDAA1fc29c1738332C3B9524EcfD0b4174F",
+  "pool": "0x5e1771de29Bd1a084900d032fd4DB2Ac7cF7528B",
+  "controller": "0x7A474c005433DEf5fC496D2016F6Ae794EDFC423",
+  "deployedAtBlock": 62906924,
+  "verified": true,
+  "verificationStatus": "verified-live-runtime-reconciled",
+  "artifact": "contracts/broadcast/DeployPaymentSystem.s.sol/5042002/run-latest.json",
+  "deploymentTransactions": {
+    "merchantSimulator": "0x0c243c630708c55154b480edeea72f66ecb1d03eb4f2213f680aed03c0e6ed5f",
+    "pool": "0xd3b477ce6d7a75f6e05e1bacefc46d905be9444299751e93328f8c5a638fe8d9",
+    "controller": "0x51f92d8b48d8288df8d5ffebf0b5e3c762bcbe5284720a239b2801abb86af025"
+  },
+  "sourceVerification": {
+    "merchantSimulator": "https://explorer.testnet.arc.io/address/0xaC030dDAA1fc29c1738332C3B9524EcfD0b4174F#code",
+    "pool": "https://explorer.testnet.arc.io/address/0x5e1771de29Bd1a084900d032fd4DB2Ac7cF7528B#code",
+    "controller": "https://explorer.testnet.arc.io/address/0x7A474c005433DEf5fC496D2016F6Ae794EDFC423#code"
+  }
+}

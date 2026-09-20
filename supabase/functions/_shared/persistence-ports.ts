@@ -92,7 +92,9 @@ export type CardRecord = {
   controller_address: string;
   owner_address: string;
   agent_id: string;
-  asset: "native-testnet-ctc";
+  asset: "native-testnet-ctc" | "arc-testnet-usdc";
+  /** Lane chain. Reads default legacy (102031) when absent; writes always set it. */
+  chain_id: number;
   status: DbCardStatus;
   owner_configured_cap: string;
   per_transaction_limit: string;

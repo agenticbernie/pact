@@ -1,0 +1,28 @@
+{
+  "id": "arc-testnet",
+  "protocol": "arc-evm",
+  "label": "arc-testnet",
+  "rpcUrl": "https://rpc.testnet.arc.io",
+  "chainId": 5042002,
+  "explorerUrl": "https://explorer.testnet.arc.io",
+  "nativeAsset": {
+    "id": "arc-testnet-usdc",
+    "evmAddress": "0x0000000000000000000000000000000000000000",
+    "symbol": "USDC",
+    "decimals": 18
+  },
+  "evmProfile": "osaka",
+  "feePolicy": {
+    "minBaseFeeGwei": "20",
+    "confirmations": 1
+  },
+  "rejectsZeroAddressValue": true,
+  "deploymentStatus": "not-deployed",
+  "deployedContracts": [],
+  "supportedFeatures": ["native-settlement", "on-chain-policy"],
+  "unsupportedFeatures": ["verified-credit", "erc20-settlement"],
+  "faucetUrl": "https://faucet.circle.com",
+  "faucetSource": "https://docs.arc.io/arc/references/rpc-endpoints (documented, flow unverified)",
+  "verified": false,
+  "source": "https://docs.arc.io/arc/references/connect-to-arc (documented 2026-09-19, live unverified); explorer canonical per https://docs.arc.io/llms.txt + live 301 testnet.arcscan.app -> explorer.testnet.arc.io observed 2026-09-19 (A2)"
+}

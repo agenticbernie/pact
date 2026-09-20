@@ -51,7 +51,7 @@ function toExpirySeconds(expiresAt: string): bigint {
 }
 
 export function canonicalIntentHash(input: CanonicalIntentInput): string {
-  if (input.asset !== "native-testnet-ctc") {
+  if (input.asset !== "native-testnet-ctc" && input.asset !== "arc-testnet-usdc") {
     throw new DomainError("INTENT_SCHEMA_INVALID", "Unknown logical asset for hashing.", {
       field: "asset",
     });

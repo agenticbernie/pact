@@ -24,6 +24,13 @@ import {
   type PostgrestConfig,
   type PostgrestTransport,
 } from "./persistence-ports.ts";
+import {
+  defaultChainForAsset,
+  isLaneAssetPair,
+  resolveLane,
+  type LaneConfig,
+  type LaneSelection,
+} from "./lane-config.ts";
 
 export const CARDS_PATH = "/rest/v1/cards";
 
@@ -57,7 +64,7 @@ export function isValidCardTransition(from: DbCardStatus, to: DbCardStatus): boo
   return LIFECYCLE[from]?.includes(to) ?? false;
 }
 
-function assertCardRecord(input: CardRecord): void {
+export function assertCardRecord(input: CardRecord, lane?: LaneConfig): void {
   if (!CARD_ID.test(input.card_id)) {
     throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
   }
@@ -70,7 +77,13 @@ function assertCardRecord(input: CardRecord): void {
   if (!EVM_ADDRESS.test(input.agent_id.toLowerCase())) {
     throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
   }
-  if (input.asset !== "native-testnet-ctc") {
+  // Lane-pair binding: only the two known (chain, asset) pairs are valid,
+  // so an Arc row can never disguise as CTC and vice versa. A strict lane
+  // additionally requires the exact lane pair (H1/H2 Arc compositions).
+  if (!isLaneAssetPair(input.chain_id, input.asset)) {
+    throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
+  }
+  if (lane !== undefined && (input.chain_id !== lane.chainId || input.asset !== lane.asset)) {
     throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
   }
   if (!["ISSUED", "ACTIVE", "SUSPENDED", "CLOSED"].includes(input.status)) {
@@ -95,13 +108,16 @@ function assertCardRecord(input: CardRecord): void {
   }
 }
 
-function toCardRecord(row: Record<string, unknown>): CardRecord {
+export function toCardRecord(row: Record<string, unknown>, lane?: LaneConfig): CardRecord {
   const record = {
     card_id: String(row["card_id"] ?? ""),
     controller_address: String(row["controller_address"] ?? "").toLowerCase(),
     owner_address: String(row["owner_address"] ?? "").toLowerCase(),
     agent_id: String(row["agent_id"] ?? "").toLowerCase(),
     asset: row["asset"],
+    chain_id: row["chain_id"] === undefined || row["chain_id"] === null
+      ? defaultChainForAsset(row["asset"])
+      : Number(row["chain_id"]),
     status: row["status"],
     owner_configured_cap: String(row["owner_configured_cap"] ?? ""),
     per_transaction_limit: String(row["per_transaction_limit"] ?? ""),
@@ -116,7 +132,7 @@ function toCardRecord(row: Record<string, unknown>): CardRecord {
     created_at: String(row["created_at"] ?? ""),
     updated_at: String(row["updated_at"] ?? ""),
   } as CardRecord;
-  assertCardRecord(record);
+  assertCardRecord(record, lane);
   return record;
 }
 
@@ -158,8 +174,10 @@ export type CardStore = {
 export function createPostgrestCardStore(
   config: PostgrestConfig,
   transport?: PostgrestTransport,
+  lane?: LaneSelection | LaneConfig,
 ): CardStore {
   const run = transport ?? defaultTransport(config);
+  const strictLane = lane === undefined ? undefined : resolveLane(lane);
 
   return {
     async getById(input): Promise<CardRecord | null> {
@@ -189,7 +207,7 @@ export function createPostgrestCardStore(
       if (body.length > 1) {
         throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
       }
-      return toCardRecord(body[0] as Record<string, unknown>);
+      return toCardRecord(body[0] as Record<string, unknown>, strictLane);
     },
 
     async getActiveByAgent(input): Promise<CardRecord | null> {
@@ -211,12 +229,12 @@ export function createPostgrestCardStore(
         throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
       }
       if (body.length === 0) return null;
-      if (body.length === 1) return toCardRecord(body[0] as Record<string, unknown>);
+      if (body.length === 1) return toCardRecord(body[0] as Record<string, unknown>, strictLane);
       throw new PersistenceError("DUPLICATE_ACTIVE_CARD", "Duplicate active card.", false);
     },
 
     async createOrRecord(input: CardRecord): Promise<CardRecord> {
-      assertCardRecord(input);
+      assertCardRecord(input, strictLane);
       let result;
       try {
         result = await run({
@@ -228,6 +246,7 @@ export function createPostgrestCardStore(
             owner_address: input.owner_address.toLowerCase(),
             agent_id: input.agent_id.toLowerCase(),
             asset: input.asset,
+            chain_id: input.chain_id,
             status: input.status,
             owner_configured_cap: input.owner_configured_cap,
             per_transaction_limit: input.per_transaction_limit,
@@ -261,7 +280,7 @@ export function createPostgrestCardStore(
       }
       const body = result.body;
       if (Array.isArray(body) && body.length === 1) {
-        return toCardRecord(body[0] as Record<string, unknown>);
+        return toCardRecord(body[0] as Record<string, unknown>, strictLane);
       }
       if (Array.isArray(body) && body.length > 1) {
         throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
@@ -322,7 +341,7 @@ export function createPostgrestCardStore(
       if (!Array.isArray(body)) {
         throw new PersistenceError("INVALID_ROW", "Invalid card row.", false);
       }
-      if (body.length === 1) return toCardRecord(body[0] as Record<string, unknown>);
+      if (body.length === 1) return toCardRecord(body[0] as Record<string, unknown>, strictLane);
       throw new PersistenceError("CONFLICT", "Card event conflict.", false);
     },
 
@@ -377,7 +396,7 @@ export function createPostgrestCardStore(
       }
       const body = result.body;
       if (Array.isArray(body) && body.length === 1) {
-        return toCardRecord(body[0] as Record<string, unknown>);
+        return toCardRecord(body[0] as Record<string, unknown>, strictLane);
       }
       throw new PersistenceError("CONFLICT", "Card event conflict.", false);
     },

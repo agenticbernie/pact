@@ -40,6 +40,13 @@ import {
 import type { SessionPersistence } from "../session/index.ts";
 import type { CardStore } from "../_shared/card-store.ts";
 import { regionsMatch, resolveRegionConfig } from "../_shared/region-config.ts";
+import {
+  ARC_LANE_ASSET_ID,
+  LEGACY_LANE_ASSET_ID,
+  resolveLane,
+  type LaneConfig,
+  type LaneSelection,
+} from "../_shared/lane-config.ts";
 
 import modelConfigJson from "../../../config/ai/model-config.json" with { type: "json" };
 import merchantCatalogJson from "../../../config/ai/merchant-catalog.json" with { type: "json" };
@@ -139,6 +146,8 @@ export function createGatewayEntrypointHandler(input: {
   configuredRegion?: string;
   expectedRegion?: string;
   failureCode?: "PROVIDER_UNAVAILABLE" | "PROVIDER_MODEL_UNAVAILABLE" | "REGION_MISMATCH";
+  /** Lane chain for the health shape. Defaults legacy; production passes Arc. */
+  chainId?: number;
 } = {}): (request: Request) => Promise<Response> {
   const expectedRegion = input.expectedRegion ?? "unknown";
   return async (request) => {
@@ -160,6 +169,7 @@ export function createGatewayEntrypointHandler(input: {
       return handleHealthRequest(healthRequest, {
         configuredRegion: input.configuredRegion ?? input.deps?.configuredRegion ?? "unknown",
         expectedRegion,
+        chainId: input.chainId,
         modelAvailable: false,
       });
     }
@@ -183,7 +193,9 @@ export function createGatewayEntrypointHandler(input: {
         headers: { "content-type": "application/json", "x-request-id": requestId },
       });
     }
-    if (!regionsMatch(expectedRegion, input.deps.actualRegion) || input.deps.configuredRegion !== input.deps.actualRegion) {
+    // Validity-only region gate (no equality): see agent-executor note —
+    // the vacuous `configuredRegion !== actualRegion` comparison is removed.
+    if (!regionsMatch(expectedRegion, input.deps.actualRegion)) {
       return new Response(JSON.stringify({ requestId, code: "REGION_MISMATCH", message: "Function region mismatch." }), {
         status: 503,
         headers: { "content-type": "application/json", "x-request-id": requestId },
@@ -284,30 +296,33 @@ type GatewayCompositionInput = {
   persistence?: PostgrestPersistence;
   postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
   fetchFn?: FetchFn;
+  /** Execution lane. Injectable seam defaults legacy; production passes Arc. */
+  lane?: LaneSelection | LaneConfig;
 };
 
 export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}): (request: Request) => Promise<Response> {
   const env = input.env ?? {};
+  const lane = resolveLane(input.lane);
   const region = resolveRegionConfig(env);
   const expectedRegion = region.expectedRegion ?? "unknown";
-  const actualRegion = region.observedRegion;
+  const actualRegion = region.observedRuntimeRegion;
   const configuredRegion = region.configuredRegion;
   const healthRegion = configuredRegion;
   const sessionSecret = env.SESSION_HMAC_SECRET;
-  if (!regionsMatch(region.expectedRegion, region.observedRegion)) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "REGION_MISMATCH" });
+  if (!regionsMatch(region.expectedRegion, region.observedRuntimeRegion)) {
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "REGION_MISMATCH" });
   }
   if (typeof sessionSecret !== "string" || sessionSecret.trim().length === 0) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
   }
   const localInjection = input.provider !== undefined && input.card !== undefined &&
     input.merchants !== undefined && input.store !== undefined;
   let persistence = input.persistence;
   if (persistence === undefined && !localInjection) {
     try {
-      persistence = createPostgrestPersistenceFromEnv(env, input.postgrestTransport);
+      persistence = createPostgrestPersistenceFromEnv(env, input.postgrestTransport, lane);
     } catch {
-      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
     }
   }
   let merchants = input.merchants;
@@ -315,7 +330,7 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
     try {
       merchants = loadMerchantCatalog(merchantCatalogJson).merchants;
     } catch {
-      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
     }
   }
   const provider = input.provider ?? (env.OPENAI_API_KEY === undefined || input.fetchFn === undefined
@@ -336,15 +351,16 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
     (input.card === undefined && cardStore === undefined)
     || (input.sessionPersistence === undefined && persistence?.session === undefined)
   ) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
   }
   if (configuredRegion === undefined) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, failureCode: "PROVIDER_UNAVAILABLE" });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
   }
   const runtimeConfiguredRegion = configuredRegion;
   return createGatewayEntrypointHandler({
     configuredRegion: healthRegion,
     expectedRegion,
+    chainId: lane.chainId,
     deps: {
       provider,
       card: input.card,
@@ -374,6 +390,7 @@ export function startGatewayServer(input: {
   persistence?: PostgrestPersistence;
   postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
   fetchFn?: FetchFn;
+  lane?: LaneSelection | LaneConfig;
 }): void {
   input.serve(createGatewayCompositionRoot(input));
 }
@@ -481,6 +498,18 @@ export async function handleIntentRequest(
   const createdAt = new Date(deps.nowMs).toISOString();
   const expiresAt = new Date(deps.nowMs + INTENT_TTL_MS).toISOString();
   const intentId = `intent-${requestId}`;
+  // Server-bound lane asset: the CardStore row (lane-checked at composition)
+  // is the authority. Unknown card assets fail closed; no CTC literal lives
+  // on this path anymore.
+  const laneAsset =
+    deps.card.asset === ARC_LANE_ASSET_ID
+      ? ARC_LANE_ASSET_ID
+      : deps.card.asset === LEGACY_LANE_ASSET_ID
+        ? LEGACY_LANE_ASSET_ID
+        : null;
+  if (laneAsset === null) {
+    return fail(requestId, "PROVIDER_OUTPUT_INVALID");
+  }
   let intentHash: string;
   try {
     intentHash = canonicalIntentHash({
@@ -488,7 +517,7 @@ export async function handleIntentRequest(
       agentId: deps.card.agent,
       merchantId: provided.merchantId,
       amountBaseUnits,
-      asset: "native-testnet-ctc",
+      asset: laneAsset,
       purpose: provided.purpose,
       expiresAt,
       policyVersion: deps.card.policyVersion,
@@ -503,7 +532,7 @@ export async function handleIntentRequest(
       cardId: deps.card.cardId,
       merchantId: provided.merchantId,
       amountBaseUnits,
-      asset: "native-testnet-ctc",
+      asset: laneAsset,
       purpose: provided.purpose,
       confidence: provided.confidence,
       provider: "openai",
@@ -529,6 +558,9 @@ declare const crypto: { randomUUID(): string };
 if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   startGatewayServer({
     serve: Deno.serve,
+    // H1 production lane: Arc. Legacy lane remains available to the
+    // injectable seam (tests, history) but is not served here.
+    lane: "arc",
     env: {
       PACT_EXPECTED_REGION: Deno.env.get("PACT_EXPECTED_REGION"),
       SB_REGION: Deno.env.get("SB_REGION"),

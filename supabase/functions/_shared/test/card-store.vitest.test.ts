@@ -16,6 +16,7 @@ function record(overrides: Partial<CardRecord> = {}): CardRecord {
     owner_address: OWNER.toLowerCase(),
     agent_id: AGENT.toLowerCase(),
     asset: "native-testnet-ctc",
+    chain_id: 102031,
     status: "ISSUED",
     owner_configured_cap: "1000000",
     per_transaction_limit: "100000",

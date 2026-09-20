@@ -123,7 +123,7 @@ export const AgentIntentSchema = z
     cardId: decimalUint256(true),
     merchantId: merchantIdSchema,
     amountBaseUnits: decimalUint256(false),
-    asset: z.literal("native-testnet-ctc"),
+    asset: z.enum(["native-testnet-ctc", "arc-testnet-usdc"]),
     purpose: z.string().min(1).max(160),
     confidence: z.number().min(0).max(1),
     provider: z.literal("openai"),
@@ -182,7 +182,7 @@ const AdvanceTestnetConfigSchema = z
     explorerUrl: httpsUrlSchema,
     nativeAsset: z
       .object({
-        id: z.literal("native-testnet-ctc"),
+        id: z.enum(["native-testnet-ctc", "arc-testnet-usdc"]),
         evmAddress: evmAddressSchema,
         symbol: z.string().min(1).max(16),
         decimals: z.number().int().min(0).max(255),

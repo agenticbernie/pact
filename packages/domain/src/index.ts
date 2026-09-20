@@ -74,3 +74,46 @@ export { PAYMENT_STATUSES, classifyReceipt, isSettledReceipt, paymentCodeForStat
 export type { PaymentStatus, ReceiptResult } from "./payment.ts";
 export { PINNED_MODEL, assertModelConfigAllowsCall, loadModelConfig } from "./model-config.ts";
 export type { ModelConfig } from "./model-config.ts";
+export {
+  ARC_LANE,
+  ARC_LANE_ASSET_ID,
+  ARC_LANE_CHAIN_ID,
+  ARC_LANE_CONTROLLER,
+  ARC_LANE_MERCHANT,
+  ARC_LANE_POOL,
+  ARC_LANE_RPC_ENV_NAME,
+  LEGACY_LANE,
+  LEGACY_LANE_ASSET_ID,
+  LEGACY_LANE_CHAIN_ID,
+  LEGACY_LANE_RPC_ENV_NAME,
+  assertArcLaneBinding,
+  isLaneAssetPair,
+  defaultChainForAsset,
+  laneForChainId,
+  resolveLane,
+} from "./arc-lane.ts";
+export type { LaneAssetId, LaneConfig, LaneSelection } from "./arc-lane.ts";
+export {
+  ARC_TESTNET_CHAIN_ID,
+  ARC_TESTNET_SOURCE,
+  assertArcChainIdentity,
+  getNetworkByChainId,
+  loadArcTestnetConfig,
+  parseArcTestnetConfig,
+  parseChainNetworkConfig,
+  requireVerifiedNetwork,
+} from "./networks.ts";
+export type { ChainNetworkConfig } from "./networks.ts";
+export {
+  ARC_CREDIT_AMOUNT_CAP_BASE_UNITS,
+  ARC_CREDIT_DECIMALS,
+  ARC_CREDIT_EXPIRY_DURATION_SECONDS,
+  ARC_FIRST_TEST_PAYMENT_AMOUNT_BASE_UNITS,
+  checkCreditAmount,
+  checkCreditExpiryDuration,
+  checkEvidenceFreshness,
+  checkFirstTestPaymentAmount,
+  checkLiveReadiness,
+  checkRoleSeparation,
+} from "./arc-credit-policy.ts";
+export type { LiveReadiness, PolicyCheck, RoleSet } from "./arc-credit-policy.ts";

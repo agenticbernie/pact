@@ -28,6 +28,8 @@ export default tseslint.config(
         clearTimeout: "readonly",
         URL: "readonly",
         Buffer: "readonly",
+        fetch: "readonly",
+        AbortController: "readonly",
       },
     },
   },

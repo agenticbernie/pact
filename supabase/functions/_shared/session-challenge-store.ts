@@ -33,7 +33,7 @@ export const SESSIONS_PATH = "/rest/v1/sessions";
 const HEX64 = /^[0-9a-f]{64}$/;
 const EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 
-function assertChallengeInput(row: ChallengeRecord): void {
+export function assertChallengeInput(row: ChallengeRecord): void {
   if (!HEX64.test(row.nonceHash)) {
     throw new PersistenceError("INVALID_ROW", "Invalid challenge row.", false);
   }
@@ -48,7 +48,7 @@ function assertChallengeInput(row: ChallengeRecord): void {
   }
 }
 
-function assertSessionInput(row: SessionRecord): void {
+export function assertSessionInput(row: SessionRecord): void {
   if (typeof row.id !== "string" || row.id.length === 0) {
     throw new PersistenceError("INVALID_ROW", "Invalid session row.", false);
   }
@@ -60,7 +60,7 @@ function assertSessionInput(row: SessionRecord): void {
   }
 }
 
-function toChallengeRecord(row: Record<string, unknown>): ChallengeRecord {
+export function toChallengeRecord(row: Record<string, unknown>): ChallengeRecord {
   const nonceHash = row["nonce_hash"];
   const wallet = row["wallet_address"];
   const message = row["message"];
@@ -95,7 +95,7 @@ function toChallengeRecord(row: Record<string, unknown>): ChallengeRecord {
   };
 }
 
-function toSessionRecord(row: Record<string, unknown>): SessionRecord {
+export function toSessionRecord(row: Record<string, unknown>): SessionRecord {
   const id = row["id"];
   const tokenHash = row["token_hash"];
   const wallet = row["wallet_address"];

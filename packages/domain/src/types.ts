@@ -4,7 +4,7 @@ export type AgentIntent = {
   cardId: string;
   merchantId: string;
   amountBaseUnits: string;
-  asset: "native-testnet-ctc";
+  asset: "native-testnet-ctc" | "arc-testnet-usdc";
   purpose: string;
   confidence: number;
   provider: "openai";
@@ -13,6 +13,8 @@ export type AgentIntent = {
   expiresAt: string;
   policyVersion: number;
   intentHash: string;
+  /** Lane chain when known (additive; absent on legacy rows). */
+  chainId?: number;
 };
 
 export type CanonicalIntentInput = Pick<
@@ -28,7 +30,7 @@ export type CanonicalIntentInput = Pick<
 >;
 
 export type NativeAssetDescriptor = {
-  id: "native-testnet-ctc";
+  id: "native-testnet-ctc" | "arc-testnet-usdc";
   evmAddress: string;
   symbol: string;
   decimals: number;

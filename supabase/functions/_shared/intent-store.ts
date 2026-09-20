@@ -21,6 +21,13 @@ import {
   type PostgrestConfig,
   type PostgrestTransport,
 } from "./persistence-ports.ts";
+import {
+  defaultChainForAsset,
+  isLaneAssetPair,
+  resolveLane,
+  type LaneConfig,
+  type LaneSelection,
+} from "./lane-config.ts";
 
 export const INTENTS_PATH = "/rest/v1/intents";
 export const INTENT_CARDS_PATH = "/rest/v1/cards";
@@ -33,6 +40,8 @@ export type IntentInsertInput = {
   idempotencyKey: string;
   ownerAddress: string;
   requestId: string;
+  /** Lane chain override. Defaults to the factory lane, else legacy (102031). */
+  chainId?: number;
 };
 
 export type IntentGetInput = {
@@ -62,8 +71,22 @@ export type IntentStoreAdapter = {
   save(intent: AgentIntent): Promise<void>;
 };
 
-function assertIntentShape(intent: AgentIntent): void {
-  if (intent.asset !== "native-testnet-ctc") {
+function intentChainId(intent: AgentIntent, lane?: LaneConfig): number {
+  if (intent.chainId !== undefined) return intent.chainId;
+  if (lane !== undefined) return lane.chainId;
+  // Chain-less rows (legacy fakes/fixtures): infer from the asset so Arc
+  // rows stay readable without a lane; explicit chain_id always wins and
+  // mismatched explicit pairs still fail the check below.
+  return defaultChainForAsset(intent.asset);
+}
+
+function assertIntentShape(intent: AgentIntent, lane?: LaneConfig): void {
+  // Lane-pair binding mirrors the card store: only known (chain, asset)
+  // pairs persist, so an Arc row can never disguise as CTC and vice versa.
+  if (!isLaneAssetPair(intentChainId(intent, lane), intent.asset)) {
+    throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
+  }
+  if (lane !== undefined && (intentChainId(intent, lane) !== lane.chainId || intent.asset !== lane.asset)) {
     throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
   }
   if (!EVM_ADDRESS.test(intent.agentId.toLowerCase())) {
@@ -80,7 +103,7 @@ function assertIntentShape(intent: AgentIntent): void {
   }
 }
 
-function toAgentIntent(row: Record<string, unknown>): AgentIntent {
+export function toAgentIntent(row: Record<string, unknown>, lane?: LaneConfig): AgentIntent {
   const intent = {
     intentId: row["intent_id"],
     agentId: row["agent_id"],
@@ -97,11 +120,14 @@ function toAgentIntent(row: Record<string, unknown>): AgentIntent {
     policyVersion: row["policy_version"],
     intentHash: row["intent_hash"],
   } as unknown as AgentIntent;
-  assertIntentShape(intent);
+  if (row["chain_id"] !== undefined && row["chain_id"] !== null) {
+    intent.chainId = Number(row["chain_id"]);
+  }
+  assertIntentShape(intent, lane);
   return intent;
 }
 
-function canonicalEqual(a: AgentIntent, b: AgentIntent): boolean {
+export function canonicalEqual(a: AgentIntent, b: AgentIntent): boolean {
   return (
     a.intentHash.toLowerCase() === b.intentHash.toLowerCase() &&
     a.cardId === b.cardId &&
@@ -123,7 +149,7 @@ function scopedIntentPath(predicate: string, ownerAddress: string, agentId?: str
     `&select=${INTENT_SELECT},cards!inner(owner_address)`;
 }
 
-function scopedIntentRow(
+export function scopedIntentRow(
   row: Record<string, unknown>,
   ownerAddress: string,
   agentId?: string,
@@ -162,8 +188,10 @@ function defaultTransport(config: PostgrestConfig): PostgrestTransport {
 export function createPostgrestIntentStore(
   config: PostgrestConfig,
   transport?: PostgrestTransport,
+  lane?: LaneSelection | LaneConfig,
 ): IntentStoreAdapter {
   const run = transport ?? defaultTransport(config);
+  const strictLane = lane === undefined ? undefined : resolveLane(lane);
 
   async function resolveCardAgent(cardId: string): Promise<Record<string, unknown> | null> {
     let result;
@@ -189,7 +217,12 @@ export function createPostgrestIntentStore(
 
   return {
     async insertIntent(input: IntentInsertInput): Promise<AgentIntent> {
-      assertIntentShape(input.intent);
+      const effectiveChainId =
+        input.chainId ?? strictLane?.chainId ?? defaultChainForAsset(input.intent.asset);
+      assertIntentShape(
+        input.chainId === undefined ? input.intent : { ...input.intent, chainId: input.chainId },
+        strictLane,
+      );
       if (input.idempotencyKey.length === 0 || input.requestId.length === 0) {
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
@@ -224,6 +257,7 @@ export function createPostgrestIntentStore(
             merchant_id: input.intent.merchantId,
             amount_base_units: input.intent.amountBaseUnits,
             asset: input.intent.asset,
+            chain_id: effectiveChainId,
             purpose: input.intent.purpose,
             confidence: input.intent.confidence,
             provider: input.intent.provider,
@@ -243,7 +277,7 @@ export function createPostgrestIntentStore(
       if (result.status === 201 || result.status === 200) {
         const body = result.body;
         if (Array.isArray(body) && body.length === 1) {
-          return toAgentIntent(body[0] as Record<string, unknown>);
+          return toAgentIntent(body[0] as Record<string, unknown>, strictLane);
         }
         if (Array.isArray(body) && body.length > 1) {
           throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
@@ -274,7 +308,7 @@ export function createPostgrestIntentStore(
         if (scopedPrior === null) {
           throw new PersistenceError("OWNERSHIP_DENIED", "Intent ownership denied.", false);
         }
-        const prior = toAgentIntent(scopedPrior);
+        const prior = toAgentIntent(scopedPrior, strictLane);
         if (canonicalEqual(prior, input.intent)) {
           return prior;
         }
@@ -312,7 +346,7 @@ export function createPostgrestIntentStore(
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
       const row = scopedIntentRow(body[0] as Record<string, unknown>, input.ownerAddress, input.agentId);
-      return row === null ? null : toAgentIntent(row);
+      return row === null ? null : toAgentIntent(row, strictLane);
     },
 
     async getByIdempotencyKey(input: IntentIdempotencyGetInput): Promise<AgentIntent | null> {
@@ -338,7 +372,7 @@ export function createPostgrestIntentStore(
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
       const row = scopedIntentRow(body[0] as Record<string, unknown>, input.ownerAddress, input.agentId);
-      return row === null ? null : toAgentIntent(row);
+      return row === null ? null : toAgentIntent(row, strictLane);
     },
 
     async markStatus(input: IntentMarkStatusInput): Promise<void> {

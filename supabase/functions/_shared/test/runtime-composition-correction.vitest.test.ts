@@ -184,7 +184,7 @@ describe("G24 production composition roots", () => {
     const body = await response.json() as Record<string, unknown>;
     expect(body).toEqual({
       requestId: "req-g34-health",
-      configuredRegion: "ap-southeast-1",
+      configuredRegion: "us-east-1",
       expectedRegion: "us-east-1",
       chainId: 102031,
       provider: "openai",

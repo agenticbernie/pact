@@ -316,10 +316,14 @@ export function createSessionEntrypointHandler(input: {
   actualRegion?: string;
   options?: Parameters<typeof createSessionHttpHandler>[1];
 } = {}): (request: Request) => Promise<Response> {
+  // Validity-only region gate (no equality): the authoritative project
+  // region and the observed runtime region are separate facts. The old
+  // `configuredRegion !== actualRegion` comparison was vacuous
+  // (observed-vs-observed) and would false-mismatch now that the configured
+  // value is authoritative.
   if (
     input.runtime === undefined ||
-    !regionsMatch(input.expectedRegion, input.actualRegion) ||
-    input.configuredRegion !== input.actualRegion
+    !regionsMatch(input.expectedRegion, input.actualRegion)
   ) {
     return async (request) => sessionResponse({
       requestId: request.headers.get("x-request-id") ?? "req-session",
@@ -352,11 +356,11 @@ export function createSessionCompositionRoot(input: SessionCompositionInput = {}
   const env = input.env ?? {};
   const region = resolveRegionConfig(env);
   const secret = env.SESSION_HMAC_SECRET;
-  if (secret === undefined || !regionsMatch(region.expectedRegion, region.observedRegion)) {
+  if (secret === undefined || !regionsMatch(region.expectedRegion, region.observedRuntimeRegion)) {
     return unavailableSessionHandler({
       configuredRegion: region.configuredRegion,
       expectedRegion: region.expectedRegion ?? "unknown",
-      actualRegion: region.observedRegion,
+      actualRegion: region.observedRuntimeRegion,
     });
   }
   let persistence = input.persistence;
@@ -368,7 +372,7 @@ export function createSessionCompositionRoot(input: SessionCompositionInput = {}
       return unavailableSessionHandler({
         configuredRegion: region.configuredRegion,
         expectedRegion: region.expectedRegion ?? "unknown",
-        actualRegion: region.observedRegion,
+        actualRegion: region.observedRuntimeRegion,
       });
     }
     persistence = composed.session;
@@ -377,7 +381,7 @@ export function createSessionCompositionRoot(input: SessionCompositionInput = {}
     runtime: createSessionRuntime({ persistence, secret }),
     configuredRegion: region.configuredRegion,
     expectedRegion: region.expectedRegion,
-    actualRegion: region.observedRegion,
+    actualRegion: region.observedRuntimeRegion,
     options: input.options,
   });
 }

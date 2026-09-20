@@ -19,5 +19,6 @@ node_modules/
 dist/
 coverage/
 contracts/out/
+contracts/out-arc/
 contracts/cache/
 contracts/broadcast/

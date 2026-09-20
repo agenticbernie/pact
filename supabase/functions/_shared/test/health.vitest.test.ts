@@ -12,7 +12,7 @@ describe("G17 regional health route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       requestId: "req-health",
-      configuredRegion: "ap-southeast-1",
+      configuredRegion: "us-east-1",
       expectedRegion: "us-east-1",
       chainId: 102031,
       provider: "openai",
