@@ -1,9 +1,21 @@
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, beforeAll, afterAll, vi } from "vitest";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { issueSessionToken } from "../../packages/domain/src/session-token.ts";
 import { hashToken } from "../../supabase/functions/_shared/session-token.ts";
-import { createNeonPersistence } from "../adapter/neon-persistence.ts";
+
+const poolRegistry = vi.hoisted(() => new Set<{ end: () => Promise<void> }>());
+
+vi.mock("pg", async () => {
+  const actual = await vi.importActual<typeof import("pg")>("pg");
+  class TrackingPool extends actual.Pool {
+    constructor(...args: ConstructorParameters<typeof actual.Pool>) {
+      super(...args);
+      poolRegistry.add(this);
+    }
+  }
+  return { ...actual, Pool: TrackingPool };
+});
 
 const CONTAINER = "pact-neon-smoke";
 const PORT = "55434";
@@ -56,13 +68,13 @@ describe.skipIf(!HAS_DOCKER)("Neon functions local smoke (docker PG17)", () => {
     }
     const baseline = readFileSync(new URL("../migrations/0001_neon_baseline.sql", import.meta.url), "utf8");
     await admin.query(baseline);
-    await admin.end();
   }, 180000);
 
   afterAll(async () => {
-    try {
-      execSync(`docker rm -f ${CONTAINER}`, { stdio: "ignore", timeout: 60000 });
-    } catch { /* ignore */ }
+    for (const pool of poolRegistry) {
+      await pool.end();
+    }
+    execSync(`docker rm -f ${CONTAINER}`, { stdio: "ignore", timeout: 60000 });
   });
 
   it("serves Neon health with the Arc lane shape (no OpenAI contact)", async () => {
@@ -116,7 +128,7 @@ describe.skipIf(!HAS_DOCKER)("Neon functions local smoke (docker PG17)", () => {
   });
 
   it("rejects gateway intent for unknown cards before any provider work", async () => {
-    const { createNeonPool } = await import("../adapter/neon-persistence.ts");
+    const { createNeonPool, createNeonPersistence } = await import("../adapter/neon-persistence.ts");
     const pool = createNeonPool(DB_URL);
     const persistence = createNeonPersistence(pool);
     const token = issueSessionToken({ sessionId: "smoke-1", wallet: WALLET, role: "user" }, SECRET);
@@ -140,11 +152,10 @@ describe.skipIf(!HAS_DOCKER)("Neon functions local smoke (docker PG17)", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(response.status).toBe(400);
     expect(body["code"]).toBe("CARD_NOT_ELIGIBLE");
-    await pool.end?.();
   });
 
   it("reads seeded Arc rows and fails preflight closed on unreachable RPC", async () => {
-    const { createNeonPool } = await import("../adapter/neon-persistence.ts");
+    const { createNeonPool, createNeonPersistence } = await import("../adapter/neon-persistence.ts");
     const pool = createNeonPool(DB_URL);
     const persistence = createNeonPersistence(pool, "arc");
     await persistence.card.createOrRecord({
@@ -191,6 +202,5 @@ describe.skipIf(!HAS_DOCKER)("Neon functions local smoke (docker PG17)", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ decision: "declined", chainId: 5042002 });
-    await pool.end?.();
   });
 });

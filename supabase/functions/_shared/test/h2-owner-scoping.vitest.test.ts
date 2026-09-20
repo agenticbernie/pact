@@ -336,6 +336,21 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
     expect(intentStoreTest).toMatch(/intent-req-1/);
   });
 
+  it("resolves the seeded Arc intent and rejects the stale registry id", async () => {
+    const authz = await loadAuthz();
+    const registry = authz.createArcCard1OwnerRegistry();
+    await expect(registry.findAuthorization({
+      intentId: "intent-req-1",
+      agentId: ARC_AGENT,
+      chainId: ARC_CHAIN,
+    })).resolves.toMatchObject({ intentId: "intent-req-1", cardId: "1", chainId: ARC_CHAIN });
+    await expect(registry.findAuthorization({
+      intentId: "intent-arc-1",
+      agentId: ARC_AGENT,
+      chainId: ARC_CHAIN,
+    })).resolves.toBeNull();
+  });
+
   it("validates authorizations purely with closed codes", async () => {
     const authz = await loadAuthz();
     const ctx = {
