@@ -253,10 +253,11 @@ function staticRegistry(entries: OwnerAuthorization[]): OwnerAuthorizationRegist
 
 /**
  * Default Arc card-1 registry. Owner/agent/creation facts reproduce the
- * on-chain record (Arc closeout §8 + first-payment evidence); the allowlist
- * anchor is the lane-test merchant derivation (deterministic, re-derivable),
- * not on-chain truth. Operator-approved lane configuration; cross-checked
- * against the seeded row and lane constants on every read.
+ * on-chain record (Arc closeout §8 + first-payment evidence), including the
+ * opaque raw allowlist bytes32. Its logical preimage is deliberately not
+ * assumed here: on-chain `preflightPay` remains the authority for merchant
+ * membership. Operator-approved lane configuration; cross-checked against
+ * the seeded row and lane constants on every read.
  */
 export function createArcCard1OwnerRegistry(): OwnerAuthorizationRegistry {
   return staticRegistry([
@@ -270,7 +271,7 @@ export function createArcCard1OwnerRegistry(): OwnerAuthorizationRegistry {
       controller: "0x7a474c005433def5fc496d2016f6ae794edfc423",
       issuedBy: "0xb8bdcc633cd8e67250358d807918f99dc0c14d52",
       policyVersion: 1,
-      allowlistHash: "0x50ac913d8071d2c6532044666a6fdf27b3548ceb0856c45289610034a0c93152",
+      allowlistHash: "0x020568146fc6eca5159842a3e6d4da71e6aaaf285a0c4ab978902e30fdc77a70",
       sourceBlock: 62948913,
       sourceTxHash: "0x5bb8ce7b9c67dfc934730be8e6c4bbfc293e7d3273d2656b6609c7904e1e79fb",
       expiresAtMs: Date.parse("2027-09-19T00:00:00.000Z"),

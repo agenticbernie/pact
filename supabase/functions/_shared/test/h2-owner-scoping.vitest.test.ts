@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { createExecutorCompositionRoot } from "../../agent-executor/index.ts";
+import { createExecutorCompositionRoot, createExecutorEntrypointHandler } from "../../agent-executor/index.ts";
 import { createPostgrestIntentStore } from "../intent-store.ts";
 import { createPostgrestCardStore } from "../card-store.ts";
 import { issueSessionToken } from "../../../../packages/domain/src/session-token.ts";
 import { hashToken } from "../session-token.ts";
 import { merchantIdToBytes32 } from "../../../../packages/domain/src/canonical-hash.ts";
 import type { OwnerAuthorization } from "../owner-authorization.ts";
+import type { ReadOnlyRpcPaymentClient } from "../../agent-executor/chain-client.ts";
+import { ARC_LANE } from "../lane-config.ts";
 
 const loadAuthz = () => import("../owner-authorization.ts");
 
@@ -17,7 +19,12 @@ const ARC_CONTROLLER = "0x7a474c005433def5fc496d2016f6ae794edfc423";
 const ARC_CHAIN = 5042002;
 const ARC_TX = "0x5bb8ce7b9c67dfc934730be8e6c4bbfc293e7d3273d2656b6609c7904e1e79fb";
 const ARC_BLOCK = 62948913;
-const ARC_ALLOWLIST = merchantIdToBytes32("arc-demo-merchant");
+const ARC_RAW_ALLOWLIST = "0x020568146fc6eca5159842a3e6d4da71e6aaaf285a0c4ab978902e30fdc77a70";
+const ARC_MERCHANT_DERIVATION = merchantIdToBytes32("arc-demo-merchant");
+const LIVE_CARD_EXPIRY = "2026-09-21T18:28:42.000Z";
+const LIVE_CREDIT_EXPIRY = "2026-09-20T19:13:13.000Z";
+const LIVE_INTENT_EXPIRY = "2026-09-20T19:08:13.000Z";
+const LIVE_H2_TIME = "2026-09-20T18:57:00.000Z";
 const SECRET = "local-session-test";
 const FUTURE = "2027-09-19T00:00:00.000Z";
 const PAST = "2020-01-01T00:00:00.000Z";
@@ -40,7 +47,7 @@ function cardRow(overrides: Record<string, unknown> = {}) {
     spent: "0",
     expires_at: FUTURE,
     policy_version: 1,
-    allowlist_hash: ARC_ALLOWLIST,
+    allowlist_hash: ARC_RAW_ALLOWLIST,
     source_block: ARC_BLOCK,
     source_tx_hash: ARC_TX,
     created_at: "2026-09-19T00:00:00.000Z",
@@ -84,7 +91,7 @@ function validAuth(overrides: Record<string, unknown> = {}): OwnerAuthorization 
     controller: ARC_CONTROLLER,
     issuedBy: ARC_OWNER,
     policyVersion: 1,
-    allowlistHash: ARC_ALLOWLIST,
+    allowlistHash: ARC_RAW_ALLOWLIST,
     sourceBlock: ARC_BLOCK,
     sourceTxHash: ARC_TX,
     expiresAtMs: Date.parse(FUTURE),
@@ -207,6 +214,105 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
     expect(status).toBe(200);
     expect(body).toMatchObject({ decision: "would_settle", chainId: ARC_CHAIN });
     expect(rpc.calls).toEqual(["eth_chainId", "eth_call", "eth_chainId", "eth_call"]);
+  });
+
+  it("reproduces the deployed raw-allowlist binding and invokes both static calls with server-bound arguments", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(LIVE_H2_TIME));
+    try {
+      const { token, persistence } = sessionFor(ARC_AGENT);
+      const stores = storesFor(
+        [cardRow({
+          expires_at: LIVE_CARD_EXPIRY,
+          verified_credit_expires_at: LIVE_CREDIT_EXPIRY,
+          spent: "10000000000000000",
+        })],
+        [intentRow({ intent_id: "intent-req-1", expires_at: LIVE_INTENT_EXPIRY })],
+        "arc",
+      );
+      const readCard = vi.fn(async () => ({
+        cardId: "1",
+        agent: ARC_AGENT,
+        policyVersion: 1,
+        chainId: ARC_CHAIN,
+      }));
+      const staticPreflight = vi.fn(async () => ({ ok: true }));
+      const client: ReadOnlyRpcPaymentClient = { readCard, preflight: staticPreflight };
+      const { createArcCard1OwnerRegistry } = await loadAuthz();
+      const handler = createExecutorEntrypointHandler({
+        expectedRegion: REGIONS.PACT_EXPECTED_REGION,
+        actualRegion: REGIONS.SB_REGION,
+        sessionSecret: SECRET,
+        sessionPersistence: persistence,
+        lane: "arc",
+        readOnlyComposition: {
+          client,
+          intents: stores.intent,
+          cards: stores.card,
+          lane: ARC_LANE,
+          ownerAuthorizations: createArcCard1OwnerRegistry(),
+        },
+      });
+
+      const { status, body } = await preflight(handler, token, "intent-req-1");
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ decision: "would_settle", chainId: ARC_CHAIN });
+      expect(readCard).toHaveBeenCalledTimes(1);
+      expect(readCard).toHaveBeenCalledWith("1", ARC_AGENT);
+      expect(staticPreflight).toHaveBeenCalledTimes(1);
+      expect(staticPreflight).toHaveBeenCalledWith({
+        intentId: "intent-req-1",
+        idempotencyKey: "preflight",
+        cardId: "1",
+        nonce: "1:1",
+        amountBaseUnits: "10000000000000000",
+        deadline: Math.floor(Date.parse(LIVE_INTENT_EXPIRY) / 1000),
+        merchantId: "arc-demo-merchant",
+        asset: "arc-testnet-usdc",
+        policyVersion: 1,
+        agent: ARC_AGENT,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a merchant-derived registry anchor fail-closed before either chain call", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(LIVE_H2_TIME));
+    try {
+      const { token, persistence } = sessionFor(ARC_AGENT);
+      const stores = storesFor(
+        [cardRow({ expires_at: LIVE_CARD_EXPIRY, verified_credit_expires_at: LIVE_CREDIT_EXPIRY })],
+        [intentRow({ intent_id: "intent-req-1", expires_at: LIVE_INTENT_EXPIRY })],
+        "arc",
+      );
+      const readCard = vi.fn(async () => ({ cardId: "1", agent: ARC_AGENT, policyVersion: 1, chainId: ARC_CHAIN }));
+      const staticPreflight = vi.fn(async () => ({ ok: true }));
+      const client: ReadOnlyRpcPaymentClient = { readCard, preflight: staticPreflight };
+      const handler = createExecutorEntrypointHandler({
+        expectedRegion: REGIONS.PACT_EXPECTED_REGION,
+        actualRegion: REGIONS.SB_REGION,
+        sessionSecret: SECRET,
+        sessionPersistence: persistence,
+        lane: "arc",
+        readOnlyComposition: {
+          client,
+          intents: stores.intent,
+          cards: stores.card,
+          lane: ARC_LANE,
+          ownerAuthorizations: { findAuthorization: async () => validAuth({ allowlistHash: ARC_MERCHANT_DERIVATION }) },
+        },
+      });
+
+      const { status, body } = await preflight(handler, token, "intent-req-1");
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: ARC_CHAIN });
+      expect(readCard).not.toHaveBeenCalled();
+      expect(staticPreflight).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stops an expired intent-req-1 before card or static-chain reads", async () => {
@@ -404,7 +510,7 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
         asset: "arc-testnet-usdc",
         chain_id: ARC_CHAIN,
         policy_version: 1,
-        allowlist_hash: ARC_ALLOWLIST,
+        allowlist_hash: ARC_RAW_ALLOWLIST,
         source_block: ARC_BLOCK,
         source_tx_hash: ARC_TX,
       },
@@ -444,7 +550,7 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
         asset: "arc-testnet-usdc",
         chain_id: ARC_CHAIN,
         policy_version: 1,
-        allowlist_hash: ARC_ALLOWLIST,
+        allowlist_hash: ARC_RAW_ALLOWLIST,
         source_block: ARC_BLOCK,
         source_tx_hash: ARC_TX,
       },

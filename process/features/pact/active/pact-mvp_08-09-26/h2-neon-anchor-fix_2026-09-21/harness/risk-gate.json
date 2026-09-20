@@ -1,0 +1,6 @@
+{
+  "riskClass": "deploy/runtime/container/proxy/gateway behavior",
+  "workDescription": "Deploy only Neon agentexecutor with the raw Arc allowlist-anchor fix and prepare one gated H2 cycle.",
+  "approver": "operator (user explicitly authorized this bounded deployment and auto-approves proposed gates)",
+  "mustStopBeforeFinalize": true
+}

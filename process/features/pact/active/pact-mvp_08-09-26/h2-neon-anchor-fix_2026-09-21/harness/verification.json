@@ -1,0 +1,70 @@
+{
+  "steps": [
+    {
+      "step": "Source registry raw allowlist anchor",
+      "command": "rg -n 'allowlistHash:' supabase/functions/_shared/owner-authorization.ts",
+      "result": "PASS",
+      "notes": "Registry value is the raw Arc card allowlist bytes32; no secret material involved."
+    },
+    {
+      "step": "Focused H2 owner-scoping tests",
+      "command": "npx vitest run supabase/functions/_shared/test/h2-owner-scoping.vitest.test.ts --reporter=dot",
+      "result": "PASS",
+      "notes": "15/15 tests green, including readCard/preflight spy assertions and the pre-chain mismatch boundary."
+    },
+    {
+      "step": "Full Vitest",
+      "command": "npm test -- --reporter=dot",
+      "result": "PASS",
+      "notes": "57 files and 344 tests green."
+    },
+    {
+      "step": "Arc and Neon expiry/binding read-only preflight",
+      "command": "Node JSON-RPC reads plus Node+pg BEGIN READ ONLY transaction",
+      "result": "PASS",
+      "notes": "Chain 5042002; card active and unexpired; verified credit and intent were still valid at chain timestamp 1789931288; Neon bindings matched."
+    },
+    {
+      "step": "Deployment artifact digest limitation",
+      "command": "neonctl functions list --project-id polished-dream-04296130 --output json",
+      "result": "PASS",
+      "notes": "Deployment 2 active/completed captured as baseline; Neon metadata does not expose a remote bundle digest."
+    },
+    {
+      "step": "Boundary: malformed agent address",
+      "command": "Read-only preflight rejected the malformed manually supplied address before RPC calls",
+      "result": "PASS",
+      "notes": "Canonical source registry address was used for the valid preflight; no fallback or mutation occurred."
+    },
+    {
+      "step": "Single-function deployment",
+      "command": "neonctl functions deploy agentexecutor --project-id polished-dream-04296130 --branch main --src neon/functions/agentexecutor/index.ts --runtime nodejs24 --wait",
+      "result": "PASS",
+      "notes": "Deployment 3 completed and became active; session and aigateway remained deployment 2. No env flags, secret changes, schema changes, seed changes, or Neon row writes were made."
+    },
+    {
+      "step": "Post-deploy fresh H2 expiry gate",
+      "command": "Read-only Arc block/card/credit reads plus Node+pg BEGIN READ ONLY intent/card read",
+      "result": "SKIP",
+      "notes": "Stopped with INTENT_EXPIRED: chain timestamp 1789931413 exceeded intent expiry 1789931293. No session or H2 request was created."
+    },
+    {
+      "step": "Gate B verified-credit refresh",
+      "command": "Read-only authority/card/evidence preflight followed by one applyVerifiedCreditForAgent transaction",
+      "result": "PASS",
+      "notes": "One receipt status 1 at block 63135233; CreditVerified matched fresh evidence, amount, expiry, and agent; usedEvidence true; no retry."
+    },
+    {
+      "step": "Gate C bounded Neon refresh",
+      "command": "One SERIALIZABLE transaction targeting only cards.card_id=1 and intents.intent_id=intent-req-1",
+      "result": "PASS",
+      "notes": "Transaction 6192 updated one card and one intent, inserts/deletes/other rows zero; canonical hash and Arc cross-check green."
+    },
+    {
+      "step": "Fresh H2 one-attempt execution",
+      "command": "One new session challenge/verify and one POST /v1/payments/preflight",
+      "result": "SKIP",
+      "notes": "HTTP 503 PREFLIGHT_DECLINED with no usable static-call evidence; Neon logs empty for the request; no retry and H2 not VERIFIED."
+    }
+  ]
+}

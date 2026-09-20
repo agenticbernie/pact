@@ -1,0 +1,22 @@
+{
+  "snippets": [
+    {
+      "file": "supabase/functions/_shared/owner-authorization.ts",
+      "lines": "254-278",
+      "description": "Arc card-1 registry binds the opaque raw on-chain allowlist bytes32 and provenance.",
+      "content": "createArcCard1OwnerRegistry() contains intent-req-1, card 1, Arc chain 5042002, controller, owner/agent split, raw allowlist, and creation provenance."
+    },
+    {
+      "file": "neon/functions/agentexecutor/index.ts",
+      "lines": "27-47",
+      "description": "Neon agentexecutor composes Arc persistence, RPC transport, and owner registry.",
+      "content": "buildHandler requires Neon persistence, creates the Arc RPC transport, selects lane arc, and injects createArcCard1OwnerRegistry()."
+    },
+    {
+      "file": "supabase/functions/_shared/test/h2-owner-scoping.vitest.test.ts",
+      "lines": "219-316",
+      "description": "Spy regression covers the repaired live-equivalent path and the old fail-closed mismatch.",
+      "content": "Tests assert readCard and preflight calls plus exact server-bound arguments; the merchant-derived anchor test asserts zero chain calls."
+    }
+  ]
+}

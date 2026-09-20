@@ -1,0 +1,29 @@
+{
+  "scenarios": [
+    {
+      "scenario": "Deploy a function other than agentexecutor",
+      "ruled_out": true,
+      "rationale": "Deployment command is scoped to the single agentexecutor slug; session and aigateway are excluded."
+    },
+    {
+      "scenario": "Change secrets or persist secret material in evidence",
+      "ruled_out": true,
+      "rationale": "No env updates are supplied; evidence contains names and redacted facts only."
+    },
+    {
+      "scenario": "Reuse expired credit or intent data for H2",
+      "ruled_out": true,
+      "rationale": "Post-deployment read-only expiry gate stopped before session/H2 when the intent expired."
+    },
+    {
+      "scenario": "Retry H2 or perform payment/broadcast activity",
+      "ruled_out": true,
+      "rationale": "The cycle stopped before H2 and explicitly excludes payment, signer, gas, and broadcast."
+    },
+    {
+      "scenario": "Claim live static-call evidence from an HTTP envelope alone",
+      "ruled_out": true,
+      "rationale": "H2 is not VERIFIED without usable readCard and static-preflight evidence; Neon remote bundle digest is unavailable."
+    }
+  ]
+}
