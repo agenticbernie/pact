@@ -1,12 +1,19 @@
 # Base44 sandbox runtime for Pact.
 #
-# Pact has no web frontend yet (`apps/web/` is still a later-phase output), so the
-# user-facing entry point on port 3000 is the existing Arc-lane function surface:
-# neon/functions/{session,aigateway,agentexecutor} mounted by neon/dev-host.ts.
+# Two application processes from ONE cloned source tree (both bind-mounted, both
+# running a live-reload dev command — no prebuilt app image anywhere):
 #
-# Runs from the cloned source (bind mount + `node --watch`), never a prebuilt image.
-# Postgres 17 is plain infrastructure; the consolidated baseline DDL is applied on
-# first init. Local infra credentials below are generated for dev only.
+#   web (port 3000, the user-facing entry point) — the Phase 06 console dev
+#     server (`apps/web`, Vite + React + Astryx). It proxies `/v1/*` and
+#     `/health` to the API so the console and the Phase 05 read API share one
+#     origin; the wallet-bound session token stays on a single site.
+#   api (internal port 8000) — the existing Arc-lane function surface:
+#     neon/functions/{session,aigateway,agentexecutor} mounted by
+#     neon/dev-host.ts, now also carrying the Phase 05 read routes.
+#
+# Postgres 17 is plain infrastructure. Local infra credentials below are
+# generated for dev only; platform secrets (DATABASE_URL, SESSION_HMAC_SECRET,
+# OPENAI_API_KEY, …) arrive via /run/base44/app.env and always win.
 name: pact
 
 services:
@@ -47,15 +54,27 @@ services:
       db:
         condition: service_healthy
 
+  # One-shot dependency install for the whole yarn workspace. Both app services
+  # share the bind-mounted `node_modules`, so installation happens exactly once,
+  # here, and the app services wait for it to finish. Run from the workspace root
+  # with the committed lockfile; `--frozen-lockfile` never rewrites it.
+  deps:
+    image: node:22
+    working_dir: /app
+    volumes:
+      - .:/app
+    command:
+      - sh
+      - -ec
+      - corepack yarn install --frozen-lockfile --non-interactive
+
   api:
     image: node:22
     working_dir: /app
     volumes:
       - .:/app
-    ports:
-      - "3000:3000"
     environment:
-      - PORT=3000
+      - PORT=8000
       - HOST=0.0.0.0
       - BASE44_PREVIEW_MODE
       # Lane constants + backend selector. Never a user-supplied credential.
@@ -76,20 +95,56 @@ services:
     command:
       - sh
       - -ec
-      - corepack yarn install --frozen-lockfile --non-interactive && exec node --experimental-strip-types --watch neon/dev-host.ts
+      - exec node --experimental-strip-types --watch neon/dev-host.ts
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      deps:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD-SHELL
-        - node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        - node -e "fetch('http://127.0.0.1:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 40s
+    restart: on-failure
+
+  web:
+    image: node:22
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      # The console dev server is the single public entry point.
+      - "3000:3000"
+    environment:
+      - BASE44_PREVIEW_MODE
+      # Vite >= 6.1 appends this platform value to `server.allowedHosts`; the preview
+      # hostname carries a rotating sandbox id, so it is never hardcoded anywhere.
+      - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+      # Same-origin API: the dev server proxies /v1/* and /health here.
+      - PACT_API_INTERNAL_URL=http://api:8000
+    command:
+      - sh
+      - -ec
+      - exec corepack yarn workspace @pact/web dev
+    depends_on:
+      api:
+        condition: service_healthy
+      deps:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     restart: on-failure
 
 volumes:

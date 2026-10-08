@@ -31,7 +31,6 @@ export function AppNav() {
 
   return (
     <SideNav
-      label="Pact console"
       collapsible
       header={
         <SideNavHeading

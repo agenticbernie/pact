@@ -8,7 +8,7 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "astryx": "node node_modules/@astryxdesign/cli/clients/cli/bin/astryx.mjs"
+    "astryx": "astryx"
   },
   "dependencies": {
     "@astryxdesign/core": "0.6.6",
