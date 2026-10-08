@@ -75,6 +75,13 @@ export function AppNav() {
       </SideNavSection>
       <Divider />
       <SideNavSection title="Cards" isHeaderHidden>
+        <SideNavItem
+          label="Issue a card"
+          href="/cards/new"
+          icon={WalletIcon}
+          isSelected={location.pathname === "/cards/new"}
+          isDisabled={!signedIn}
+        />
         {cards.length === 0 ? (
           <SideNavItem
             label={signedIn ? "No cards for this wallet" : "Sign in to load cards"}

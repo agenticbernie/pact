@@ -16,6 +16,7 @@ import { FreshnessNotice } from "../components/FreshnessNotice";
 import { LoadFailure } from "../components/LoadFailure";
 import { MonoValue } from "../components/MonoValue";
 import { PageHeader } from "../components/PageHeader";
+import { PaymentPanel } from "../components/PaymentPanel";
 import { PaymentTable } from "../components/PaymentTable";
 import { StatusToken } from "../components/StatusToken";
 import { formatDateTime, normalizeTimestamp, subtractBaseUnits } from "../lib/format";
@@ -100,6 +101,13 @@ function CardDetail({ cardId }: { cardId: string }) {
           <EvidencePanel config={config} />
         </CardSurface>
       </VStack>
+
+      <PaymentPanel
+        cardId={cardId}
+        card={card}
+        config={config}
+        onSettled={() => paymentsQuery.reload()}
+      />
 
       <VStack gap={3}>
         <Heading level={2}>Payment attempts</Heading>
