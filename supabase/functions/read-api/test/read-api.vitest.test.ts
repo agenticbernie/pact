@@ -47,14 +47,32 @@ function baseStore(overrides: Partial<ReadStore> = {}): ReadStore {
     async getCard() {
       return CARD;
     },
+    async listCards() {
+      return [CARD];
+    },
     async listActivity() {
       return [];
     },
     async getPayment() {
       return ATTEMPT;
     },
+    async listPayments() {
+      return [ATTEMPT];
+    },
     async hasIndexedPaymentEvent() {
       return false;
+    },
+    async paymentEvents() {
+      return [
+        {
+          eventType: "PaymentSettled",
+          txHash: TX_HASH,
+          blockNumber: 66170486,
+          logIndex: 4,
+          contractAddress: "0x7a474c005433def5fc496d2016f6ae794edfc423",
+          payload: { cardId: "2", amount: "5" },
+        },
+      ];
     },
     ...overrides,
   };
@@ -154,6 +172,63 @@ describe("Phase 05 read API", () => {
     const payload = await body(await handler(get(`/v1/payments/${ATTEMPT.paymentId}`, TOKEN)));
     expect(payload["status"]).toBe("declined");
     expect(payload["reasonCode"]).toBe("PREFLIGHT_DECLINED");
+  });
+
+  it("lists the session wallet's cards", async () => {
+    const unauthorized = await makeHandler()(get("/v1/cards"));
+    expect(unauthorized.status).toBe(401);
+    const payload = await body(await makeHandler()(get("/v1/cards", TOKEN)));
+    const cards = payload["cards"] as Record<string, unknown>[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.["cardId"]).toBe("2");
+    expect(payload["latestIndexedBlock"]).toBe(66170486);
+  });
+
+  it("lists card payments with the same two-signal truth as the detail route", async () => {
+    const handler = makeHandler(
+      { async hasIndexedPaymentEvent() { return true; } },
+      { receiptLookup: async () => ({ status: 1 as const }) },
+    );
+    const payload = await body(await handler(get("/v1/payments?cardId=2", TOKEN)));
+    const payments = payload["payments"] as Record<string, unknown>[];
+    expect(payments).toHaveLength(1);
+    expect(payments[0]?.["status"]).toBe("settled");
+    expect(payments[0]?.["paymentId"]).toBe(ATTEMPT.paymentId);
+    expect(payments[0]?.["receiptConfirmed"]).toBe(true);
+    expect(payments[0]?.["attemptStatus"]).toBe("settled");
+  });
+
+  it("requires a card id and a session for the payment list", async () => {
+    const noCard = await makeHandler()(get("/v1/payments", TOKEN));
+    expect(noCard.status).toBe(400);
+    const noSession = await makeHandler()(get("/v1/payments?cardId=2"));
+    expect(noSession.status).toBe(401);
+  });
+
+  it("keeps a declined attempt declined in the list", async () => {
+    const handler = makeHandler({
+      async listPayments() {
+        return [{ ...ATTEMPT, status: "declined", txHash: undefined }];
+      },
+    });
+    const payload = await body(await handler(get("/v1/payments?cardId=2", TOKEN)));
+    const payments = payload["payments"] as Record<string, unknown>[];
+    expect(payments[0]?.["status"]).toBe("declined");
+    expect(payments[0]?.["reasonCode"]).toBe("PREFLIGHT_DECLINED");
+    expect(payments[0]?.["receiptConfirmed"]).toBe(false);
+  });
+
+  it("returns indexed event evidence with the settled payment", async () => {
+    const handler = makeHandler(
+      { async hasIndexedPaymentEvent() { return true; } },
+      { receiptLookup: async () => ({ status: 1 as const }) },
+    );
+    const payload = await body(await handler(get(`/v1/payments/${ATTEMPT.paymentId}`, TOKEN)));
+    const events = payload["events"] as Record<string, unknown>[];
+    expect(events).toHaveLength(1);
+    expect(events[0]?.["eventType"]).toBe("PaymentSettled");
+    expect(payload["blockNumber"]).toBe(66170486);
+    expect(payload["attemptStatus"]).toBe("settled");
   });
 
   it("rejects non-GET reads and unknown routes", async () => {
