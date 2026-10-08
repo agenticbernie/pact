@@ -4,7 +4,7 @@
  * transcribed from. A signature typo here would otherwise only surface as an
  * unexplained revert on chain.
  */
-import { Interface, type InterfaceAbi } from "ethers";
+import { EventFragment, FunctionFragment, Interface, type InterfaceAbi } from "ethers";
 import { describe, expect, it } from "vitest";
 import { PACT_ABI } from "../../../../packages/pact-sdk/src/abi.ts";
 import { CARD_CONTROLLER_ABI, CREDIT_POOL_ABI, MERCHANT_SIMULATOR_ABI } from "./controller-abi";
@@ -15,12 +15,10 @@ function index(entries: readonly unknown[]): Map<string, string> {
   for (const entry of entries) {
     const iface = new Interface([entry] as InterfaceAbi);
     for (const fragment of iface.fragments) {
-      if (fragment.type === "function") {
+      if (fragment instanceof FunctionFragment) {
         map.set(fragment.format("sighash"), fragment.selector);
-      } else if (fragment.type === "event") {
+      } else if (fragment instanceof EventFragment) {
         map.set(fragment.format("sighash"), fragment.topicHash);
-      } else {
-        continue;
       }
     }
   }
@@ -35,9 +33,9 @@ function expectParity(group: string, fragments: readonly string[], sdk: readonly
     if (parsed === undefined) throw new Error(`Unparsable fragment: ${fragment}`);
     const signature = parsed.format("sighash");
     const derived =
-      parsed.type === "event"
+      parsed instanceof EventFragment
         ? parsed.topicHash
-        : parsed.type === "function"
+        : parsed instanceof FunctionFragment
           ? parsed.selector
           : undefined;
     if (derived === undefined) throw new Error(`Unexpected fragment kind: ${fragment}`);

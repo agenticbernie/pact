@@ -2,7 +2,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { CheckboxList, CheckboxListItem } from "@astryxdesign/core/CheckboxList";
-import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
+import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { Divider } from "@astryxdesign/core/Divider";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -65,6 +65,9 @@ const DOT_LABEL: Record<StepStatus, string> = {
 };
 
 type IssuedCard = { cardId: string; createTxHash: string; activateTxHash: string };
+
+/** `DateTimeInput` brands its ISO 8601 values; our form state is a plain string. */
+const asIsoDateTime = (value: string): ISODateTimeString => value as ISODateTimeString;
 
 function issueFor(issues: CardDraftIssue[], field: CardDraftIssue["field"]): string | undefined {
   const found = issues.find((issue) => issue.field === field);
@@ -259,9 +262,9 @@ function IssuanceForm({ config }: { config: ApiConfig }) {
             />
             <DateTimeInput
               label="Card expiry"
-              value={expiresAt === "" ? undefined : expiresAt}
+              value={expiresAt === "" ? undefined : asIsoDateTime(expiresAt)}
               onChange={(value) => setExpiresAt(value ?? "")}
-              min={new Date().toISOString().slice(0, 16)}
+              min={asIsoDateTime(new Date().toISOString().slice(0, 16))}
               description="The controller rejects an expiry that is not in the future."
               isDisabled={busy}
               {...(fieldStatus(issueFor(issues, "expiresAt")) === undefined
