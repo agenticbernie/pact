@@ -4,6 +4,11 @@
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": [
     {
+      "name": "DATABASE_URL",
+      "description": "Hosted Neon Postgres connection string for the Pact Neon runtime (Neon console -> Project -> Connection string, or `neon connection-string --project-id <id> --branch main`). Include sslmode=require; the role must own the tables so the baseline's RLS deny policies do not block the app. Optional for local work: without it the api service falls back to the compose Postgres via .env.base44-defaults.",
+      "requiredAtBoot": false
+    },
+    {
       "name": "SESSION_HMAC_SECRET",
       "description": "HMAC signing secret for wallet sessions (server-side only). Generated development placeholder; the app needs a real value for any shared environment.",
       "requiredAtBoot": true,
@@ -11,7 +16,7 @@
     },
     {
       "name": "OPENAI_API_KEY",
-      "description": "OpenAI API key for the AI-gateway intent path (platform.openai.com). Optional: local lanes never call the provider, so a missing key only makes POST /v1/agent/intents return 503.",
+      "description": "OpenAI API key for the AI-gateway intent path (platform.openai.com). Without it POST /v1/agent/intents returns PROVIDER_UNAVAILABLE while GET /health still answers 200.",
       "requiredAtBoot": false
     }
   ]

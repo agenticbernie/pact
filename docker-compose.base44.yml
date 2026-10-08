@@ -37,15 +37,20 @@ services:
       - PORT=3000
       - HOST=0.0.0.0
       - BASE44_PREVIEW_MODE
-      # Local infra (compose db) + lane constants. Never a user-supplied credential.
+      # Lane constants + backend selector. Never a user-supplied credential.
+      # DATABASE_URL is NOT set here: `environment:` outranks `env_file:`, so a value
+      # here would permanently shadow the platform DATABASE_URL secret.
       - PERSISTENCE_BACKEND=neon
-      - DATABASE_URL=postgres://pact:pact-local-dev@db:5432/pact
       - PACT_EXPECTED_REGION=us-east-1
       - SB_REGION=us-east-1
-      - OPENAI_MODEL=gpt-5.6-luna
+      - OPENAI_MODEL=gpt-4o-mini
       - ARC_RPC_URL=https://rpc.testnet.arc.io
     env_file:
-      # Platform-delivered secrets (SESSION_HMAC_SECRET, OPENAI_API_KEY) — always last.
+      # Local offline fallbacks first (compose db) …
+      - ./.env.base44-defaults
+      # … platform-delivered secrets last, so they always win. DATABASE_URL stored as
+      # an app secret points this runtime at a hosted Neon branch; SESSION_HMAC_SECRET
+      # and OPENAI_API_KEY arrive the same way.
       - /run/base44/app.env
     command:
       - sh

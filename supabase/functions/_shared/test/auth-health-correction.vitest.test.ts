@@ -10,7 +10,7 @@ function gatewayDeps() {
   return {
     provider: { parseIntent: vi.fn(async () => ({
       provider: "openai" as const,
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       merchantId: "coffee-demo",
       amountDecimal: "1",
       purpose: "coffee",
@@ -58,7 +58,7 @@ describe("G25/G29 application auth and public health", () => {
       expectedRegion: "us-east-1",
       chainId: 102031,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       modelAvailable: false,
     });
     expect(Object.keys(body).sort()).toEqual([

@@ -4,14 +4,14 @@ import { DomainError } from "./errors.ts";
 
 /**
  * Single model truth (C-MODEL): `config/ai/model-config.json` is the ONLY
- * model pin — `{provider:openai, model:gpt-5.6-luna, allowFallback:false}`.
+ * model pin — `{provider:openai, model:gpt-4o-mini, allowFallback:false}`.
  * Loaded via this strict loader + `resolveOpenAIModel` with a pre-call
  * `allowFallback===false` assert. No `openai` package. No env substitution
  * (`OPENAI_MODEL` unset-or-equal or throw). `openai.json` must not fork
  * (thin assert-equal adapter; `model-config.json` authoritative).
  */
 
-export const PINNED_MODEL = "gpt-5.6-luna" as const;
+export const PINNED_MODEL = "gpt-4o-mini" as const;
 
 export type ModelConfig = {
   provider: "openai";
@@ -22,7 +22,7 @@ export type ModelConfig = {
 const ModelConfigSchema = z
   .object({
     provider: z.literal("openai"),
-    model: z.literal("gpt-5.6-luna"),
+    model: z.literal("gpt-4o-mini"),
     allowFallback: z.literal(false),
   })
   .strict();

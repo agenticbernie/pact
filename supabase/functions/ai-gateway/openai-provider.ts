@@ -1,7 +1,7 @@
 /**
  * OpenAI provider over raw fetch (S1 A3 raw-fetch-behind-port, no SDK).
  *
- * - Model value comes only from `loadModelConfig` pinned to `gpt-5.6-luna`
+ * - Model value comes only from `loadModelConfig` pinned to `gpt-4o-mini`
  *   with `allowFallback:false`; `resolveOpenAIModel` rejects env substitution.
  * - Pre-call `allowFallback===false` assert; no fallback branch exists.
  * - Responses API with `store:false` + strict JSON schema `pact_agent_intent`

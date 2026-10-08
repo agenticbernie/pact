@@ -67,7 +67,7 @@ function intentRow(overrides: Record<string, unknown> = {}) {
     purpose: "arc lane readiness probe",
     confidence: 0.9,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     policy_version: 1,
     intent_hash: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     status: "ready",

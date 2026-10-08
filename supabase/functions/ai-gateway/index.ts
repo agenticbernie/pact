@@ -132,7 +132,7 @@ export async function handleHealthRequest(
     configuredRegion: input.configuredRegion,
     expectedRegion: input.expectedRegion,
     chainId: input.chainId ?? TARGET_CHAIN_ID,
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     modelAvailable: input.modelAvailable,
   });
   return new Response(JSON.stringify(body), {
@@ -455,7 +455,7 @@ export async function handleIntentRequest(
   if (provided.provider !== "openai") {
     return fail(requestId, "PROVIDER_OUTPUT_INVALID");
   }
-  if (provided.model !== "gpt-5.6-luna") {
+  if (provided.model !== "gpt-4o-mini") {
     return fail(requestId, "PROVIDER_MODEL_UNAVAILABLE");
   }
   // MerchantId-only enforcement: any extra client/model field is rejected.
@@ -536,7 +536,7 @@ export async function handleIntentRequest(
       purpose: provided.purpose,
       confidence: provided.confidence,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       createdAt,
       expiresAt,
       policyVersion: deps.card.policyVersion,

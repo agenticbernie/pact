@@ -21,7 +21,7 @@ function intent(overrides: Partial<AgentIntent> = {}): AgentIntent {
     purpose: "coffee",
     confidence: 0.9,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     createdAt: "2026-09-12T00:00:00.000Z",
     expiresAt: "2026-09-12T00:15:00.000Z",
     policyVersion: 1,

@@ -28,7 +28,7 @@ function arcIntent(overrides: Record<string, unknown> = {}) {
     purpose: "arc lane readiness probe",
     confidence: 0.9,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     createdAt: "2026-09-19T00:00:00.000Z",
     expiresAt: ARC_EXPIRES_AT,
     policyVersion: ARC_POLICY_VERSION,

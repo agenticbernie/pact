@@ -124,7 +124,7 @@ export function validateSeedPayloads(input: {
   if (intent.merchant_id.trim().length === 0) return no("merchant-empty");
   if (intent.purpose.length === 0 || intent.purpose.length > 160) return no("purpose");
   if (!(intent.confidence >= 0 && intent.confidence <= 1)) return no("confidence");
-  if (intent.provider !== "openai" || intent.model !== "gpt-5.6-luna") return no("provider-pin");
+  if (intent.provider !== "openai" || intent.model !== "gpt-4o-mini") return no("provider-pin");
   if (intent.intent_id !== "intent-req-1") return no("intent-id");
   if (intent.idempotency_key.length === 0 || intent.request_id.length === 0) return no("idempotency");
   // Canonical hash recomputed (throws on schema violation → invalid).

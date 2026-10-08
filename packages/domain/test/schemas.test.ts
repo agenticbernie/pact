@@ -20,7 +20,7 @@ function makeIntent(overrides: Record<string, unknown> = {}) {
     purpose: "demo coffee purchase",
     confidence: 0.92,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     createdAt: "2026-09-09T00:00:00Z",
     expiresAt: "2026-09-09T00:05:00Z",
     policyVersion: 1,
@@ -36,7 +36,7 @@ describe("AgentIntentSchema", () => {
     expect(intent.merchantId).toBe("coffee-demo");
     expect(intent.asset).toBe("native-testnet-ctc");
     expect(intent.provider).toBe("openai");
-    expect(intent.model).toBe("gpt-5.6-luna");
+    expect(intent.model).toBe("gpt-4o-mini");
     expect(intent.policyVersion).toBe(1);
   });
 

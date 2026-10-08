@@ -58,7 +58,7 @@ const actualRegion = "us-east-1";
 check("gateway.region-ok-before-provider", actualRegion === expectedRegion, requestId);
 const providerResult = {
   provider: "openai",
-  model: "gpt-5.6-luna",
+  model: "gpt-4o-mini",
   merchantId: "coffee-demo",
   amountDecimal: "2.5",
   purpose: "demo coffee purchase",
@@ -68,7 +68,7 @@ const extraKeys = Object.keys(providerResult).filter(
   (k) => !["provider", "model", "merchantId", "amountDecimal", "purpose", "confidence"].includes(k),
 );
 check("gateway.merchantId-only", extraKeys.length === 0, requestId);
-check("gateway.attribution", providerResult.provider === "openai" && providerResult.model === "gpt-5.6-luna", requestId);
+check("gateway.attribution", providerResult.provider === "openai" && providerResult.model === "gpt-4o-mini", requestId);
 const intentId = `intent-${requestId}`;
 check("intent.correlated", intentId.includes(requestId), requestId);
 
@@ -106,7 +106,7 @@ const health = {
   expectedRegion: "us-east-1",
   chainId: 102031,
   provider: "openai",
-  model: "gpt-5.6-luna",
+  model: "gpt-4o-mini",
   modelAvailable: false,
 };
 check("health.shape", health.provider === "openai" && typeof health.chainId === "number", requestId);

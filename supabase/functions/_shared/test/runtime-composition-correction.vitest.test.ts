@@ -42,7 +42,7 @@ describe("G24 production composition roots", () => {
       env: { PACT_EXPECTED_REGION: "us-east-1", SB_REGION: "ap-southeast-1" },
       provider: { parseIntent: vi.fn(async () => ({
         provider: "openai" as const,
-        model: "gpt-5.6-luna",
+        model: "gpt-4o-mini",
         merchantId: "coffee-demo",
         amountDecimal: "1",
         purpose: "coffee",
@@ -91,7 +91,7 @@ describe("G24 production composition roots", () => {
   it("fails closed when expected or observed region inputs are absent or mismatched", async () => {
     const provider = { parseIntent: vi.fn(async () => ({
       provider: "openai" as const,
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       merchantId: "coffee-demo",
       amountDecimal: "1",
       purpose: "coffee",
@@ -188,7 +188,7 @@ describe("G24 production composition roots", () => {
       expectedRegion: "us-east-1",
       chainId: 102031,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       modelAvailable: false,
     });
     expect(Object.keys(body).sort()).toEqual([

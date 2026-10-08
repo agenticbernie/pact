@@ -719,7 +719,7 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   app image), so edits hot-reload. Postgres 17 is plain infrastructure; the consolidated
   `neon/migrations/0001_neon_baseline.sql` is applied on first init via `docker-entrypoint-initdb.d`
   (only when the `db-data` volume is empty). Compose `POSTGRES_PASSWORD` is a dev-only local value.
-- **Env the functions need:** `PERSISTENCE_BACKEND=neon` + `DATABASE_URL` (local compose db),
+- **Env the functions need:** `PERSISTENCE_BACKEND=neon` + `DATABASE_URL`,
   `PACT_EXPECTED_REGION` + `SB_REGION` (both `us-east-1` for the Arc lane), `SESSION_HMAC_SECRET`
   (server-side, delivered via `/run/base44/app.env`), and `ARC_RPC_URL`
   (`https://rpc.testnet.arc.io`). `OPENAI_API_KEY` is optional: without it `POST /v1/agent/intents`
@@ -727,6 +727,18 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
 - **Verify it works:** `curl -s localhost:3000/health` (expect chain `5042002`, regions `us-east-1`),
   then `curl -sX POST localhost:3000/v1/session/challenge -H 'content-type: application/json' -d '{"wallet":"0x1111111111111111111111111111111111111111"}'`
   (expect a nonce/message, proving DB writes). `docker compose -f docker-compose.base44.yml exec -T db psql -U pact -d pact -c 'table'`-style reads confirm persistence.
+- **Database target (local vs hosted Neon):** the api service resolves `DATABASE_URL` from
+  `env_file:` in order — `./.env.base44-defaults` (offline compose-db fallback, committed) first,
+  `/run/base44/app.env` (platform secrets) last. Because Compose resolves `environment:` over every
+  `env_file:`, `DATABASE_URL` must NEVER be listed under `environment:` — that would permanently
+  shadow the platform value. Storing a Neon branch connection string as the `DATABASE_URL` app
+  secret (see `.base44/environment.json`) repoints the runtime at hosted Neon on the next service
+  recreate; the compose Postgres then goes unused but stays harmless. On hosted Neon the role must
+  own the tables, because the baseline's RLS deny policies apply to every non-owner role.
+- **AI model pin:** `config/ai/model-config.json` is the single truth (`openai`/`gpt-4o-mini`/
+  `allowFallback:false`); `OPENAI_MODEL` must match it or the gateway fails closed. The
+  `intents.model` DDL default in the migration files is inert (the adapter always inserts the
+  model explicitly) and is left byte-verbatim for the checksum pins.
 - **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
   repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
   `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.

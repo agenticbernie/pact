@@ -248,7 +248,7 @@ describe("openai config", () => {
   it("loads the pinned provider config", () => {
     const config = loadOpenAIConfig(OPENAI_PATH);
     expect(config.provider).toBe("openai");
-    expect(config.model).toBe("gpt-5.6-luna");
+    expect(config.model).toBe("gpt-4o-mini");
     expect(config.allowFallback).toBe(false);
   });
 
@@ -256,7 +256,7 @@ describe("openai config", () => {
     expect(() =>
       loadOpenAIConfig({
         provider: "anthropic",
-        model: "gpt-5.6-luna",
+        model: "gpt-4o-mini",
         region: "us-east-1",
         allowFallback: false,
       }),
@@ -270,6 +270,6 @@ describe("openai config", () => {
 
   it("resolves the pinned model when the environment is unset", () => {
     delete process.env["OPENAI_MODEL"];
-    expect(resolveOpenAIModel(loadOpenAIConfig(OPENAI_PATH))).toBe("gpt-5.6-luna");
+    expect(resolveOpenAIModel(loadOpenAIConfig(OPENAI_PATH))).toBe("gpt-4o-mini");
   });
 });

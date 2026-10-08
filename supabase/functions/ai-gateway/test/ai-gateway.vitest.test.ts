@@ -39,7 +39,7 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       depsWith(
         fakeProvider({
           provider: "openai",
-          model: "gpt-5.6-luna",
+          model: "gpt-4o-mini",
           merchantId: "coffee-demo",
           amountDecimal: "2.5",
           purpose: "demo coffee purchase",
@@ -50,7 +50,7 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.intent.provider).toBe("openai");
-      expect(res.intent.model).toBe("gpt-5.6-luna");
+      expect(res.intent.model).toBe("gpt-4o-mini");
       expect(res.intent.merchantId).toBe("coffee-demo");
     }
   });
@@ -86,7 +86,7 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       },
       {
         name: "malformed-json",
-        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-5.6-luna", garbage: true })),
+        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-4o-mini", garbage: true })),
         code: "PROVIDER_OUTPUT_INVALID",
       },
       {
@@ -97,24 +97,24 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       {
         name: "invalid-observed-region",
         deps: depsWith(
-          fakeProvider({ provider: "openai", model: "gpt-5.6-luna", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1 }),
+          fakeProvider({ provider: "openai", model: "gpt-4o-mini", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1 }),
           { actualRegion: "not_a_region" },
         ),
         code: "REGION_MISMATCH",
       },
       {
         name: "unknown-merchant",
-        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-5.6-luna", merchantId: "nope-shop", amountDecimal: "1", purpose: "x", confidence: 1 })),
+        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-4o-mini", merchantId: "nope-shop", amountDecimal: "1", purpose: "x", confidence: 1 })),
         code: "PROVIDER_OUTPUT_INVALID",
       },
       {
         name: "model-recipient",
-        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-5.6-luna", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1, recipientAddress: "0x2222222222222222222222222222222222222222" })),
+        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-4o-mini", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1, recipientAddress: "0x2222222222222222222222222222222222222222" })),
         code: "PROVIDER_OUTPUT_INVALID",
       },
       {
         name: "oversize-prompt",
-        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-5.6-luna", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1 })),
+        deps: depsWith(fakeProvider({ provider: "openai", model: "gpt-4o-mini", merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1 })),
         code: "INPUT_INVALID",
       },
     ];
@@ -151,7 +151,7 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       });
     };
     const provider = new OpenAiProvider({
-      modelConfig: { provider: "openai", model: "gpt-5.6-luna", allowFallback: false },
+      modelConfig: { provider: "openai", model: "gpt-4o-mini", allowFallback: false },
       fetchFn: flaky as never,
     });
     const ok = await provider.parseIntent({ prompt: "hi", card: CARD, merchants: MERCHANTS });
@@ -163,7 +163,7 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       return Promise.resolve({ status: 500, json: () => Promise.resolve({}) });
     };
     const failing = new OpenAiProvider({
-      modelConfig: { provider: "openai", model: "gpt-5.6-luna", allowFallback: false },
+      modelConfig: { provider: "openai", model: "gpt-4o-mini", allowFallback: false },
       fetchFn: hardFail as never,
     });
     await expect(failing.parseIntent({ prompt: "hi", card: CARD, merchants: MERCHANTS })).rejects.toThrow();
@@ -196,7 +196,7 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       });
     };
     const provider = new OpenAiProvider({
-      modelConfig: { provider: "openai", model: "gpt-5.6-luna", allowFallback: false },
+      modelConfig: { provider: "openai", model: "gpt-4o-mini", allowFallback: false },
       fetchFn: stubFetch as never,
     });
     await provider.parseIntent({ prompt: "hi", card: CARD, merchants: MERCHANTS });

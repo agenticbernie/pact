@@ -57,7 +57,7 @@ function arcIntentRow(overrides: Record<string, unknown> = {}) {
     purpose: "arc lane readiness probe",
     confidence: 0.9,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     policy_version: 1,
     intent_hash:
       "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -143,7 +143,7 @@ describe("Arc H1/H2 lane composition (RED-first)", () => {
         purpose: "arc lane readiness probe",
         confidence: 0.9,
         provider: "openai",
-        model: "gpt-5.6-luna",
+        model: "gpt-4o-mini",
         createdAt: "2026-09-19T00:00:00.000Z",
         expiresAt: FUTURE,
         policyVersion: 1,
@@ -300,7 +300,7 @@ describe("Arc H1/H2 lane composition (RED-first)", () => {
     const provider = {
       parseIntent: vi.fn(async () => ({
         provider: "openai" as const,
-        model: "gpt-5.6-luna",
+        model: "gpt-4o-mini",
         merchantId: "arc-demo-merchant",
         amountDecimal: "0.01",
         purpose: "arc lane readiness probe",

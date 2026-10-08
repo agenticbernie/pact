@@ -21,7 +21,7 @@ The MVP includes:
 - Native testnet CTC as the only payment asset, represented in contract calls
   by `address(0)` and in the product domain by `native-testnet-ctc`.
 - Attestcoin ASC evidence as the source of a verified-credit record.
-- OpenAI `gpt-5.6-luna` as the configured intent provider, subject to a live
+- OpenAI `gpt-4o-mini` as the configured intent provider, subject to a live
   model-access preflight before demo use.
 - Cloudflare Worker edge routing to a regional Supabase Function, which is the
   server-side OpenAI relay/proxy. The browser never receives provider keys,
@@ -216,7 +216,7 @@ stores.
 
 **OpenAI relay:** `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`,
 `OPENAI_TIMEOUT_MS`, `OPENAI_MAX_RETRIES`. The model value for the MVP is
-`gpt-5.6-luna`; retries must not silently switch providers or models.
+`gpt-4o-mini`; retries must not silently switch providers or models.
 
 **Supabase and edge:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_FUNCTION_REGION`,
@@ -246,7 +246,7 @@ execution actor. Client state is never settlement truth.
   final contract deployment addresses must be verified from the target network.
 - The exact ASC verifier/decoder integration and evidence issuer identity must
   be confirmed before credit evidence can be marked verified.
-- Access to the configured `gpt-5.6-luna` model must pass an explicit model
+- Access to the configured `gpt-4o-mini` model must pass an explicit model
   access/region preflight; absence of access is a bounded blocker, not a reason
   to silently use another model.
 - Foundry, Supabase CLI/Deno, Wrangler, and Playwright must be installed in

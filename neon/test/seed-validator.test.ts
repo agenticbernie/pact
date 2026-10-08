@@ -37,7 +37,7 @@ function intent(expiresAt: string, overrides: Record<string, unknown> = {}): See
     purpose: "arc lane readiness probe",
     confidence: 0.9,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     policy_version: 1,
     created_at: "2026-09-20T11:00:00.000Z",
     expires_at: expiresAt,

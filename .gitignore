@@ -5,6 +5,7 @@
 .env
 .env.*
 !.env.example
+!.env.base44-defaults
 *.pem
 *.key
 *private-key*
