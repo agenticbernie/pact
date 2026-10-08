@@ -117,3 +117,5 @@ export {
   checkRoleSeparation,
 } from "./arc-credit-policy.ts";
 export type { LiveReadiness, PolicyCheck, RoleSet } from "./arc-credit-policy.ts";
+export { RECEIPT_TRUTH_STATUSES, deriveReceiptTruth } from "./read-model.ts";
+export type { ReceiptTruth, ReceiptTruthStatus } from "./read-model.ts";
