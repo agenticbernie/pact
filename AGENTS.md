@@ -754,3 +754,23 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
 - **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
   repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
   `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.
+- **Card-2 end-to-end payment flow (verified 2026-10-08):** owner session → intent → agent
+  preflight → execute settles on-chain (tx `0x947a92…dc72`, block 66170486, `PaymentSettled` +
+  `MerchantPaymentReceived`). Non-obvious pitfalls discovered:
+  - **Key/address pairing:** the OWNER lane session must sign with `OWNER_WALLET_PRIVATE_KEY`
+    (derives `0x83Bc…`, matches `OWNER_WALLET_ADDRESS`). `CONTROLLER_OWNER_PRIVATE_KEY` derives
+    `0xB8Bd…` (card-1's owner, not card-2's) — using it for card-2 auth yields 401 `AUTH_INVALID`
+    at verify. `ASC_AUTHORITY_PRIVATE_KEY` derives `0x6E90…` but `ASC_WALLET_ADDRESS` declares
+    `0x1250…` (unrelated to this flow, but the pairing is wrong in the current secrets).
+  - **Intent ids are replay-pinned:** `intentId = intent-${x-request-id}` and the gateway INSERTs
+    it; a duplicate `x-request-id` (or one whose intent row already exists) fails save and maps
+    to 400 `INPUT_INVALID`. A replay with the same id after expiry is *correctly* declined —
+    re-run the flow with a fresh request id, or delete the expired `intents` row first.
+  - **Preflight authorization is a static fixture:** `createArcLaneOwnerRegistry()` in
+    `supabase/functions/_shared/owner-authorization.ts` matches exactly on
+    `(intentId, agentId, chainId)`; card-2's authorization is pinned to
+    `intent-req-card2-pay-1`. A fresh request id would need its own authorization entry, so
+    re-runs of the canonical flow reuse the original request id (delete the expired intent row).
+  - `INTENT_SCHEMA_INVALID` and other non-API codes surface to clients as `INPUT_INVALID`
+    (`fail()` maps unknown codes); `agent`-from preflight is on-chain-authoritative
+    (`preflightPay` with `from=agent` returned `allowed=true` when the API layer declined).
