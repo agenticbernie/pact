@@ -15,6 +15,11 @@
       "generatedForDevelopment": true
     },
     {
+      "name": "AGENT_SIGNER_PRIVATE_KEY",
+      "description": "Testnet private key of the Arc agent signer wallet that submits controller.pay (0x + 64 hex). Provision the address with `docker compose -f docker-compose.base44.yml exec -T api node scripts/create-wallet.mjs --role agent --label arc-agent-1`, fund it with gas on Arc testnet, then store its key here. Optional for boot: while absent the executor stays read-only and POST /v1/payments/execute never signs.",
+      "requiredAtBoot": false
+    },
+    {
       "name": "OPENAI_API_KEY",
       "description": "OpenAI API key for the AI-gateway intent path (platform.openai.com). Without it POST /v1/agent/intents returns PROVIDER_UNAVAILABLE while GET /health still answers 200.",
       "requiredAtBoot": false

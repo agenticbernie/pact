@@ -18,13 +18,34 @@ services:
       POSTGRES_DB: pact
     volumes:
       - db-data:/var/lib/postgresql/data
-      - ./neon/migrations/0001_neon_baseline.sql:/docker-entrypoint-initdb.d/0001_neon_baseline.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pact -d pact"]
       interval: 5s
       timeout: 5s
       retries: 20
     restart: on-failure
+
+  # One-shot migration apply: `neon/migrations/*.sql` in lexical order against the
+  # compose Postgres. The DDL is idempotent (`create … if not exists`, guarded
+  # `do $$` blocks), so re-applying on every boot is safe and a NEW migration
+  # lands on an existing `db-data` volume too — unlike `docker-entrypoint-initdb.d`,
+  # which only runs while the data directory is empty.
+  # A hosted Neon target is migrated out of band; this service then only touches
+  # the unused compose Postgres. No automatic restart: it is a one-shot job.
+  migrate:
+    image: postgres:17-alpine
+    working_dir: /migrations
+    volumes:
+      - ./neon/migrations:/migrations:ro
+    environment:
+      PGPASSWORD: pact-local-dev
+    command:
+      - sh
+      - -ec
+      - for f in $$(ls -1 /migrations/*.sql | sort); do echo "applying $$f"; psql -v ON_ERROR_STOP=1 -h db -U pact -d pact -f "$$f"; done
+    depends_on:
+      db:
+        condition: service_healthy
 
   api:
     image: node:22
@@ -59,6 +80,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD-SHELL

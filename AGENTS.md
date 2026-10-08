@@ -739,6 +739,18 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `allowFallback:false`); `OPENAI_MODEL` must match it or the gateway fails closed. The
   `intents.model` DDL default in the migration files is inert (the adapter always inserts the
   model explicitly) and is left byte-verbatim for the checksum pins.
+- **Migrations:** the one-shot `migrate` compose service applies `neon/migrations/*.sql` in lexical
+  order to the compose Postgres on every boot. The DDL is idempotent, so this is safe to re-run and a
+  new migration reaches an existing `db-data` volume (the old `docker-entrypoint-initdb.d` mount only
+  ran on an empty volume). A hosted Neon `DATABASE_URL` is migrated out of band — the `migrate` service
+  then only touches the unused compose Postgres.
+- **Wallet provisioning (agent-signer lane):** `neon/migrations/0002_wallets.sql` adds the `wallets`
+  registry (public addresses + roles only, never keys). Provision with
+  `docker compose -f docker-compose.base44.yml exec -T api node scripts/create-wallet.mjs --role agent --label arc-agent-1`
+  (or `yarn create-wallet`); pass `--address` to register a wallet whose key was created elsewhere, or
+  `--list` to read the registry. A generated key is printed once and belongs immediately in the
+  `AGENT_SIGNER_PRIVATE_KEY` secret; the signing path stays read-only (execute → 503) while that secret
+  is absent.
 - **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
   repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
   `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.
