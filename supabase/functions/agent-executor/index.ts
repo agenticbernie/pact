@@ -18,9 +18,32 @@ import { createApiError } from "../../../packages/domain/src/api.ts";
 import type { ApiError } from "../../../packages/domain/src/api.ts";
 import { normalizeFunctionPath } from "../_shared/path-prefix.ts";
 import { classifyReceipt } from "../../../packages/domain/src/payment.ts";
-import { assertSignerChainId, createFetchRpcTransport, createReadOnlyRpcPaymentClient } from "./chain-client.ts";
-import type { PaymentClient, ReadOnlyRpcPaymentClient, ReadOnlyRpcTransport } from "./chain-client.ts";
+import {
+  assertSignerChainId,
+  createFetchRpcTransport,
+  createReadOnlyRpcPaymentClient,
+  derivePaymentNonce,
+} from "./chain-client.ts";
+import type { PayInput, PaymentClient, ReadOnlyRpcPaymentClient, ReadOnlyRpcTransport } from "./chain-client.ts";
 import { reconcileAfterTimeout } from "./payment-reconciler.ts";
+import { attemptKey, type AttemptRecord, type AttemptStore } from "./attempt-store.ts";
+import { createPersistenceIntentResolver } from "./execute-composition.ts";
+import type { IntentResolver } from "./execute-composition.ts";
+
+export {
+  FIRST_CLAIM_PREDICATE,
+  ROW_LOCK_PREDICATE,
+  attemptKey,
+  createInMemoryAttemptStore,
+  createSqlAttemptStore,
+} from "./attempt-store.ts";
+export type { AttemptClaim, AttemptKey, AttemptRecord, AttemptStore } from "./attempt-store.ts";
+export {
+  createInMemoryIntentResolver,
+  createPersistenceIntentResolver,
+  toStoredIntent,
+} from "./execute-composition.ts";
+export type { IntentResolver, StoredIntent } from "./execute-composition.ts";
 import { requireSession } from "../_shared/auth.ts";
 import { hashToken } from "../_shared/session-token.ts";
 import { toApiError } from "../_shared/errors.ts";
@@ -46,47 +69,22 @@ import {
   type OwnerAuthorizationRegistry,
 } from "../_shared/owner-authorization.ts";
 
-export type StoredIntent = {
-  intentId: string;
-  agent: string;
-  cardId: string;
-  merchantId: string;
-  amountBaseUnits: string;
-  asset?: "native-testnet-ctc" | "arc-testnet-usdc";
-  policyVersion: number;
-  expiresAtMs: number;
-};
-
-export type AttemptRecord = {
-  key: string;
-  intentId: string;
-  idempotencyKey: string;
-  status: string;
-  txHash: string | null;
-  cardNonce: string;
-};
-
-export type ExecutorStore = Map<string, AttemptRecord>;
-
-/** First-claim predicate (mirrors the migration's INSERT ... ON CONFLICT DO NOTHING). */
-export const FIRST_CLAIM_PREDICATE = "INSERT ... ON CONFLICT DO NOTHING";
-/** Row-lock predicate (mirrors SELECT ... FOR UPDATE on the attempt row). */
-export const ROW_LOCK_PREDICATE = "SELECT ... FOR UPDATE";
-
-export function createExecutorStore(): ExecutorStore {
-  return new Map();
-}
-
-export function attemptKey(intentId: string, idempotencyKey: string): string {
-  return `${intentId}|${idempotencyKey}`;
-}
-
-export type ExecutorDeps = {
-  store: ExecutorStore;
+/**
+ * Execute composition: everything the payment path needs except the clock.
+ * Built once by the composition root; the entrypoint adds `nowMs` per request.
+ */
+export type ExecuteComposition = {
+  /** Durable or in-memory attempt store (C-DDL first-claim semantics). */
+  store: AttemptStore;
+  /** Signing payment client — the agent signer in production. */
   client: PaymentClient;
-  intents: Map<string, StoredIntent>;
+  /** Owner+agent scoped intent resolution; fails closed when it resolves nothing. */
+  resolveIntent: IntentResolver;
   expectedChainId: number;
   signerChainId: number;
+};
+
+export type ExecutorDeps = ExecuteComposition & {
   nowMs: number;
 };
 
@@ -98,13 +96,28 @@ function fail(requestId: string, code: Parameters<typeof createApiError>[0]): Ex
   return { ok: false, error: createApiError(code, requestId) };
 }
 
+/**
+ * Replay of an attempt that already exists (same intent + idempotency key):
+ * settled/terminal rows are returned as-is, anything else stays pending. Never
+ * a second submit for the same attempt.
+ */
+function replayAttempt(row: AttemptRecord, paymentId: string): ExecuteResult {
+  if (row.status === "settled") {
+    return { ok: true, status: "settled", txHash: row.txHash ?? undefined, paymentId };
+  }
+  if (row.status === "failed" || row.status === "declined") {
+    return { ok: true, status: row.status, txHash: row.txHash ?? undefined, paymentId };
+  }
+  return { ok: true, status: "pending", txHash: row.txHash ?? undefined, paymentId };
+}
+
 export async function handlePreflight(
   input: { intentId: string; requestId: string },
   deps: ExecutorDeps,
 ): Promise<{ decision: "would_settle" | "declined"; reasonCode?: string; chainId: number; checkedAt: string }> {
-  const intent = deps.intents.get(input.intentId);
+  const intent = await deps.resolveIntent({ intentId: input.intentId });
   const checkedAt = new Date(deps.nowMs).toISOString();
-  if (intent === undefined || intent.expiresAtMs <= deps.nowMs) {
+  if (intent === null || intent.expiresAtMs <= deps.nowMs) {
     return { decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: deps.expectedChainId, checkedAt };
   }
   const card = await deps.client.readCard(intent.cardId);
@@ -128,8 +141,11 @@ export async function handleExecute(
   deps: ExecutorDeps,
 ): Promise<ExecuteResult> {
   const { requestId } = input;
-  const intent = deps.intents.get(input.intentId);
-  if (intent === undefined) {
+  const intent = await deps.resolveIntent({
+    intentId: input.intentId,
+    sessionWallet: input.sessionWallet,
+  });
+  if (intent === null) {
     return fail(requestId, "INPUT_INVALID");
   }
   if (intent.agent.toLowerCase() !== input.sessionWallet.toLowerCase()) {
@@ -148,21 +164,20 @@ export async function handleExecute(
     return fail(requestId, "CARD_NOT_ELIGIBLE");
   }
 
-  // First-claim: INSERT ... ON CONFLICT DO NOTHING, then SELECT ... FOR UPDATE.
+  // First-claim: INSERT ... ON CONFLICT DO NOTHING, then the scoped row read.
   const key = attemptKey(input.intentId, input.idempotencyKey);
-  const existing = deps.store.get(key);
-  if (existing !== undefined) {
-    if (existing.status === "settled") {
-      return { ok: true, status: "settled", txHash: existing.txHash ?? undefined, paymentId: key };
-    }
-    if (existing.status === "failed" || existing.status === "declined") {
-      const terminal = existing.status as "failed" | "declined";
-      return { ok: true, status: terminal, txHash: existing.txHash ?? undefined, paymentId: key };
-    }
-    return { ok: true, status: "pending", txHash: existing.txHash ?? undefined, paymentId: key };
+  const existing = await deps.store.get({
+    intentId: input.intentId,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (existing !== null) {
+    return replayAttempt(existing, key);
   }
-  const cardNonce = `${intent.cardId}:${intent.policyVersion}`;
-  deps.store.set(key, {
+  // On-chain settlement nonce: deterministic per attempt, so a retry of the
+  // same attempt can never settle twice (the controller's usedNonces guard
+  // fails it closed instead) and reconciliation can prove the outcome.
+  const cardNonce = derivePaymentNonce(input.idempotencyKey).toString();
+  const claim = await deps.store.claim({
     key,
     intentId: input.intentId,
     idempotencyKey: input.idempotencyKey,
@@ -170,33 +185,51 @@ export async function handleExecute(
     txHash: null,
     cardNonce,
   });
+  if (!claim.claimed) {
+    return replayAttempt(claim.row, key);
+  }
 
-  const pre = await deps.client.preflight({
+  // Server-bound payment facts: the signer never chooses the recipient, the
+  // amount, the asset, or the deadline.
+  const payInput: PayInput = {
     intentId: intent.intentId,
     idempotencyKey: input.idempotencyKey,
     cardId: intent.cardId,
     nonce: cardNonce,
-  });
+    amountBaseUnits: intent.amountBaseUnits,
+    deadline: Math.floor(intent.expiresAtMs / 1000),
+    merchantId: intent.merchantId,
+    asset: intent.asset,
+    policyVersion: intent.policyVersion,
+    agent: intent.agent,
+    ...(intent.intentHash === undefined ? {} : { intentHash: intent.intentHash }),
+  };
+
+  const pre = await deps.client.preflight(payInput);
   if (!pre.ok) {
-    const row = deps.store.get(key);
-    if (row !== undefined) {
-      row.status = "declined";
-    }
+    await deps.store.update({
+      intentId: input.intentId,
+      idempotencyKey: input.idempotencyKey,
+      status: "declined",
+    });
     return fail(requestId, "PREFLIGHT_DECLINED");
   }
 
-  const sent = await deps.client.sendPayment({
-    intentId: intent.intentId,
-    idempotencyKey: input.idempotencyKey,
-    cardId: intent.cardId,
-    nonce: cardNonce,
-  });
-  // Ordering invariant: store txHash BEFORE waiting for receipt.
-  const row = deps.store.get(key);
-  if (row !== undefined) {
-    row.txHash = sent.txHash;
-    row.status = "broadcast";
+  let sent: { txHash: string };
+  try {
+    sent = await deps.client.sendPayment(payInput);
+  } catch {
+    // Unknown outcome: the node may or may not have accepted the transaction.
+    // The attempt stays pending and must be reconciled; never a blind retry.
+    return fail(requestId, "PAYMENT_RECONCILIATION_REQUIRED");
   }
+  // Ordering invariant: store txHash BEFORE waiting for receipt.
+  await deps.store.update({
+    intentId: input.intentId,
+    idempotencyKey: input.idempotencyKey,
+    status: "broadcast",
+    txHash: sent.txHash,
+  });
 
   let receipt: { status: 0 | 1; txHash: string };
   try {
@@ -210,10 +243,11 @@ export async function handleExecute(
     });
     if (reconciled.proven) {
       const status = classifyReceipt(reconciled.receipt);
-      const settledRow = deps.store.get(key);
-      if (settledRow !== undefined) {
-        settledRow.status = status;
-      }
+      await deps.store.update({
+        intentId: input.intentId,
+        idempotencyKey: input.idempotencyKey,
+        status,
+      });
       if (status === "settled") {
         return { ok: true, status: "settled", txHash: sent.txHash, paymentId: key };
       }
@@ -224,10 +258,12 @@ export async function handleExecute(
   }
 
   const status = classifyReceipt(receipt);
-  const finalRow = deps.store.get(key);
-  if (finalRow !== undefined) {
-    finalRow.status = status;
-  }
+  await deps.store.update({
+    intentId: input.intentId,
+    idempotencyKey: input.idempotencyKey,
+    status,
+    txHash: sent.txHash,
+  });
   if (status === "settled") {
     return { ok: true, status: "settled", txHash: sent.txHash, paymentId: key };
   }
@@ -243,6 +279,11 @@ export function createExecutorEntrypointHandler(input: {
   sessionSecret?: string;
   sessionPersistence?: SessionPersistence;
   readOnlyComposition?: ReadOnlyComposition;
+  /**
+   * Signing execute composition (agent signer + durable attempt store). The
+   * entrypoint stamps `nowMs` per request. Absent keeps the read-only graph.
+   */
+  executeComposition?: ExecuteComposition;
   /** Execution lane. Injectable seam defaults legacy; production passes Arc. */
   lane?: LaneSelection | LaneConfig;
 } = {}): (request: Request) => Promise<Response> {
@@ -267,7 +308,12 @@ export function createExecutorEntrypointHandler(input: {
     if (!regionsMatch(input.expectedRegion, input.actualRegion)) {
       return executorResponse({ requestId, code: "NETWORK_CONFIG_INVALID", message: "Function region mismatch." }, 503);
     }
-    if (input.deps === undefined && input.readOnlyClient === undefined && input.readOnlyComposition === undefined) {
+    if (
+      input.deps === undefined &&
+      input.readOnlyClient === undefined &&
+      input.readOnlyComposition === undefined &&
+      input.executeComposition === undefined
+    ) {
       return executorResponse({ requestId, code: "PREFLIGHT_DECLINED", message: "Payment boundary is unavailable." }, 503);
     }
     let sessionWallet: string | undefined;
@@ -337,10 +383,18 @@ export function createExecutorEntrypointHandler(input: {
       const result = await input.readOnlyClient.preflight({ intentId, idempotencyKey: "preflight", cardId, nonce });
       return executorResponse({ requestId, ...result, decision: result.ok ? "would_settle" : "declined", chainId: lane.chainId, checkedAt: new Date().toISOString() });
     }
-    if (input.deps === undefined) return executorResponse({ requestId, code: "PREFLIGHT_DECLINED", message: "Payment boundary is unavailable." }, 503);
+    // Signing path: session-scoped. The wallet always comes from the verified
+    // session, never from the request body.
+    if (input.executeComposition !== undefined && sessionWallet === undefined) {
+      return executorResponse({ requestId, code: "AUTH_REQUIRED", message: "Authentication is required." }, 401);
+    }
+    const deps = input.deps ?? (input.executeComposition === undefined
+      ? undefined
+      : { ...input.executeComposition, nowMs: Date.now() });
+    if (deps === undefined) return executorResponse({ requestId, code: "PREFLIGHT_DECLINED", message: "Payment boundary is unavailable." }, 503);
     const result = path === "/v1/payments/preflight"
-      ? await handlePreflight({ intentId: String(body.intentId ?? ""), requestId }, input.deps)
-      : await handleExecute({ intentId: String(body.intentId ?? ""), idempotencyKey: String(body.idempotencyKey ?? ""), sessionWallet: sessionWallet ?? String(body.sessionWallet ?? ""), requestId }, input.deps);
+      ? await handlePreflight({ intentId: String(body.intentId ?? ""), requestId }, deps)
+      : await handleExecute({ intentId: String(body.intentId ?? ""), idempotencyKey: String(body.idempotencyKey ?? ""), sessionWallet: sessionWallet ?? String(body.sessionWallet ?? ""), requestId }, deps);
     return executorResponse({ requestId, ...result });
   };
 }
@@ -546,6 +600,15 @@ type ExecutorCompositionInput = {
    * card-1 registry explicitly in its Deno block; tests inject variants.
    */
   ownerAuthorizations?: OwnerAuthorizationRegistry;
+  /**
+   * Signing payment client (the agent signer). Absent keeps the read-only
+   * graph: `/v1/payments/execute` then answers 503 and never signs.
+   */
+  paymentClient?: PaymentClient;
+  /** Durable attempt store (`payment_attempts`). Required with `paymentClient`. */
+  attempts?: AttemptStore;
+  /** Chain ID observed by the signing client; compared to the lane chain. */
+  signerChainId?: number;
 };
 
 export function createExecutorCompositionRoot(input: ExecutorCompositionInput = {}): (request: Request) => Promise<Response> {
@@ -561,7 +624,9 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
     return createExecutorEntrypointHandler({ configuredRegion, expectedRegion, actualRegion });
   }
   const rpcUrl = env[lane.rpcEnvName];
-  const readOnlyClient = input.readOnlyClient ?? (
+  // The signing client also serves the static read path (readCard/preflight);
+  // the read-only routes only ever receive the narrower view of it.
+  const readOnlyClient = input.readOnlyClient ?? input.paymentClient ?? (
     rpcUrl === undefined || input.transport === undefined
       ? undefined
       : createReadOnlyRpcPaymentClient({ rpcUrl, expectedChainId: lane.chainId, transport: input.transport })
@@ -580,6 +645,25 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
   if (!localReadOnlyInjection && (persistence === undefined || env.SESSION_HMAC_SECRET === undefined)) {
     return createExecutorEntrypointHandler({ configuredRegion: actualRegion, expectedRegion, actualRegion });
   }
+  // Execute is wired only when a signer, a durable attempt store, persistence
+  // and the session secret are all present. Otherwise the route stays 503.
+  const executeComposition: ExecuteComposition | undefined = input.paymentClient !== undefined &&
+    input.attempts !== undefined &&
+    persistence !== undefined &&
+    env.SESSION_HMAC_SECRET !== undefined
+    ? {
+      store: input.attempts,
+      client: input.paymentClient,
+      resolveIntent: createPersistenceIntentResolver({
+        intents: persistence.intent,
+        cards: persistence.card,
+        lane,
+        ownerAuthorizations: input.ownerAuthorizations,
+      }),
+      expectedChainId: lane.chainId,
+      signerChainId: input.signerChainId ?? lane.chainId,
+    }
+    : undefined;
   return createExecutorEntrypointHandler({
     readOnlyClient: localReadOnlyInjection ? readOnlyClient : undefined,
     configuredRegion,
@@ -596,20 +680,12 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
         ownerAuthorizations: input.ownerAuthorizations,
       }
       : undefined,
+    executeComposition,
     lane,
   });
 }
 
-export function startExecutorServer(input: {
-  serve: Server;
-  env?: RuntimeEnv;
-  readOnlyClient?: PaymentClient | { readCard: PaymentClient["readCard"]; preflight: PaymentClient["preflight"] };
-  transport?: ReadOnlyRpcTransport;
-  persistence?: PostgrestPersistence;
-  postgrestTransport?: Parameters<typeof createPostgrestPersistenceFromEnv>[1];
-  lane?: LaneSelection | LaneConfig;
-  ownerAuthorizations?: OwnerAuthorizationRegistry;
-}): void {
+export function startExecutorServer(input: ExecutorCompositionInput & { serve: Server }): void {
   input.serve(createExecutorCompositionRoot(input));
 }
 

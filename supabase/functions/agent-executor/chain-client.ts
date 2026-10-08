@@ -9,6 +9,7 @@
  * `readSignerKey`, which reads the runtime environment inside the deployed
  * function. Never log, return, or persist the value.
  */
+import { keccak256, toUtf8Bytes } from "ethers";
 
 export type OnChainCardSnapshot = {
   cardId: string;
@@ -39,6 +40,8 @@ export type PayInput = {
   asset?: "native-testnet-ctc" | "arc-testnet-usdc";
   policyVersion?: number;
   agent?: string;
+  /** Canonical intent hash committed by `pay`; server-bound, never client-supplied. */
+  intentHash?: string;
 };
 
 export interface PaymentClient {
@@ -102,6 +105,17 @@ export function createReadOnlyRpcPaymentClient(input: {
 
 /** Gas-only signer policy: `pay` submission only, no policy mutation path. */
 export const SIGNER_POLICY = "gas-only" as const;
+
+/**
+ * On-chain settlement nonce for one attempt: keccak256 of the idempotency key,
+ * as an unsigned 256-bit integer. Deterministic, so a retry of the same
+ * attempt reuses the same nonce: `usedNonces[cardId][nonce]` fails it closed
+ * instead of letting a duplicate settle twice, and `findByNonce` can prove the
+ * outcome from the settlement event.
+ */
+export function derivePaymentNonce(idempotencyKey: string): bigint {
+  return BigInt(keccak256(toUtf8Bytes(idempotencyKey)));
+}
 
 /** Explicit chain-ID assertion: wrong chain fails before card setup/payment. */
 export function assertSignerChainId(actual: number, expected: number): void {
