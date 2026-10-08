@@ -708,10 +708,13 @@ The authoritative historical source remains:
 Non-obvious facts for running this repo in the Base44 sandbox preview.
 
 - **Start:** `docker compose -f docker-compose.base44.yml up -d` (compose project `pact`).
-- **No web UI yet.** `apps/web/` is still a later-phase output, so the port-3000 entry point is
-  the existing Arc-lane function surface, not a browser app.
-- `neon/dev-host.ts` is a local stand-in for Neon's `neon dev`: it mounts the three existing
-  entries (`neon/functions/{session,aigateway,agentexecutor}`, each exporting `{ fetch }`) on one
+- **Port 3000 is the Phase 06 console.** `apps/web/` (Vite + React 19 + Astryx) is the public
+  entry point. The `api` service is internal-only on 8000 and the console's dev server proxies
+  `/v1/*` + `/health` to it, so the console and the read API share one origin and the
+  wallet-bound session token never crosses a site boundary. Both services run the same cloned
+  source bind-mounted at `/app` (`yarn workspace @pact/web dev`, `node … neon/dev-host.ts`).
+- `neon/dev-host.ts` is a local stand-in for Neon's `neon dev`: it mounts the four existing
+  entries (`neon/functions/{session,aigateway,agentexecutor,readapi}`, each exporting `{ fetch }`) on one
   HTTP port. It adds no business logic — routing, auth, region gating and error mapping stay in
   the entries. Run it with Node's native type stripping:
   `node --experimental-strip-types --watch neon/dev-host.ts` (Node >= 22.18; the compose image is `node:22`).
@@ -785,10 +788,22 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   - `ARC_LANE_POOL` was 39 hex chars (truncated) until 2026-10-08, so any ethers
     `getLogs` address filter failed with "network does not support ENS". It now matches
     `config/deployments/arc-testnet.json` (`…ac7cf7528b`).
-  - The api service resolves `DATABASE_URL` from the platform secret (hosted Neon), which
-    does **not** carry migration `0003` yet — so `/v1/config` answers `503
-    PROVIDER_UNAVAILABLE` in the preview. Against the compose db
-    (`docker compose … exec -e DATABASE_URL=postgres://pact:pact-local-dev@db:5432/pact`)
-    the whole read path works; the one-shot `migrate` service applies `0003` on boot.
+  - The api service resolves `DATABASE_URL` from the platform secret when one is stored
+    (`/run/base44/app.env`) and falls back to the compose db otherwise. The hosted branch
+    now carries `0003` (verified 2026-10-08: `GET /v1/config` → 200 and `GET /v1/cards` → 200
+    with an owner session), so the read path works in the preview. If a future branch lags,
+    `/v1/config` answers `503 PROVIDER_UNAVAILABLE`; the one-shot `migrate` service is what
+    applies `0003` to the compose db on boot.
   - `cards` inserts need `chain_id` (added by the S3 arc-lane migration) and `intents`
     inserts need `agent_id` + `idempotency_key`.
+- **Phase 06 console (2026-10-08):** the `apps/web` read-only console routes are `/`,
+  `/payments`, `/payments/:paymentId`, `/cards/:cardId`, `/cards/:cardId/activity`, and it reads
+  only the Phase 05 read API (no local chain reconstruction). Check and test it with
+  `docker compose -f docker-compose.base44.yml exec -T web sh -ec 'cd /app && corepack yarn workspace @pact/web exec tsc --noEmit -p tsconfig.json'`
+  and `… corepack yarn workspace @pact/web test` (16 unit tests). Verifying the authenticated
+  views: the preview browser carries **no wallet extension**, so the connect gate cannot sign.
+  Complete the EIP-191 handshake out of band with `OWNER_WALLET_PRIVATE_KEY`, then seed the tab
+  with `sessionStorage["pact.console.session"] = {"token","wallet"}` (key + shape in
+  `apps/web/src/session/session-store.ts`) and reload; the dashboard then renders the owner card
+  and payment read model. Two `GET /v1/cards` entries with a null status in the devtools log are
+  React StrictMode aborting the first effect run, not an API failure.
