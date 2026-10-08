@@ -665,6 +665,20 @@
   resolved "https://registry.yarnpkg.com/@napi-rs/lzma-linux-x64-gnu/-/lzma-linux-x64-gnu-1.5.1.tgz#e57d4306966078662038094fb38eb9146dc3aea9"
   integrity sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==
 
+"@neon/config@^1.8.6":
+  version "1.8.6"
+  resolved "https://registry.yarnpkg.com/@neon/config/-/config-1.8.6.tgz#12568ebfdcad3b7d08cc6c40d0389908fd45fc19"
+  integrity sha512-+D13lQmo94qfFUXEjcrSrbn51dLZf4DDEHqdZEO22bvEgQNXQjIsBMJkxvqIWEPPWCt5BZ4hm/CQdS1FG7EZBg==
+  dependencies:
+    "@neon/sdk" "7.0.1"
+    jiti "^2.7.0"
+    zod "^4.4.3"
+
+"@neon/sdk@7.0.1":
+  version "7.0.1"
+  resolved "https://registry.yarnpkg.com/@neon/sdk/-/sdk-7.0.1.tgz#5b0faf68ef8bb4d1f294ee6ae77a2c5a91110135"
+  integrity sha512-Zyo84tVyK3cO/vkREgFSPZ0llGoWNgcbbz38/UkqyqKN/Ky6huHibTCyvnlnBV1aeWnJhEhg9W0HIylE6sCS0g==
+
 "@noble/curves@1.2.0":
   version "1.2.0"
   resolved "https://registry.yarnpkg.com/@noble/curves/-/curves-1.2.0.tgz#92d7e12e4e49b23105a2555c6984d41733d65c35"

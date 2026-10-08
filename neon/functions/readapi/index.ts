@@ -10,7 +10,6 @@
  * no secret other than the session HMAC used to scope reads to the caller's
  * wallet. Build failures return a redacted 503.
  */
-import { readFileSync } from "node:fs";
 import { startReadApiServer } from "../../../supabase/functions/read-api/index.ts";
 import { createSqlReadStore } from "../../../supabase/functions/read-api/read-store.ts";
 import { createEthersChainReader } from "../../../supabase/functions/indexer/chain-reader.ts";
@@ -25,14 +24,7 @@ import { createNeonPool, requireNeonEnv } from "../../adapter/neon-persistence.t
 type FetchHandler = (request: Request) => Promise<Response>;
 
 /** Explorer base from the committed network manifest; never a secret. */
-function explorerUrl(): string {
-  const raw = readFileSync("config/networks/arc-testnet.json", "utf8");
-  const parsed = JSON.parse(raw) as { explorerUrl?: unknown };
-  return typeof parsed.explorerUrl === "string" ? parsed.explorerUrl : "";
-}
-
-let cached: Promise<FetchHandler> | null = null;
-let failed = false;
+const ARC_EXPLORER_URL = "https://explorer.testnet.arc.io";
 
 function buildHandler(): FetchHandler {
   const { databaseUrl } = requireNeonEnv(process.env as Record<string, string | undefined>);
@@ -55,7 +47,7 @@ function buildHandler(): FetchHandler {
     controller: ARC_LANE_CONTROLLER,
     pool: ARC_LANE_POOL,
     merchant: ARC_LANE_MERCHANT,
-    explorerUrl: explorerUrl(),
+    explorerUrl: ARC_EXPLORER_URL,
     sessionSecret: process.env["SESSION_HMAC_SECRET"] ?? "",
     receiptLookup: (txHash) => reader.getReceipt(txHash),
   });
@@ -71,6 +63,9 @@ function unavailable(): Response {
     { status: 503, headers: { "content-type": "application/json" } },
   );
 }
+
+let cached: Promise<FetchHandler> | null = null;
+let failed = false;
 
 async function handler(request: Request): Promise<Response> {
   if (cached === null) {
