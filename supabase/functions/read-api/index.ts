@@ -3,8 +3,10 @@
  *
  * Owner-scoped, read-only view over the Phase 05 read model:
  *   GET /v1/config                     (public: chain + contract + freshness)
+ *   GET /v1/cards                      (wallet-bound session required: the session wallet's cards)
  *   GET /v1/cards/:cardId              (wallet-bound session required)
  *   GET /v1/cards/:cardId/activity     (wallet-bound session required)
+ *   GET /v1/payments?cardId=:cardId    (wallet-bound session required: attempts for an owned card)
  *   GET /v1/payments/:paymentId        (wallet-bound session required)
  *
  * Truth rule (AC-14): a payment is reported `settled` ONLY when a successful
@@ -22,7 +24,7 @@ import {
   deriveReceiptTruth,
   type ReceiptTruth,
 } from "../../../packages/domain/src/read-model.ts";
-import type { ReadStore } from "./read-store.ts";
+import type { PaymentAttemptRow, ReadStore } from "./read-store.ts";
 
 export type ReadApiDeps = {
   store: ReadStore;
@@ -38,6 +40,12 @@ export type ReadApiDeps = {
 
 const CARD_ID = /^(0|[1-9][0-9]*)$/;
 const ACTIVITY_LIMIT = 50;
+const PAYMENT_LIST_LIMIT = 25;
+
+/** Application attempt status -> lifecycle stage the UI may label without guessing. */
+function isPaymentId(value: string): boolean {
+  return value.length > 0 && value.length <= 128;
+}
 
 export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => Promise<Response> {
   const now = deps.now ?? (() => Date.now());
@@ -73,6 +81,99 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
 
   async function freshness(): Promise<number | null> {
     return deps.store.latestIndexedBlock(deps.chainId);
+  }
+
+  /**
+   * Two-signal truth for one attempt, shared by the single-payment route and the
+   * card-scoped list so both always report the same settlement state. The
+   * application status can only downgrade a truth the chain already declined to
+   * produce: `declined` comes from the preflight decision, never from a receipt.
+   */
+  async function truthFor(attempt: PaymentAttemptRow, latest: number | null): Promise<ReceiptTruth> {
+    const txHash = attempt.txHash;
+    let receiptStatus: 0 | 1 | null = null;
+    if (txHash !== undefined && deps.receiptLookup !== undefined) {
+      const receipt = await deps.receiptLookup(txHash);
+      if (receipt !== null) receiptStatus = receipt.status;
+    }
+    const indexedPaymentEvent =
+      txHash === undefined ? false : await deps.store.hasIndexedPaymentEvent(deps.chainId, txHash);
+    const truth = deriveReceiptTruth({
+      receiptStatus,
+      indexedPaymentEvent,
+      latestIndexedBlock: latest ?? 0,
+      ...(txHash === undefined ? {} : { txHash }),
+      ...(txHash === undefined ? {} : { explorerUrl: `${origin}/tx/${txHash}` }),
+    });
+    if (attempt.status === "declined") {
+      return { ...truth, status: "declined", reasonCode: "PREFLIGHT_DECLINED" };
+    }
+    return truth;
+  }
+
+  /** Application-state fields, kept separate from chain-derived truth in the payload. */
+  function attemptFields(attempt: PaymentAttemptRow): Record<string, unknown> {
+    return {
+      intentHash: attempt.intentHash,
+      nonce: attempt.nonce,
+      attemptStatus: attempt.status,
+      ...(attempt.attemptCreatedAt === undefined ? {} : { attemptCreatedAt: attempt.attemptCreatedAt }),
+      ...(attempt.attemptUpdatedAt === undefined ? {} : { attemptUpdatedAt: attempt.attemptUpdatedAt }),
+      ...(attempt.intentCreatedAt === undefined ? {} : { intentCreatedAt: attempt.intentCreatedAt }),
+      ...(attempt.intentExpiresAt === undefined ? {} : { intentExpiresAt: attempt.intentExpiresAt }),
+    };
+  }
+
+  async function cardsRoute(request: Request, requestId: string): Promise<Response> {
+    const ctx = session(request, requestId);
+    if (ctx instanceof Response) return ctx;
+    const latest = await freshness();
+    const cards = await deps.store.listCards(ctx.wallet);
+    return json(
+      {
+        requestId,
+        cards,
+        latestIndexedBlock: latest,
+        stale: latest === null,
+        chainReadAt: new Date(now()).toISOString(),
+      },
+      200,
+      requestId,
+    );
+  }
+
+  async function paymentsRoute(url: URL, request: Request, requestId: string): Promise<Response> {
+    const cardId = url.searchParams.get("cardId") ?? "";
+    if (!CARD_ID.test(cardId)) return json(createApiError("INPUT_INVALID", requestId), 400, requestId);
+    const ctx = session(request, requestId);
+    if (ctx instanceof Response) return ctx;
+    const latest = await freshness();
+    const attempts = await deps.store.listPayments(deps.chainId, cardId, ctx.wallet, PAYMENT_LIST_LIMIT);
+    const payments = [];
+    for (const attempt of attempts) {
+      payments.push({
+        paymentId: attempt.paymentId,
+        intentId: attempt.intentId,
+        cardId: attempt.cardId,
+        merchantId: attempt.merchantId,
+        amountBaseUnits: attempt.amountBaseUnits,
+        asset: attempt.asset,
+        chainId: attempt.chainId,
+        ...attemptFields(attempt),
+        ...(await truthFor(attempt, latest)),
+      });
+    }
+    return json(
+      {
+        requestId,
+        cardId,
+        latestIndexedBlock: latest,
+        stale: latest === null,
+        payments,
+      },
+      200,
+      requestId,
+    );
   }
 
   async function cardRoute(cardId: string, request: Request, requestId: string): Promise<Response> {
@@ -115,7 +216,7 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
   }
 
   async function paymentRoute(paymentId: string, request: Request, requestId: string): Promise<Response> {
-    if (paymentId.length === 0 || paymentId.length > 128) {
+    if (!isPaymentId(paymentId)) {
       return json(createApiError("INPUT_INVALID", requestId), 400, requestId);
     }
     const ctx = session(request, requestId);
@@ -124,25 +225,14 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
     if (attempt === null) return json(createApiError("INPUT_INVALID", requestId), 404, requestId);
 
     const latest = await freshness();
-    const txHash = attempt.txHash;
-    let receiptStatus: 0 | 1 | null = null;
-    if (txHash !== undefined && deps.receiptLookup !== undefined) {
-      const receipt = await deps.receiptLookup(txHash);
-      if (receipt !== null) receiptStatus = receipt.status;
-    }
-    const indexedPaymentEvent =
-      txHash === undefined ? false : await deps.store.hasIndexedPaymentEvent(deps.chainId, txHash);
-
-    let truth: ReceiptTruth = deriveReceiptTruth({
-      receiptStatus,
-      indexedPaymentEvent,
-      latestIndexedBlock: latest ?? 0,
-      ...(txHash === undefined ? {} : { txHash }),
-      ...(txHash === undefined ? {} : { explorerUrl: `${origin}/tx/${txHash}` }),
-    });
-    if (attempt.status === "declined") {
-      truth = { ...truth, status: "declined", reasonCode: "PREFLIGHT_DECLINED" };
-    }
+    const truth = await truthFor(attempt, latest);
+    // Indexed evidence for this attempt's transaction: what the chain actually emitted,
+    // as decoded by the indexer. Absent while the tx is unindexed — never synthesized here.
+    const events =
+      attempt.txHash === undefined
+        ? []
+        : await deps.store.paymentEvents(deps.chainId, attempt.txHash);
+    const blockNumbers = events.map((event) => event.blockNumber).filter((value) => Number.isFinite(value));
 
     return json(
       {
@@ -154,7 +244,10 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
         amountBaseUnits: attempt.amountBaseUnits,
         asset: attempt.asset,
         chainId: attempt.chainId,
+        ...attemptFields(attempt),
         ...truth,
+        events,
+        ...(blockNumbers.length === 0 ? {} : { blockNumber: Math.max(...blockNumbers) }),
       },
       200,
       requestId,
@@ -194,6 +287,9 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
 
     const card = /^\/v1\/cards\/([^/]+)$/.exec(path);
     if (card !== null) return cardRoute(card[1], request, requestId);
+
+    if (path === "/v1/cards") return cardsRoute(request, requestId);
+    if (path === "/v1/payments") return paymentsRoute(new URL(request.url), request, requestId);
 
     const payment = /^\/v1\/payments\/([^/]+)$/.exec(path);
     if (payment !== null) return paymentRoute(payment[1], request, requestId);

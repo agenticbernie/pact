@@ -32,7 +32,11 @@ const ROUTES: ReadonlyArray<{ matches: (path: string) => boolean; handler: Fetch
   { matches: (path) => path === "/v1/payments/preflight" || path === "/v1/payments/execute", handler: executorEntry.fetch },
   {
     matches: (path) =>
-      path === "/v1/config" || path.startsWith("/v1/cards/") || path.startsWith("/v1/payments/"),
+      path === "/v1/config" ||
+      path === "/v1/cards" ||
+      path === "/v1/payments" ||
+      path.startsWith("/v1/cards/") ||
+      path.startsWith("/v1/payments/"),
     handler: readEntry.fetch,
   },
 ];
@@ -46,8 +50,10 @@ const ENDPOINTS: ReadonlyArray<readonly [string, string]> = [
   ["POST", "/v1/payments/preflight"],
   ["POST", "/v1/payments/execute"],
   ["GET", "/v1/config"],
+  ["GET", "/v1/cards"],
   ["GET", "/v1/cards/:cardId"],
   ["GET", "/v1/cards/:cardId/activity"],
+  ["GET", "/v1/payments?cardId=:cardId"],
   ["GET", "/v1/payments/:paymentId"],
 ];
 
