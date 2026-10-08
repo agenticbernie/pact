@@ -24,7 +24,7 @@ import { createAgentSignerPaymentClient } from "../../../supabase/functions/agen
 import { createSqlAttemptStore } from "../../../supabase/functions/agent-executor/attempt-store.ts";
 import { createFetchRpcTransport } from "../../../supabase/functions/agent-executor/chain-client.ts";
 import type { PaymentClient } from "../../../supabase/functions/agent-executor/chain-client.ts";
-import { createArcCard1OwnerRegistry } from "../../../supabase/functions/_shared/owner-authorization.ts";
+import { createArcLaneOwnerRegistry } from "../../../supabase/functions/_shared/owner-authorization.ts";
 import { ARC_LANE } from "../../../supabase/functions/_shared/lane-config.ts";
 import {
   createNeonPersistence,
@@ -79,7 +79,7 @@ async function buildHandler(): Promise<FetchHandler> {
     transport: createFetchRpcTransport(rpcUrl, fetch),
     persistence,
     lane: "arc",
-    ownerAuthorizations: createArcCard1OwnerRegistry(),
+    ownerAuthorizations: createArcLaneOwnerRegistry(),
     attempts,
     ...(paymentClient === undefined ? {} : { paymentClient, signerChainId }),
   });

@@ -368,7 +368,14 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
       merchants,
       expectedRegion,
       actualRegion,
-      nowMs: Date.now(),
+      // The Neon dev-host is a long-running Node server, so the clock must not
+      // be frozen at composition time: a boot-time value makes every session
+      // token issued afterwards look future-dated (AUTH_INVALID). A getter
+      // keeps the pinned-number contract for injectable deps (tests) and stays
+      // live for the served runtime.
+      get nowMs() {
+        return Date.now();
+      },
       store,
       configuredRegion: runtimeConfiguredRegion,
       sessionSecret,

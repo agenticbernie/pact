@@ -85,9 +85,12 @@ export class OpenAiProvider implements AiProvider {
     const body = {
       model,
       store: false,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
+      // Responses API structured output: the schema travels under `text.format`.
+      // `response_format` is rejected with `unsupported_parameter` by the live
+      // Responses endpoint.
+      text: {
+        format: {
+          type: "json_schema",
           name: "pact_agent_intent",
           strict: true,
           schema: {
