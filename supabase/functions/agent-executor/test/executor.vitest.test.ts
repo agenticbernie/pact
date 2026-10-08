@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  createExecutorStore,
+  createInMemoryAttemptStore,
+  createInMemoryIntentResolver,
   handleExecute,
   handlePreflight,
   type ExecutorDeps,
@@ -52,9 +53,9 @@ function fakeClient(overrides: Partial<PaymentClient> = {}): PaymentClient & {
 
 function deps(client: PaymentClient, extra: Partial<ExecutorDeps> = {}): ExecutorDeps {
   return {
-    store: createExecutorStore(),
+    store: createInMemoryAttemptStore(),
     client,
-    intents: new Map([["intent-req-1", intent()]]),
+    resolveIntent: createInMemoryIntentResolver(new Map([["intent-req-1", intent()]])),
     expectedChainId: 102031,
     signerChainId: 102031,
     nowMs: NOW,
@@ -92,7 +93,11 @@ describe("executor fail-closed + reconcile (C-DDL)", () => {
         build: () =>
           handleExecute(
             { intentId: "intent-req-1", idempotencyKey: "i", sessionWallet: AGENT, requestId: "r" },
-            deps(fakeClient(), { intents: new Map([["intent-req-1", intent({ expiresAtMs: NOW - 1 })]]) }),
+            deps(fakeClient(), {
+              resolveIntent: createInMemoryIntentResolver(
+                new Map([["intent-req-1", intent({ expiresAtMs: NOW - 1 })]]),
+              ),
+            }),
           ),
         code: "PREFLIGHT_DECLINED",
       },
@@ -137,13 +142,14 @@ describe("executor fail-closed + reconcile (C-DDL)", () => {
   });
 
   it("duplicate idempotency → one send; store-before-wait ordering holds", async () => {
-    const store = createExecutorStore();
+    const store = createInMemoryAttemptStore();
     let storedBeforeWait: boolean | null = null;
     const client = fakeClient({
-      waitForReceipt: (txHash: string) => {
+      waitForReceipt: async (txHash: string) => {
         // Ordering proof: the attempt row must already hold txHash when wait starts.
-        storedBeforeWait = store.get("intent-req-1|idem-dup")?.txHash === txHash;
-        return Promise.resolve({ status: 1 as const, txHash });
+        const row = await store.get({ intentId: "intent-req-1", idempotencyKey: "idem-dup" });
+        storedBeforeWait = row?.txHash === txHash;
+        return { status: 1 as const, txHash };
       },
     });
     const d = deps(client, { store });
@@ -159,7 +165,7 @@ describe("executor fail-closed + reconcile (C-DDL)", () => {
     expect(second.ok).toBe(true);
     expect(client.calls.send).toBe(1);
     // store-txHash-before-wait: the attempt row holds txHash and wait ran after.
-    const attempt = d.store.get("intent-req-1|idem-dup");
+    const attempt = await d.store.get({ intentId: "intent-req-1", idempotencyKey: "idem-dup" });
     expect(attempt?.txHash).toMatch(/^0xhash-/);
     expect(storedBeforeWait).toBe(true);
   });

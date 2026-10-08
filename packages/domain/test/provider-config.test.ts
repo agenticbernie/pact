@@ -13,20 +13,20 @@ describe("pinned model config (C-MODEL)", () => {
     else process.env["OPENAI_MODEL"] = saved;
   });
 
-  it("loads the single model truth openai/gpt-5.6-luna/allowFallback:false", () => {
+  it("loads the single model truth openai/gpt-4o-mini/allowFallback:false", () => {
     const cfg = loadModelConfig(MODEL_CONFIG_PATH);
-    expect(cfg).toEqual({ provider: "openai", model: "gpt-5.6-luna", allowFallback: false });
+    expect(cfg).toEqual({ provider: "openai", model: "gpt-4o-mini", allowFallback: false });
   });
 
   it("rejects fallback-true and unknown models", () => {
     expect(() =>
-      loadModelConfig({ provider: "openai", model: "gpt-5.6-luna", allowFallback: true }),
+      loadModelConfig({ provider: "openai", model: "gpt-4o-mini", allowFallback: true }),
     ).toThrowError(DomainError);
     expect(() =>
       loadModelConfig({ provider: "openai", model: "gpt-4o", allowFallback: false }),
     ).toThrowError(DomainError);
     expect(() =>
-      loadModelConfig({ provider: "anthropic", model: "gpt-5.6-luna", allowFallback: false }),
+      loadModelConfig({ provider: "anthropic", model: "gpt-4o-mini", allowFallback: false }),
     ).toThrowError(DomainError);
   });
 
@@ -36,13 +36,13 @@ describe("pinned model config (C-MODEL)", () => {
     expect(() =>
       assertModelConfigAllowsCall({
         provider: "openai",
-        model: "gpt-5.6-luna",
+        model: "gpt-4o-mini",
         // @ts-expect-error — intentionally invalid fallback fixture
         allowFallback: true,
       }),
     ).toThrowError(DomainError);
     delete process.env["OPENAI_MODEL"];
-    expect(resolveOpenAIModel({ ...cfg, region: "us-east-1" })).toBe("gpt-5.6-luna");
+    expect(resolveOpenAIModel({ ...cfg, region: "us-east-1" })).toBe("gpt-4o-mini");
     process.env["OPENAI_MODEL"] = "gpt-4o";
     expect(() => resolveOpenAIModel({ ...cfg, region: "us-east-1" })).toThrowError(DomainError);
   });

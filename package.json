@@ -36,6 +36,7 @@
     "test:contracts": "forge test --root contracts",
     "validate:aicd": "node scripts/validate-aicd.mjs",
     "test:db": "supabase db reset --local",
+    "create-wallet": "node scripts/create-wallet.mjs",
     "test:e2e": "playwright test",
     "dev:web": "yarn workspace @pact/web dev",
     "build:web": "yarn workspace @pact/web build",

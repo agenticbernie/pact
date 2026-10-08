@@ -370,6 +370,26 @@ export function createNeonPersistence(
       }
     },
 
+    async findAgentScoped(input: { intentId: string; agentId: string }) {
+      if (input.intentId.length === 0 || !EVM_ADDRESS.test(input.agentId.toLowerCase())) {
+        fail("INVALID_ROW", "Invalid intent row.", false);
+      }
+      const result = await run(
+        "SELECT " + INTENT_COLUMNS + ",cards.owner_address AS cards_owner_address FROM intents JOIN cards ON cards.card_id = intents.card_id WHERE intents.intent_id = $1 AND intents.agent_id = $2",
+        [input.intentId, input.agentId.toLowerCase()],
+        "Intent agent-scoped read",
+      );
+      if (result.rows.length === 0) return null;
+      if (result.rows.length > 1) {
+        fail("INVALID_ROW", "Invalid intent row.", false);
+      }
+      const owner = String(result.rows[0]!["cards_owner_address"] ?? "").toLowerCase();
+      if (!EVM_ADDRESS.test(owner)) {
+        fail("INVALID_ROW", "Invalid intent row.", false);
+      }
+      return toAgentIntent(result.rows[0] as Record<string, unknown>, strictLane);
+    },
+
     async getById(input) {
       if (input.intentId.length === 0) {
         fail("INVALID_ROW", "Invalid intent row.", false);

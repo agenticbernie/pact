@@ -14,7 +14,7 @@ const card = {
 const provider: AiProvider = {
   parseIntent: vi.fn(async () => ({
     provider: "openai" as const,
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     merchantId: "coffee-demo",
     amountDecimal: "1",
     purpose: "coffee",

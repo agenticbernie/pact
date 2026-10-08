@@ -42,7 +42,7 @@ function setLaneEnv() {
   process.env["SB_REGION"] = "ap-southeast-1";
   process.env["SESSION_HMAC_SECRET"] = SECRET;
   process.env["OPENAI_API_KEY"] = "local-smoke-no-call";
-  process.env["OPENAI_MODEL"] = "gpt-5.6-luna";
+  process.env["OPENAI_MODEL"] = "gpt-4o-mini";
   process.env["ARC_RPC_URL"] = "http://127.0.0.1:9/";
 }
 
@@ -89,7 +89,7 @@ describe.skipIf(!HAS_DOCKER)("Neon functions local smoke (docker PG17)", () => {
       expectedRegion: "us-east-1",
       chainId: 5042002,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       modelAvailable: false,
     });
   });

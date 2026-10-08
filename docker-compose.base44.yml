@@ -1,0 +1,96 @@
+# Base44 sandbox runtime for Pact.
+#
+# Pact has no web frontend yet (`apps/web/` is still a later-phase output), so the
+# user-facing entry point on port 3000 is the existing Arc-lane function surface:
+# neon/functions/{session,aigateway,agentexecutor} mounted by neon/dev-host.ts.
+#
+# Runs from the cloned source (bind mount + `node --watch`), never a prebuilt image.
+# Postgres 17 is plain infrastructure; the consolidated baseline DDL is applied on
+# first init. Local infra credentials below are generated for dev only.
+name: pact
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pact
+      POSTGRES_PASSWORD: pact-local-dev
+      POSTGRES_DB: pact
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pact -d pact"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: on-failure
+
+  # One-shot migration apply: `neon/migrations/*.sql` in lexical order against the
+  # compose Postgres. The DDL is idempotent (`create … if not exists`, guarded
+  # `do $$` blocks), so re-applying on every boot is safe and a NEW migration
+  # lands on an existing `db-data` volume too — unlike `docker-entrypoint-initdb.d`,
+  # which only runs while the data directory is empty.
+  # A hosted Neon target is migrated out of band; this service then only touches
+  # the unused compose Postgres. No automatic restart: it is a one-shot job.
+  migrate:
+    image: postgres:17-alpine
+    working_dir: /migrations
+    volumes:
+      - ./neon/migrations:/migrations:ro
+    environment:
+      PGPASSWORD: pact-local-dev
+    command:
+      - sh
+      - -ec
+      - for f in $$(ls -1 /migrations/*.sql | sort); do echo "applying $$f"; psql -v ON_ERROR_STOP=1 -h db -U pact -d pact -f "$$f"; done
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: node:22
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - BASE44_PREVIEW_MODE
+      # Lane constants + backend selector. Never a user-supplied credential.
+      # DATABASE_URL is NOT set here: `environment:` outranks `env_file:`, so a value
+      # here would permanently shadow the platform DATABASE_URL secret.
+      - PERSISTENCE_BACKEND=neon
+      - PACT_EXPECTED_REGION=us-east-1
+      - SB_REGION=us-east-1
+      - OPENAI_MODEL=gpt-4o-mini
+      - ARC_RPC_URL=https://rpc.testnet.arc.io
+    env_file:
+      # Local offline fallbacks first (compose db) …
+      - ./.env.base44-defaults
+      # … platform-delivered secrets last, so they always win. DATABASE_URL stored as
+      # an app secret points this runtime at a hosted Neon branch; SESSION_HMAC_SECRET
+      # and OPENAI_API_KEY arrive the same way.
+      - /run/base44/app.env
+    command:
+      - sh
+      - -ec
+      - corepack yarn install --frozen-lockfile --non-interactive && exec node --experimental-strip-types --watch neon/dev-host.ts
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: on-failure
+
+volumes:
+  db-data:

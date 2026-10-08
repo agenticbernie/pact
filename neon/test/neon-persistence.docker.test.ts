@@ -156,7 +156,7 @@ describe.skipIf(!HAS_DOCKER)("Neon adapter on real PostgreSQL 17 (docker)", () =
       intent: {
         intentId: "orphan-1", agentId: WALLET, cardId: "404",
         merchantId: "arc-demo-merchant", amountBaseUnits: "1000", asset: "arc-testnet-usdc",
-        purpose: "probe", confidence: 0.9, provider: "openai", model: "gpt-5.6-luna",
+        purpose: "probe", confidence: 0.9, provider: "openai", model: "gpt-4o-mini",
         createdAt: "2026-09-19T00:00:00.000Z", expiresAt: FUTURE_ISO,
         policyVersion: 1, intentHash: `0x${"d".repeat(64)}`,
       },
@@ -200,7 +200,7 @@ describe.skipIf(!HAS_DOCKER)("Neon adapter on real PostgreSQL 17 (docker)", () =
       purpose: "arc lane readiness probe",
       confidence: 0.9,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       createdAt: "2026-09-19T00:00:00.000Z",
       expiresAt: FUTURE_ISO,
       policyVersion: 1,

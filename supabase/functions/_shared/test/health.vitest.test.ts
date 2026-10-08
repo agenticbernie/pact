@@ -16,7 +16,7 @@ describe("G17 regional health route", () => {
       expectedRegion: "us-east-1",
       chainId: 102031,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       modelAvailable: false,
     });
     expect(response.headers.get("x-request-id")).toBe("req-health");

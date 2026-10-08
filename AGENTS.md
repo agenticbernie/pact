@@ -702,3 +702,75 @@ to Codex-native constructs:
 The authoritative historical source remains:
 
 - [CLAUDE.md](CLAUDE.md)
+
+## Base44 sandbox runtime (docker compose)
+
+Non-obvious facts for running this repo in the Base44 sandbox preview.
+
+- **Start:** `docker compose -f docker-compose.base44.yml up -d` (compose project `pact`).
+- **No web UI yet.** `apps/web/` is still a later-phase output, so the port-3000 entry point is
+  the existing Arc-lane function surface, not a browser app.
+- `neon/dev-host.ts` is a local stand-in for Neon's `neon dev`: it mounts the three existing
+  entries (`neon/functions/{session,aigateway,agentexecutor}`, each exporting `{ fetch }`) on one
+  HTTP port. It adds no business logic — routing, auth, region gating and error mapping stay in
+  the entries. Run it with Node's native type stripping:
+  `node --experimental-strip-types --watch neon/dev-host.ts` (Node >= 22.18; the compose image is `node:22`).
+- `docker-compose.base44.yml` bind-mounts the working tree and runs the dev command (no prebuilt
+  app image), so edits hot-reload. Postgres 17 is plain infrastructure; the consolidated
+  `neon/migrations/0001_neon_baseline.sql` is applied on first init via `docker-entrypoint-initdb.d`
+  (only when the `db-data` volume is empty). Compose `POSTGRES_PASSWORD` is a dev-only local value.
+- **Env the functions need:** `PERSISTENCE_BACKEND=neon` + `DATABASE_URL`,
+  `PACT_EXPECTED_REGION` + `SB_REGION` (both `us-east-1` for the Arc lane), `SESSION_HMAC_SECRET`
+  (server-side, delivered via `/run/base44/app.env`), and `ARC_RPC_URL`
+  (`https://rpc.testnet.arc.io`). `OPENAI_API_KEY` is optional: without it `POST /v1/agent/intents`
+  returns `PROVIDER_UNAVAILABLE`, while `GET /health` still answers 200.
+- **Verify it works:** `curl -s localhost:3000/health` (expect chain `5042002`, regions `us-east-1`),
+  then `curl -sX POST localhost:3000/v1/session/challenge -H 'content-type: application/json' -d '{"wallet":"0x1111111111111111111111111111111111111111"}'`
+  (expect a nonce/message, proving DB writes). `docker compose -f docker-compose.base44.yml exec -T db psql -U pact -d pact -c 'table'`-style reads confirm persistence.
+- **Database target (local vs hosted Neon):** the api service resolves `DATABASE_URL` from
+  `env_file:` in order — `./.env.base44-defaults` (offline compose-db fallback, committed) first,
+  `/run/base44/app.env` (platform secrets) last. Because Compose resolves `environment:` over every
+  `env_file:`, `DATABASE_URL` must NEVER be listed under `environment:` — that would permanently
+  shadow the platform value. Storing a Neon branch connection string as the `DATABASE_URL` app
+  secret (see `.base44/environment.json`) repoints the runtime at hosted Neon on the next service
+  recreate; the compose Postgres then goes unused but stays harmless. On hosted Neon the role must
+  own the tables, because the baseline's RLS deny policies apply to every non-owner role.
+- **AI model pin:** `config/ai/model-config.json` is the single truth (`openai`/`gpt-4o-mini`/
+  `allowFallback:false`); `OPENAI_MODEL` must match it or the gateway fails closed. The
+  `intents.model` DDL default in the migration files is inert (the adapter always inserts the
+  model explicitly) and is left byte-verbatim for the checksum pins.
+- **Migrations:** the one-shot `migrate` compose service applies `neon/migrations/*.sql` in lexical
+  order to the compose Postgres on every boot. The DDL is idempotent, so this is safe to re-run and a
+  new migration reaches an existing `db-data` volume (the old `docker-entrypoint-initdb.d` mount only
+  ran on an empty volume). A hosted Neon `DATABASE_URL` is migrated out of band — the `migrate` service
+  then only touches the unused compose Postgres.
+- **Wallet provisioning (agent-signer lane):** `neon/migrations/0002_wallets.sql` adds the `wallets`
+  registry (public addresses + roles only, never keys). Provision with
+  `docker compose -f docker-compose.base44.yml exec -T api node scripts/create-wallet.mjs --role agent --label arc-agent-1`
+  (or `yarn create-wallet`); pass `--address` to register a wallet whose key was created elsewhere, or
+  `--list` to read the registry. A generated key is printed once and belongs immediately in the
+  `AGENT_SIGNER_PRIVATE_KEY` secret; the signing path stays read-only (execute → 503) while that secret
+  is absent.
+- **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
+  repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
+  `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.
+- **Card-2 end-to-end payment flow (verified 2026-10-08):** owner session → intent → agent
+  preflight → execute settles on-chain (tx `0x947a92…dc72`, block 66170486, `PaymentSettled` +
+  `MerchantPaymentReceived`). Non-obvious pitfalls discovered:
+  - **Key/address pairing:** the OWNER lane session must sign with `OWNER_WALLET_PRIVATE_KEY`
+    (derives `0x83Bc…`, matches `OWNER_WALLET_ADDRESS`). `CONTROLLER_OWNER_PRIVATE_KEY` derives
+    `0xB8Bd…` (card-1's owner, not card-2's) — using it for card-2 auth yields 401 `AUTH_INVALID`
+    at verify. `ASC_AUTHORITY_PRIVATE_KEY` derives `0x6E90…` but `ASC_WALLET_ADDRESS` declares
+    `0x1250…` (unrelated to this flow, but the pairing is wrong in the current secrets).
+  - **Intent ids are replay-pinned:** `intentId = intent-${x-request-id}` and the gateway INSERTs
+    it; a duplicate `x-request-id` (or one whose intent row already exists) fails save and maps
+    to 400 `INPUT_INVALID`. A replay with the same id after expiry is *correctly* declined —
+    re-run the flow with a fresh request id, or delete the expired `intents` row first.
+  - **Preflight authorization is a static fixture:** `createArcLaneOwnerRegistry()` in
+    `supabase/functions/_shared/owner-authorization.ts` matches exactly on
+    `(intentId, agentId, chainId)`; card-2's authorization is pinned to
+    `intent-req-card2-pay-1`. A fresh request id would need its own authorization entry, so
+    re-runs of the canonical flow reuse the original request id (delete the expired intent row).
+  - `INTENT_SCHEMA_INVALID` and other non-API codes surface to clients as `INPUT_INVALID`
+    (`fail()` maps unknown codes); `agent`-from preflight is on-chain-authoritative
+    (`preflightPay` with `from=agent` returned `allowed=true` when the API layer declined).

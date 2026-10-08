@@ -1,7 +1,7 @@
 /**
  * OpenAI provider over raw fetch (S1 A3 raw-fetch-behind-port, no SDK).
  *
- * - Model value comes only from `loadModelConfig` pinned to `gpt-5.6-luna`
+ * - Model value comes only from `loadModelConfig` pinned to `gpt-4o-mini`
  *   with `allowFallback:false`; `resolveOpenAIModel` rejects env substitution.
  * - Pre-call `allowFallback===false` assert; no fallback branch exists.
  * - Responses API with `store:false` + strict JSON schema `pact_agent_intent`
@@ -85,9 +85,12 @@ export class OpenAiProvider implements AiProvider {
     const body = {
       model,
       store: false,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
+      // Responses API structured output: the schema travels under `text.format`.
+      // `response_format` is rejected with `unsupported_parameter` by the live
+      // Responses endpoint.
+      text: {
+        format: {
+          type: "json_schema",
           name: "pact_agent_intent",
           strict: true,
           schema: {

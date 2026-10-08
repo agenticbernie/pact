@@ -66,6 +66,13 @@ export type IntentMarkStatusInput = {
 export type IntentStoreAdapter = {
   insertIntent(input: IntentInsertInput): Promise<AgentIntent>;
   getById(input: IntentGetInput): Promise<AgentIntent | null>;
+  /**
+   * Agent-scoped discovery read (dynamic owner authorization): returns the
+   * intent when it names `agentId`, without owner scoping. The owner comes
+   * from the card row the intent points at and is re-verified by the
+   * owner-authorization cross-check and the scoped re-read. Fails closed.
+   */
+  findAgentScoped(input: { intentId: string; agentId: string }): Promise<AgentIntent | null>;
   getByIdempotencyKey(input: IntentIdempotencyGetInput): Promise<AgentIntent | null>;
   markStatus(input: IntentMarkStatusInput): Promise<void>;
   save(intent: AgentIntent): Promise<void>;
@@ -147,6 +154,22 @@ function scopedIntentPath(predicate: string, ownerAddress: string, agentId?: str
     (agentId === undefined ? "" : `&agent_id=eq.${encodeURIComponent(agentId.toLowerCase())}`) +
     `&cards.owner_address=eq.${encodeURIComponent(ownerAddress.toLowerCase())}` +
     `&select=${INTENT_SELECT},cards!inner(owner_address)`;
+}
+
+/**
+ * Agent-scoped discovery row: keeps the row only when it names the requested
+ * agent and the embedded card join carries a well-formed owner address. The
+ * owner is *discovered* here (never requested), which is safe because the
+ * downstream authorization cross-check re-reads the card row scoped by the
+ * discovered owner before anything is authorized.
+ */
+export function agentScopedIntentRow(row: Record<string, unknown>): Record<string, unknown> | null {
+  const relation = row["cards"];
+  const card = Array.isArray(relation) ? (relation.length === 1 ? relation[0] : undefined) : relation;
+  if (typeof card !== "object" || card === null) return null;
+  const owner = String((card as Record<string, unknown>)["owner_address"] ?? "").toLowerCase();
+  if (!EVM_ADDRESS.test(owner)) return null;
+  return row;
 }
 
 export function scopedIntentRow(
@@ -346,6 +369,34 @@ export function createPostgrestIntentStore(
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
       const row = scopedIntentRow(body[0] as Record<string, unknown>, input.ownerAddress, input.agentId);
+      return row === null ? null : toAgentIntent(row, strictLane);
+    },
+
+    async findAgentScoped(input: { intentId: string; agentId: string }): Promise<AgentIntent | null> {
+      if (input.intentId.length === 0 || !EVM_ADDRESS.test(input.agentId.toLowerCase())) {
+        throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
+      }
+      let result;
+      try {
+        result = await run({
+          method: "GET",
+          path: `${INTENTS_PATH}?intent_id=eq.${encodeURIComponent(input.intentId)}` +
+            `&agent_id=eq.${encodeURIComponent(input.agentId.toLowerCase())}` +
+            `&select=${INTENT_SELECT},cards!inner(owner_address)`,
+        });
+      } catch (error) {
+        if (error instanceof PersistenceError) throw error;
+        throw new PersistenceError("UNAVAILABLE", "Intent read failed.", false);
+      }
+      const body = result.body;
+      if (!Array.isArray(body)) {
+        throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
+      }
+      if (body.length === 0) return null;
+      if (body.length > 1) {
+        throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
+      }
+      const row = agentScopedIntentRow(body[0] as Record<string, unknown>);
       return row === null ? null : toAgentIntent(row, strictLane);
     },
 

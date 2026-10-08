@@ -45,7 +45,7 @@ const GATEWAY_MERCHANTS = [{ id: "coffee-demo", label: "Coffee" }];
 const gatewayProvider: AiProvider = {
   parseIntent: async () => ({
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     merchantId: "coffee-demo",
     amountDecimal: "1",
     purpose: "coffee",
@@ -232,7 +232,7 @@ describe("G23 Supabase prefix routing (RED-first)", () => {
       expectedRegion: "ap-southeast-1",
       chainId: 102031,
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       modelAvailable: false,
     });
     const hosted = await handler(

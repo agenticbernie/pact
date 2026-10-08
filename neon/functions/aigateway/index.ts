@@ -3,7 +3,7 @@
  *
  * Thin Node entry over `startGatewayServer`: merchantId-only provider
  * contract, server-bound card/asset/recipient/policy/hash, canonical
- * model pin (`gpt-5.6-luna`, `allowFallback:false`), raw-fetch provider,
+ * model pin (`gpt-4o-mini`, `allowFallback:false`), raw-fetch provider,
  * single retry on 429/502/503 only. OpenAI key stays server-side and is
  * NEVER called by any lane in the migration task (no live H1 here).
  *

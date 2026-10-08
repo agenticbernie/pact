@@ -1,0 +1,28 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/health",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "DATABASE_URL",
+      "description": "Hosted Neon Postgres connection string for the Pact Neon runtime (Neon console -> Project -> Connection string, or `neon connection-string --project-id <id> --branch main`). Include sslmode=require; the role must own the tables so the baseline's RLS deny policies do not block the app. Optional for local work: without it the api service falls back to the compose Postgres via .env.base44-defaults.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SESSION_HMAC_SECRET",
+      "description": "HMAC signing secret for wallet sessions (server-side only). Generated development placeholder; the app needs a real value for any shared environment.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    },
+    {
+      "name": "AGENT_SIGNER_PRIVATE_KEY",
+      "description": "Testnet private key of the Arc agent signer wallet that submits controller.pay (0x + 64 hex). Provision the address with `docker compose -f docker-compose.base44.yml exec -T api node scripts/create-wallet.mjs --role agent --label arc-agent-1`, fund it with gas on Arc testnet, then store its key here. Optional for boot: while absent the executor stays read-only and POST /v1/payments/execute never signs.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "description": "OpenAI API key for the AI-gateway intent path (platform.openai.com). Without it POST /v1/agent/intents returns PROVIDER_UNAVAILABLE while GET /health still answers 200.",
+      "requiredAtBoot": false
+    }
+  ]
+}

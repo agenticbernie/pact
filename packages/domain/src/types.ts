@@ -64,7 +64,7 @@ export type ObservedExternalContract = {
 
 export type OpenAIConfig = {
   provider: "openai";
-  model: "gpt-5.6-luna";
+  model: "gpt-4o-mini";
   region: string;
   allowFallback: false;
 };

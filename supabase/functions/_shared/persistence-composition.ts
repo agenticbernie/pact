@@ -120,6 +120,12 @@ export function createFakePersistence(): FakePersistence {
       const found = intents.get(input.intentId) ?? null;
       return found === null ? null : { ...found };
     },
+    async findAgentScoped(input) {
+      const found = intents.get(input.intentId) ?? null;
+      if (found === null) return null;
+      if (found.agentId.toLowerCase() !== input.agentId.toLowerCase()) return null;
+      return { ...found };
+    },
     async getByIdempotencyKey(input) {
       const id = byIdempotency.get(input.idempotencyKey) ?? null;
       if (id === null) return null;

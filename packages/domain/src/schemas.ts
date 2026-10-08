@@ -127,7 +127,7 @@ export const AgentIntentSchema = z
     purpose: z.string().min(1).max(160),
     confidence: z.number().min(0).max(1),
     provider: z.literal("openai"),
-    model: z.literal("gpt-5.6-luna"),
+    model: z.literal("gpt-4o-mini"),
     createdAt: utcTimestampSchema,
     expiresAt: utcTimestampSchema,
     policyVersion: z.number().int().min(0).max(POLICY_VERSION_MAX),
@@ -306,7 +306,7 @@ export function assertDeploymentReady(
 const OpenAIConfigSchema = z
   .object({
     provider: z.literal("openai"),
-    model: z.literal("gpt-5.6-luna"),
+    model: z.literal("gpt-4o-mini"),
     region: z.string().min(1),
     allowFallback: z.literal(false),
   })
@@ -351,7 +351,7 @@ export function parseOpenAIConfigJson(jsonText: string): OpenAIConfig {
  * Edge callers pass the explicit `envModel` dep (`Deno.env.get("OPENAI_MODEL") ?? undefined`);
  * the Node default path is preserved verbatim for scripts/tests.
  */
-export function resolveOpenAIModel(config: OpenAIConfig, envModel?: string): "gpt-5.6-luna" {
+export function resolveOpenAIModel(config: OpenAIConfig, envModel?: string): "gpt-4o-mini" {
   const override =
     envModel !== undefined
       ? envModel

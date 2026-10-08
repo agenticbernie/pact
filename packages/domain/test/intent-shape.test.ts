@@ -16,7 +16,7 @@ function baseIntent(overrides: Record<string, unknown> = {}) {
     purpose: "demo coffee purchase",
     confidence: 0.92,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     createdAt: "2026-09-09T00:00:00Z",
     expiresAt: "2026-09-09T00:05:00Z",
     policyVersion: 1,

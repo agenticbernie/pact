@@ -6,6 +6,7 @@ import { createPostgrestCardStore } from "../card-store.ts";
 import { issueSessionToken } from "../../../../packages/domain/src/session-token.ts";
 import { hashToken } from "../session-token.ts";
 import { merchantIdToBytes32 } from "../../../../packages/domain/src/canonical-hash.ts";
+import { createArcCard1OwnerRegistry } from "./arc-owner-fixtures.ts";
 import type { OwnerAuthorization } from "../owner-authorization.ts";
 import type { ReadOnlyRpcPaymentClient } from "../../agent-executor/chain-client.ts";
 import { ARC_LANE } from "../lane-config.ts";
@@ -67,7 +68,7 @@ function intentRow(overrides: Record<string, unknown> = {}) {
     purpose: "arc lane readiness probe",
     confidence: 0.9,
     provider: "openai",
-    model: "gpt-5.6-luna",
+    model: "gpt-4o-mini",
     policy_version: 1,
     intent_hash: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     status: "ready",
@@ -201,7 +202,6 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
     const { token, persistence } = sessionFor(ARC_AGENT);
     const stores = storesFor([cardRow()], [intentRow({ intent_id: "intent-req-1" })], "arc");
     const rpc = rpcFake();
-    const { createArcCard1OwnerRegistry } = await loadAuthz();
     const handler = createExecutorCompositionRoot({
       env: { ...REGIONS, SESSION_HMAC_SECRET: SECRET, ARC_RPC_URL: "http://local-rpc.invalid" },
       lane: "arc" as never,
@@ -238,7 +238,6 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
       }));
       const staticPreflight = vi.fn(async () => ({ ok: true }));
       const client: ReadOnlyRpcPaymentClient = { readCard, preflight: staticPreflight };
-      const { createArcCard1OwnerRegistry } = await loadAuthz();
       const handler = createExecutorEntrypointHandler({
         expectedRegion: REGIONS.PACT_EXPECTED_REGION,
         actualRegion: REGIONS.SB_REGION,
@@ -320,7 +319,6 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
     const stores = storesFor([cardRow()], [intentRow({ intent_id: "intent-req-1", expires_at: PAST })], "arc");
     const cardRead = vi.spyOn(stores.card, "getById");
     const rpc = rpcFake();
-    const { createArcCard1OwnerRegistry } = await loadAuthz();
     const handler = createExecutorCompositionRoot({
       env: { ...REGIONS, SESSION_HMAC_SECRET: SECRET, ARC_RPC_URL: "http://local-rpc.invalid" },
       lane: "arc" as never,
@@ -338,7 +336,9 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
 
   it("fails closed when no authorization exists for split roles", async () => {
     const { token, persistence } = sessionFor(ARC_AGENT);
-    const stores = storesFor([cardRow()], [intentRow()], "arc");
+    // Dynamic derivation: the intent exists but its card row is absent, so no
+    // owner authorization can be derived — fail closed before any chain reads.
+    const stores = storesFor([], [intentRow()], "arc");
     const rpc = rpcFake();
     const handler = createExecutorCompositionRoot({
       env: { ...REGIONS, SESSION_HMAC_SECRET: SECRET, ARC_RPC_URL: "http://local-rpc.invalid" },
@@ -483,8 +483,7 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
   });
 
   it("resolves the seeded Arc intent and rejects the stale registry id", async () => {
-    const authz = await loadAuthz();
-    const registry = authz.createArcCard1OwnerRegistry();
+    const registry = createArcCard1OwnerRegistry();
     await expect(registry.findAuthorization({
       intentId: "intent-req-1",
       agentId: ARC_AGENT,

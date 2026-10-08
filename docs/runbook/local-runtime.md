@@ -44,4 +44,4 @@ fixed `SUPABASE_REGIONAL_FUNCTION_URL` only.
 - Challenge TTL 5 min; session TTL 30 min; sha256-hex-only hashes.
 - `payment_attempts` first-claim + store-txHash-before-wait + reconcile.
 - Single model truth `config/ai/model-config.json`
-  (`openai`/`gpt-5.6-luna`/`allowFallback:false`).
+  (`openai`/`gpt-4o-mini`/`allowFallback:false`).
