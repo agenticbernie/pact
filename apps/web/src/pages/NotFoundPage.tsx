@@ -18,7 +18,7 @@ export function NotFoundPage() {
             title="Nothing at this route"
             description="The read model exposes an overview, a payment list, per-card detail and per-card activity. Use the navigation rail to reach one of those."
           />
-          <Link href="/" isStandalone>
+          <Link href="/console" isStandalone>
             Back to overview
           </Link>
         </VStack>
