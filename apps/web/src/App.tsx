@@ -5,6 +5,7 @@ import { TestnetNotice } from "./components/TestnetNotice";
 import { UtilityRail } from "./components/UtilityRail";
 import { CardActivityPage } from "./pages/CardActivityPage";
 import { CardPage } from "./pages/CardPage";
+import { CreateCardPage } from "./pages/CreateCardPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LandingPage } from "./pages/LandingPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -58,6 +59,7 @@ export function App() {
         <Route path="/console" element={<DashboardPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/payments/:paymentId" element={<PaymentDetailPage />} />
+        <Route path="/cards/new" element={<CreateCardPage />} />
         <Route path="/cards/:cardId" element={<CardPage />} />
         <Route path="/cards/:cardId/activity" element={<CardActivityPage />} />
         <Route path="*" element={<NotFoundPage />} />
