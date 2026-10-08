@@ -3,7 +3,7 @@ import { Stack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { useChainConfig } from "../api/hooks";
-import { groupThousands, shortestAddress } from "../lib/format";
+import { groupThousands } from "../lib/format";
 import { useSession } from "../session/SessionProvider";
 
 /**
@@ -53,7 +53,7 @@ export function UtilityRail() {
         <Stack direction="horizontal" gap={1.5} align="center">
           <Text type="supporting">Owner session</Text>
           <Text type="code">
-            {state.status === "active" ? shortestAddress(state.wallet) : "none"}
+            {state.status === "active" ? state.wallet : "none"}
           </Text>
         </Stack>
         {config === null ? null : <Link href={config.explorerUrl}>Explorer</Link>}
