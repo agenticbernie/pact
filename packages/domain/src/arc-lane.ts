@@ -28,7 +28,7 @@ export const ARC_LANE_RPC_ENV_NAME = "ARC_RPC_URL";
 export const ARC_LANE_CONTROLLER =
   "0x7a474c005433def5fc496d2016f6ae794edfc423";
 export const ARC_LANE_POOL =
-  "0x5e1771de29bd1a084900d032fd4db2ac7c7528b";
+  "0x5e1771de29bd1a084900d032fd4db2ac7cf7528b";
 export const ARC_LANE_MERCHANT =
   "0xac030ddaa1fc29c1738332c3b9524ecfd0b4174f";
 

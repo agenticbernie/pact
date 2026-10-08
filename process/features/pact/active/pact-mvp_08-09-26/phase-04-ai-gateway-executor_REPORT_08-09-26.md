@@ -1276,3 +1276,45 @@ deployment of the local correction, and the approved staging seed/state.
 
 Disposition remains **H1 BLOCKED / H2 BLOCKED**, with the corrected executor
 deployed but business-state seed blocked on authoritative chain metadata.
+
+## Phase 04 Closeout — ✅ VERIFIED (2026-10-08, user-confirmed)
+
+Append-only closeout record. Every earlier section — including the additive
+records that left Phase 04 NOT VERIFIED — remains preserved and is not
+rewritten; this section supersedes only the *current disposition*.
+
+### Evidence (existing repository evidence only)
+
+Recorded from evidence already present in the repository; no test suite was
+re-run for this record.
+
+- Live fresh-wallet E2E settlement is recorded in `AGENTS.md` ("Card-2
+  end-to-end payment flow (verified 2026-10-08)"): owner session → intent →
+  agent preflight → execute settled on chain at tx `0x947a92…dc72`, block
+  `66170486`, emitting `PaymentSettled` + `MerchantPaymentReceived`; DB attempt
+  `settled`.
+- The same transaction was independently re-read from Arc testnet during the
+  Phase 05 indexer live tick (see
+  `phase-05-indexer-read-model_REPORT_08-09-26.md`): the indexer decoded
+  `PaymentSettled` (cardId `2`, amount `5000000000000000`) and
+  `MerchantPaymentReceived` from that tx hash.
+- Dynamic owner authorization, owner scoping, fail-closed authorization and
+  replay/idempotency behaviour are recorded in this report's G24–G33 appendices
+  and the umbrella's additive EVL records.
+- Current repository gates re-run alongside the Phase 05 change:
+  `corepack yarn test` **362 passed | 10 skipped**, `tsc --noEmit` clean,
+  `yarn lint` clean, `validate:aicd` 0 failures.
+
+### Explicitly NOT claimed
+
+- The regression-suite figure quoted in chat (`334 passed`) is not recorded in
+  this repository and is therefore not used as closeout evidence here.
+- G13 hosted redeploy, H1–H3 hosted lane evidence and G22 remote schema parity
+  remain exactly as recorded in their appendices — not reclassified, not re-run.
+- No deployment, migration, provider/RPC call, transaction, or secret access was
+  performed for this closeout record.
+
+### Exit
+
+Phase 04 is marked ✅ VERIFIED by explicit user confirmation (program rule:
+user confirmation is required before ✅). Next: Phase 05 — Indexer / Read Model.

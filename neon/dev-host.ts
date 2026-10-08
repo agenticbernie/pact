@@ -18,6 +18,7 @@ import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:
 import sessionEntry from "./functions/session/index.ts";
 import gatewayEntry from "./functions/aigateway/index.ts";
 import executorEntry from "./functions/agentexecutor/index.ts";
+import readEntry from "./functions/readapi/index.ts";
 
 type FetchHandler = (request: Request) => Response | Promise<Response>;
 
@@ -27,7 +28,13 @@ const HOST = process.env["HOST"] ?? "0.0.0.0";
 const ROUTES: ReadonlyArray<{ matches: (path: string) => boolean; handler: FetchHandler }> = [
   { matches: (path) => path === "/health" || path === "/v1/agent/intents", handler: gatewayEntry.fetch },
   { matches: (path) => path.startsWith("/v1/session/"), handler: sessionEntry.fetch },
-  { matches: (path) => path.startsWith("/v1/payments/"), handler: executorEntry.fetch },
+  // Execute/preflight are explicit; any other /v1/payments/* is a read route.
+  { matches: (path) => path === "/v1/payments/preflight" || path === "/v1/payments/execute", handler: executorEntry.fetch },
+  {
+    matches: (path) =>
+      path === "/v1/config" || path.startsWith("/v1/cards/") || path.startsWith("/v1/payments/"),
+    handler: readEntry.fetch,
+  },
 ];
 
 const ENDPOINTS: ReadonlyArray<readonly [string, string]> = [
@@ -38,6 +45,10 @@ const ENDPOINTS: ReadonlyArray<readonly [string, string]> = [
   ["POST", "/v1/agent/intents"],
   ["POST", "/v1/payments/preflight"],
   ["POST", "/v1/payments/execute"],
+  ["GET", "/v1/config"],
+  ["GET", "/v1/cards/:cardId"],
+  ["GET", "/v1/cards/:cardId/activity"],
+  ["GET", "/v1/payments/:paymentId"],
 ];
 
 function toHeaders(raw: IncomingHttpHeaders): Headers {
@@ -98,7 +109,7 @@ pre{background:#151a23;border:1px solid #232a38;border-radius:8px;padding:1rem;o
 <body>
 <main>
 <h1>Pact — local runtime</h1>
-<p class="sub">Backend-only repository: this port serves the existing session, AI-gateway and agent-executor function handlers. There is no web UI in this repo yet.</p>
+<p class="sub">Backend-only repository: this port serves the existing session, AI-gateway, agent-executor and Phase 05 read-api function handlers. There is no web UI in this repo yet.</p>
 <section><h2>Health</h2><pre>${health}</pre></section>
 <section><h2>Endpoints</h2><table>${rows}</table></section>
 </main>
