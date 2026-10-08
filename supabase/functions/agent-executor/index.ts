@@ -633,14 +633,6 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
    * always wins. Absent (no controller, or no persistence) means
    * single-wallet only — fail closed.
    */
-  const ownerAuthorizations = input.ownerAuthorizations ??
-    (persistence !== undefined && lane.controller !== undefined
-      ? createCardBackedOwnerRegistry({
-        intents: persistence.intent,
-        cards: persistence.card,
-        lane,
-      })
-      : undefined);
   // The signing client also serves the static read path (readCard/preflight);
   // the read-only routes only ever receive the narrower view of it.
   const readOnlyClient = input.readOnlyClient ?? input.paymentClient ?? (
@@ -656,6 +648,14 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
       return createExecutorEntrypointHandler({ configuredRegion: actualRegion, expectedRegion, actualRegion });
     }
   }
+  const ownerAuthorizations = input.ownerAuthorizations ??
+    (persistence !== undefined && lane.controller !== undefined
+      ? createCardBackedOwnerRegistry({
+        intents: persistence.intent,
+        cards: persistence.card,
+        lane,
+      })
+      : undefined);
   if (readOnlyClient === undefined) {
     return createExecutorEntrypointHandler({ configuredRegion: actualRegion, expectedRegion, actualRegion });
   }

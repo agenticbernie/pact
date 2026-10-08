@@ -14,7 +14,6 @@
  * Nothing here moves funds, signs, or widens the static-call surface.
  * Deno-safe: no Node imports.
  */
-import type { AgentIntent } from "../../../packages/domain/src/types.ts";
 import type { CardStore } from "./card-store.ts";
 import type { IntentStoreAdapter } from "./intent-store.ts";
 import type { LaneConfig } from "./lane-config.ts";
