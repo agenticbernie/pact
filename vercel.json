@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "yarn build:web",
+  "outputDirectory": "apps/web/dist",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/v1/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/health"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
