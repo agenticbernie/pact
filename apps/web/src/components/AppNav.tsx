@@ -32,7 +32,12 @@ export function AppNav() {
     <SideNav
       collapsible
       header={
-        <SideNavHeading heading="Pact" headingHref="/" icon={<BrandMark />} subheading="Console" />
+        <SideNavHeading
+          heading="Pact"
+          headingHref="/console"
+          icon={<BrandMark />}
+          subheading="Console"
+        />
       }
       footer={
         <SideNavSection title="Owner session" isHeaderHidden>
@@ -57,9 +62,9 @@ export function AppNav() {
       <SideNavSection title="Console" isHeaderHidden>
         <SideNavItem
           label="Overview"
-          href="/"
+          href="/console"
           icon={OverviewIcon}
-          isSelected={location.pathname === "/"}
+          isSelected={location.pathname === "/console"}
         />
         <SideNavItem
           label="Payments"
