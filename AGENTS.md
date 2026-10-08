@@ -796,9 +796,10 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     applies `0003` to the compose db on boot.
   - `cards` inserts need `chain_id` (added by the S3 arc-lane migration) and `intents`
     inserts need `agent_id` + `idempotency_key`.
-- **Phase 06 console (2026-10-08):** the `apps/web` read-only console routes are `/`,
+- **Phase 06 console (2026-10-08):** the `apps/web` read-only console routes are `/console`,
   `/payments`, `/payments/:paymentId`, `/cards/:cardId`, `/cards/:cardId/activity`, and it reads
-  only the Phase 05 read API (no local chain reconstruction). Check and test it with
+  only the Phase 05 read API (no local chain reconstruction). `/` is the public landing page, not
+  the dashboard. Check and test it with
   `docker compose -f docker-compose.base44.yml exec -T web sh -ec 'cd /app && corepack yarn workspace @pact/web exec tsc --noEmit -p tsconfig.json'`
   and `… corepack yarn workspace @pact/web test` (16 unit tests). Verifying the authenticated
   views: the preview browser carries **no wallet extension**, so the connect gate cannot sign.
@@ -807,6 +808,22 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `apps/web/src/session/session-store.ts`) and reload; the dashboard then renders the owner card
   and payment read model. Two `GET /v1/cards` entries with a null status in the devtools log are
   React StrictMode aborting the first effect run, not an API failure.
+- **Public landing page (2026-10-09):** `/` renders the public landing page
+  (`apps/web/src/pages/LandingPage.tsx`; one band per file under `apps/web/src/landing/`) for a
+  visitor with no session. It is intentionally outside the console chrome — its own `TopNav`, no
+  wallet gate, no testnet banner — so it renders unauthenticated, and a restored session is
+  redirected to `/console` (the layout route that owns the console `AppShell`). Two non-obvious
+  points: the dashboard moved off `/`, so the rail's Overview entry, the 404 recovery link and
+  every landing CTA target `/console`; and in-page nav goes through `landing/jumpTo.ts`, because a
+  plain `scrollIntoView` parks a section heading under the sticky header — the offset is measured
+  from `nav[aria-label="Pact"]` at click time rather than hardcoded. Anchor targets are the band
+  `<h2>`s (`<Heading id>`): `the-core-challenge`, `how-it-works`, `why-pact`, `preview`, `evidence`,
+  `developers`, `security`, `who-it-is-for`, `get-started`. When the preview iframe is unavailable,
+  a band or an anchor can still be verified end to end by rendering the public URL in a throwaway
+  headless browser:
+  `docker run --rm -v /tmp:/work -w /work -e BASE="https://3000-$BASE44_PUBLIC_HOST_SUFFIX" node:22 …`
+  (npm i puppeteer + the chromium shared libs; the console routes need the `/v1/config` request to
+  settle, and one `ERR_ABORTED` there is StrictMode aborting the first effect run, not a failure).
 - **Console design system (2026-10-09):** `apps/web` renders on Pact's own Astryx theme
   (`apps/web/src/theme.ts`, "Modern Structural Precision"), not the shipped neutral theme:
   cobalt accent, cool slate canvas, hairline borders with `--shadow-low` off, and a
