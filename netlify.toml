@@ -1,0 +1,26 @@
+[build]
+  command = "yarn build:web"
+  publish = "apps/web/dist"
+
+[[redirects]]
+  from = "/v1/session/*"
+  to = "https://br-spring-poetry-au5ekyxd-session.compute.c-10.us-east-1.aws.neon.tech/v1/session/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v1/*"
+  to = "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/v1/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/health"
+  to = "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,3 +1,4 @@
+import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -191,8 +192,11 @@ function Overview() {
         <Card>
           <EmptyState
             title="No cards for this wallet"
-            description="The read model has no card owned by the connected wallet. Activate a card through the controller before payment activity appears here."
+            description="The read model has no card owned by the connected wallet. Issue one to an agent — the owner wallet signs, and the card appears here once the indexer has seen the CardCreated event."
           />
+          <Stack direction="horizontal" gap={2}>
+            <Button label="Issue a card" variant="primary" href="/cards/new" />
+          </Stack>
         </Card>
       ) : (
         <VStack gap={6}>

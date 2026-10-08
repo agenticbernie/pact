@@ -85,6 +85,55 @@ export type IndexerSignal = {
   stale: boolean;
 };
 
+/**
+ * A server-bound payment intent. Card, agent, asset and policy version are
+ * resolved by the gateway, never accepted from the caller; the model only
+ * contributes a merchant id and an amount, both re-validated server-side.
+ */
+export type ApiIntent = {
+  intentId: string;
+  agentId: string;
+  cardId: string;
+  merchantId: string;
+  amountBaseUnits: string;
+  asset: string;
+  purpose: string;
+  confidence: number;
+  provider: string;
+  model: string;
+  createdAt: string;
+  expiresAt: string;
+  policyVersion: number;
+  intentHash: string;
+  chainId?: number;
+};
+
+export type ApiIntentResponse = {
+  requestId: string;
+  intentId: string;
+  intent: ApiIntent;
+  status: "ready";
+};
+
+export type ApiPreflightResponse = {
+  requestId: string;
+  intentId: string;
+  decision: "would_settle" | "declined";
+  reasonCode?: string;
+  chainId: number;
+  checkedAt: string;
+};
+
+export type ApiExecuteResponse = {
+  requestId: string;
+  intentId: string;
+  paymentId: string;
+  status: "pending" | "settled" | "declined" | "failed";
+  txHash?: string;
+  explorerUrl?: string;
+  reasonCode?: string;
+};
+
 export type ApiCardsResponse = IndexerSignal & { cards: ApiCard[]; chainReadAt: string };
 export type ApiCardResponse = IndexerSignal & { card: ApiCard; chainReadAt: string };
 export type ApiPaymentsResponse = IndexerSignal & { cardId: string; payments: ApiPayment[] };
