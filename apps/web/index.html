@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pact — Agent Operations Console</title>
+    <!--
+      The console's two typefaces (see `src/theme.ts`): Hanken Grotesk for the
+      proportional interface and JetBrains Mono for cryptographic telemetry.
+      Astryx sets the --font-family-* tokens but never loads a font file, so the
+      families are served here. The inline style paints the canvas colour before
+      the bundle loads, so the first paint is not a white flash.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..900;1,300..900&family=JetBrains+Mono:ital,wght@0,400..800;1,400..800&display=swap"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

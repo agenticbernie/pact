@@ -807,3 +807,16 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `apps/web/src/session/session-store.ts`) and reload; the dashboard then renders the owner card
   and payment read model. Two `GET /v1/cards` entries with a null status in the devtools log are
   React StrictMode aborting the first effect run, not an API failure.
+- **Console design system (2026-10-09):** `apps/web` renders on Pact's own Astryx theme
+  (`apps/web/src/theme.ts`, "Modern Structural Precision"), not the shipped neutral theme:
+  cobalt accent, cool slate canvas, hairline borders with `--shadow-low` off, and a
+  Hanken Grotesk + JetBrains Mono font pair (loaded from Google Fonts in `apps/web/index.html`
+  — Astryx sets the `--font-family-*` tokens but never loads a font file, so a named family
+  with no `<link>` silently falls back). The theme is injected unbuilt at runtime by
+  `<Theme theme={pactTheme}>`, so there is no `astryx theme build` step to forget; validate a
+  theme edit with `cd apps/web && yarn astryx theme build src/theme.ts` and delete the
+  generated `src/pact.{css,js,d.ts}` afterwards. Brand assets live in `apps/web/public`:
+  `pact-mark.png` (symbolic starburst) is the nav header mark, `pact-logo.png` (full lockup)
+  sits on an inverted region because its wordmark is white — `ConnectGate` nests
+  `<Theme mode="dark">` to give it one. Never write a raw hex/px in a component; extend the
+  theme instead.

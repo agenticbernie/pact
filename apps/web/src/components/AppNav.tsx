@@ -1,7 +1,5 @@
 import { useLocation } from "react-router-dom";
 import { Divider } from "@astryxdesign/core/Divider";
-import { Icon } from "@astryxdesign/core/Icon";
-import { NavIcon } from "@astryxdesign/core/NavIcon";
 import {
   SideNav,
   SideNavHeading,
@@ -13,7 +11,8 @@ import { useOwnerCards } from "../api/hooks";
 import { shortestAddress } from "../lib/format";
 import { cardState } from "../lib/status";
 import { useSession } from "../session/SessionProvider";
-import { ActivityIcon, ChainIcon, OverviewIcon, PaymentsIcon, WalletIcon } from "./Icons";
+import { BrandMark } from "./BrandMark";
+import { ActivityIcon, OverviewIcon, PaymentsIcon, WalletIcon } from "./Icons";
 import { DOT_VARIANT } from "./StatusToken";
 
 /**
@@ -33,11 +32,7 @@ export function AppNav() {
     <SideNav
       collapsible
       header={
-        <SideNavHeading
-          heading="Pact"
-          headingHref="/"
-          icon={<NavIcon icon={<Icon icon={ChainIcon} size="sm" />} />}
-        />
+        <SideNavHeading heading="Pact" headingHref="/" icon={<BrandMark />} subheading="Console" />
       }
       footer={
         <SideNavSection title="Owner session" isHeaderHidden>
