@@ -12,7 +12,7 @@ metadata:
 # Pact MVP — Umbrella Implementation Plan
 
 **Date**: 2026-09-08
-**Status**: 🧪 TESTING — Phase 04 complete with approval-gated gaps
+**Status**: ✅ PHASE 04 VERIFIED (user-confirmed 2026-10-08) — Phase 05 code done, hosted gates pending
 **Complexity**: COMPLEX / PHASE PROGRAM
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
@@ -235,8 +235,8 @@ Reports stay flat inside the program task folder. The folder moves as one unit w
 | 01 — Foundation | 🔨 CODE DONE |
 | 02 — Payment contracts | ✅ VERIFIED |
 | 03 — ASC credit evidence | ✅ VERIFIED |
-| 04 — AI gateway/executor | 🧪 TESTING |
-| 05 — Indexer/read model | ⏳ PLANNED |
+| 04 — AI gateway/executor | ✅ VERIFIED |
+| 05 — Indexer/read model | 🔨 CODE DONE |
 | 06 — Web UI/UX | ⏳ PLANNED |
 | 07 — Integrated deployment/demo | ⏳ PLANNED |
 
@@ -352,3 +352,28 @@ latest correction undeployed; Phase 04 NOT VERIFIED / NOT CLOSED.
 The approved staging migration list showed both `202609080001` and
 `202609120001` as applied. This records observed migration state only; the
 current update performed no migration, reset, schema change, or push.
+
+### Additive Current Execution State (2026-10-08)
+
+Current-state correction; it does not rewrite any earlier status line or
+evidence record.
+
+- **Phase 04 — AI Gateway & Executor: ✅ VERIFIED (user-confirmed 2026-10-08).**
+  Closeout recorded in `phase-04-ai-gateway-executor_REPORT_08-09-26.md`
+  ("Phase 04 Closeout — ✅ VERIFIED") from existing repository evidence only: the
+  Card-2 fresh-wallet live E2E settlement (`0x947a92…dc72`, block `66170486`,
+  `PaymentSettled` + `MerchantPaymentReceived`) recorded in `AGENTS.md`, plus the
+  recorded G24–G33 authorization/scoping/replay evidence. G13/H1–H3 and G22 stay
+  as recorded in their appendices (not reclassified).
+- **Phase 05 — Indexer / Read Model: 🔨 CODE DONE (local EVL green).** Migration
+  `neon/migrations/0003_read_model.sql`, the indexer
+  (`supabase/functions/indexer/`), the AC-14 receipt-truth state machine
+  (`packages/domain/src/read-model.ts`) and the owner-scoped read API
+  (`supabase/functions/read-api/`) are implemented and verified locally —
+  including a live tick that indexed the real Phase 04 settlement transaction
+  from Arc testnet. Report: `phase-05-indexer-read-model_REPORT_08-09-26.md`.
+  Not yet ✅ VERIFIED: the hosted Neon branch still needs `0003` applied out of
+  band, and hosted prefix normalization, a scheduled tick and an indexer health
+  surface remain pending.
+- Next: apply `0003_read_model.sql` to the hosted Neon branch and close the
+  remaining Phase 05 hosted gates before Phase 06 (Web UI/UX).

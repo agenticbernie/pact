@@ -774,3 +774,21 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   - `INTENT_SCHEMA_INVALID` and other non-API codes surface to clients as `INPUT_INVALID`
     (`fail()` maps unknown codes); `agent`-from preflight is on-chain-authoritative
     (`preflightPay` with `from=agent` returned `allowed=true` when the API layer declined).
+- **Phase 05 read model (code done 2026-10-08):** `neon/migrations/0003_read_model.sql`
+  adds `chain_events` (unique `chain_id+tx_hash+log_index`) + `indexer_state`; the indexer
+  lives in `supabase/functions/indexer/` and the read API in `supabase/functions/read-api/`,
+  mounted by `neon/dev-host.ts` on port 3000 as `GET /v1/config`, `/v1/cards/:id`,
+  `/v1/cards/:id/activity`, `/v1/payments/:id`. Dispatch note: `/v1/payments/preflight`
+  and `/v1/payments/execute` go to the executor; every other `/v1/payments/*` is a read
+  route. Reads are owner-scoped by the wallet-bound session, and `settled` requires a
+  confirmed receipt **and** an indexed `PaymentSettled`. Non-obvious pitfalls:
+  - `ARC_LANE_POOL` was 39 hex chars (truncated) until 2026-10-08, so any ethers
+    `getLogs` address filter failed with "network does not support ENS". It now matches
+    `config/deployments/arc-testnet.json` (`…ac7cf7528b`).
+  - The api service resolves `DATABASE_URL` from the platform secret (hosted Neon), which
+    does **not** carry migration `0003` yet — so `/v1/config` answers `503
+    PROVIDER_UNAVAILABLE` in the preview. Against the compose db
+    (`docker compose … exec -e DATABASE_URL=postgres://pact:pact-local-dev@db:5432/pact`)
+    the whole read path works; the one-shot `migrate` service applies `0003` on boot.
+  - `cards` inserts need `chain_id` (added by the S3 arc-lane migration) and `intents`
+    inserts need `agent_id` + `idempotency_key`.
