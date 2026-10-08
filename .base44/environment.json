@@ -1,0 +1,18 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/health",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "SESSION_HMAC_SECRET",
+      "description": "HMAC signing secret for wallet sessions (server-side only). Generated development placeholder; the app needs a real value for any shared environment.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "description": "OpenAI API key for the AI-gateway intent path (platform.openai.com). Optional: local lanes never call the provider, so a missing key only makes POST /v1/agent/intents return 503.",
+      "requiredAtBoot": false
+    }
+  ]
+}

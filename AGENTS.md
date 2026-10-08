@@ -702,3 +702,31 @@ to Codex-native constructs:
 The authoritative historical source remains:
 
 - [CLAUDE.md](CLAUDE.md)
+
+## Base44 sandbox runtime (docker compose)
+
+Non-obvious facts for running this repo in the Base44 sandbox preview.
+
+- **Start:** `docker compose -f docker-compose.base44.yml up -d` (compose project `pact`).
+- **No web UI yet.** `apps/web/` is still a later-phase output, so the port-3000 entry point is
+  the existing Arc-lane function surface, not a browser app.
+- `neon/dev-host.ts` is a local stand-in for Neon's `neon dev`: it mounts the three existing
+  entries (`neon/functions/{session,aigateway,agentexecutor}`, each exporting `{ fetch }`) on one
+  HTTP port. It adds no business logic — routing, auth, region gating and error mapping stay in
+  the entries. Run it with Node's native type stripping:
+  `node --experimental-strip-types --watch neon/dev-host.ts` (Node >= 22.18; the compose image is `node:22`).
+- `docker-compose.base44.yml` bind-mounts the working tree and runs the dev command (no prebuilt
+  app image), so edits hot-reload. Postgres 17 is plain infrastructure; the consolidated
+  `neon/migrations/0001_neon_baseline.sql` is applied on first init via `docker-entrypoint-initdb.d`
+  (only when the `db-data` volume is empty). Compose `POSTGRES_PASSWORD` is a dev-only local value.
+- **Env the functions need:** `PERSISTENCE_BACKEND=neon` + `DATABASE_URL` (local compose db),
+  `PACT_EXPECTED_REGION` + `SB_REGION` (both `us-east-1` for the Arc lane), `SESSION_HMAC_SECRET`
+  (server-side, delivered via `/run/base44/app.env`), and `ARC_RPC_URL`
+  (`https://rpc.testnet.arc.io`). `OPENAI_API_KEY` is optional: without it `POST /v1/agent/intents`
+  returns `PROVIDER_UNAVAILABLE`, while `GET /health` still answers 200.
+- **Verify it works:** `curl -s localhost:3000/health` (expect chain `5042002`, regions `us-east-1`),
+  then `curl -sX POST localhost:3000/v1/session/challenge -H 'content-type: application/json' -d '{"wallet":"0x1111111111111111111111111111111111111111"}'`
+  (expect a nonce/message, proving DB writes). `docker compose -f docker-compose.base44.yml exec -T db psql -U pact -d pact -c 'table'`-style reads confirm persistence.
+- **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
+  repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
+  `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.
