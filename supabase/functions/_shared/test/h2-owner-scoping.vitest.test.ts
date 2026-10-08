@@ -6,6 +6,7 @@ import { createPostgrestCardStore } from "../card-store.ts";
 import { issueSessionToken } from "../../../../packages/domain/src/session-token.ts";
 import { hashToken } from "../session-token.ts";
 import { merchantIdToBytes32 } from "../../../../packages/domain/src/canonical-hash.ts";
+import { createArcCard1OwnerRegistry } from "./arc-owner-fixtures.ts";
 import type { OwnerAuthorization } from "../owner-authorization.ts";
 import type { ReadOnlyRpcPaymentClient } from "../../agent-executor/chain-client.ts";
 import { ARC_LANE } from "../lane-config.ts";

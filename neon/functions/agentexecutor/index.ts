@@ -3,8 +3,8 @@
  *
  * Thin Node entry over `startExecutorServer`: auth-before-work,
  * server-bound intent/card values, read-only static preflight over the
- * lane RPC transport, split-role owner authorization seam with the Arc
- * card-1 registry, closed 15-code surface.
+ * lane RPC transport, split-role owner authorization derived dynamically
+ * from the seeded card rows (no static fixture), closed 15-code surface.
  *
  * Execute (signing) path: when `AGENT_SIGNER_PRIVATE_KEY` is present, the
  * entry builds the ethers-backed agent signer (`createAgentSignerPaymentClient`)
@@ -24,7 +24,6 @@ import { createAgentSignerPaymentClient } from "../../../supabase/functions/agen
 import { createSqlAttemptStore } from "../../../supabase/functions/agent-executor/attempt-store.ts";
 import { createFetchRpcTransport } from "../../../supabase/functions/agent-executor/chain-client.ts";
 import type { PaymentClient } from "../../../supabase/functions/agent-executor/chain-client.ts";
-import { createArcLaneOwnerRegistry } from "../../../supabase/functions/_shared/owner-authorization.ts";
 import { ARC_LANE } from "../../../supabase/functions/_shared/lane-config.ts";
 import {
   createNeonPersistence,
@@ -79,7 +78,6 @@ async function buildHandler(): Promise<FetchHandler> {
     transport: createFetchRpcTransport(rpcUrl, fetch),
     persistence,
     lane: "arc",
-    ownerAuthorizations: createArcLaneOwnerRegistry(),
     attempts,
     ...(paymentClient === undefined ? {} : { paymentClient, signerChainId }),
   });

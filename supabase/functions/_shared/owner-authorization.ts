@@ -6,11 +6,17 @@
  * remains valid without any authorization; the legacy CTC lane never
  * consults the registry and keeps byte-identical behavior.
  *
- * Trust anchor (non-synthetic): every entry reproduces a card's on-chain
- * creation facts and is cross-checked against the seeded card row AND the
- * lane constants on every read. Nothing here moves funds, signs, or widens
- * the static-call surface. Deno-safe: no Node imports.
+ * Trust anchor (non-synthetic): production authorization is derived from the
+ * seeded card row (recorded from on-chain `CardCreated` events) and
+ * cross-checked against that row AND the lane constants on every read —
+ * never from a pinned intent id. Static fixture registries live only under
+ * `_shared/test/arc-owner-fixtures.ts` (regression/migration scope).
+ * Nothing here moves funds, signs, or widens the static-call surface.
+ * Deno-safe: no Node imports.
  */
+import type { AgentIntent } from "../../../packages/domain/src/types.ts";
+import type { CardStore } from "./card-store.ts";
+import type { IntentStoreAdapter } from "./intent-store.ts";
 import type { LaneConfig } from "./lane-config.ts";
 
 const EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
@@ -239,7 +245,7 @@ export function buildH2ValidationRecord(input: {
   };
 }
 
-function staticRegistry(entries: OwnerAuthorization[]): OwnerAuthorizationRegistry {
+export function staticRegistry(entries: OwnerAuthorization[]): OwnerAuthorizationRegistry {
   return {
     findAuthorization: async (input) =>
       entries.find(
@@ -252,56 +258,68 @@ function staticRegistry(entries: OwnerAuthorization[]): OwnerAuthorizationRegist
 }
 
 /**
- * Default Arc card-1 registry. Owner/agent/creation facts reproduce the
- * on-chain record (Arc closeout §8 + first-payment evidence), including the
- * opaque raw allowlist bytes32. Its logical preimage is deliberately not
- * assumed here: on-chain `preflightPay` remains the authority for merchant
- * membership. Operator-approved lane configuration; cross-checked against
- * the seeded row and lane constants on every read.
+ * Dynamic (production) registry: authorization facts are derived from the
+ * authoritative persistence rows on every lookup —
+ * `intent → card → owner → agent → policy` — never from a pinned intent id.
+ * The card row itself is the trust anchor: it was recorded from the on-chain
+ * `CardCreated` event (owner, agent, controller, policy version, raw merchant
+ * allowlist bytes32, creation block/tx) and `validateOwnerAuthorization`
+ * still cross-checks every derived fact against the seeded row and the lane
+ * constants on every read. A fresh card needs no registry change.
  */
-const ARC_CARD1_AUTHORIZATION: OwnerAuthorization = {
-  intentId: "intent-req-1",
-  ownerAddress: "0xb8bdcc633cd8e67250358d807918f99dc0c14d52",
-  agentId: "0xdc26a45c3166c28a3a3a6e02fc8a3ba88d631682",
-  cardId: "1",
-  chainId: 5042002,
-  asset: "arc-testnet-usdc",
-  controller: "0x7a474c005433def5fc496d2016f6ae794edfc423",
-  issuedBy: "0xb8bdcc633cd8e67250358d807918f99dc0c14d52",
-  policyVersion: 1,
-  allowlistHash: "0x020568146fc6eca5159842a3e6d4da71e6aaaf285a0c4ab978902e30fdc77a70",
-  sourceBlock: 62948913,
-  sourceTxHash: "0x5bb8ce7b9c67dfc934730be8e6c4bbfc293e7d3273d2656b6609c7904e1e79fb",
-  expiresAtMs: Date.parse("2027-09-19T00:00:00.000Z"),
+export type CardBackedOwnerRegistryInput = {
+  /** Agent-scoped intent discovery (no owner scoping): see IntentStoreAdapter. */
+  intents: Pick<IntentStoreAdapter, "findAgentScoped">;
+  /** Card reads; `getById` scopes by (cardId, agentId) and returns the row. */
+  cards: Pick<CardStore, "getById">;
+  lane: LaneConfig;
 };
 
-/**
- * Card-2 lane authorization. Reproduces card 2's on-chain creation facts
- * (`CardCreated` block/tx), its own owner/agent pair, and the raw merchant
- * allowlist bytes32 that the card owner set with `updatePolicy`; the intent id
- * is the `intent-${requestId}` id the gateway derives for this lane.
- */
-const ARC_CARD2_AUTHORIZATION: OwnerAuthorization = {
-  intentId: "intent-req-card2-pay-1",
-  ownerAddress: "0x83bc1007076f6681a90d7d60ad62cb53a120f833",
-  agentId: "0xc289b3c8f161006a180fd892348d8895ebf91214",
-  cardId: "2",
-  chainId: 5042002,
-  asset: "arc-testnet-usdc",
-  controller: "0x7a474c005433def5fc496d2016f6ae794edfc423",
-  issuedBy: "0x83bc1007076f6681a90d7d60ad62cb53a120f833",
-  policyVersion: 1,
-  allowlistHash: "0x14b0d999dc378b1bfd77fdaae9eb812308012cfcc5d585656e4ad328e0c78916",
-  sourceBlock: 66167189,
-  sourceTxHash: "0x8374dcbc5ee2365ee3769c035c3e1a9118aa4b29164fa207c1d14266c22655b0",
-  expiresAtMs: 1794070428000,
-};
-
-export function createArcCard1OwnerRegistry(): OwnerAuthorizationRegistry {
-  return staticRegistry([ARC_CARD1_AUTHORIZATION]);
-}
-
-/** Card-1 plus the card-2 lane authorization (second demo card). */
-export function createArcLaneOwnerRegistry(): OwnerAuthorizationRegistry {
-  return staticRegistry([ARC_CARD1_AUTHORIZATION, ARC_CARD2_AUTHORIZATION]);
+export function createCardBackedOwnerRegistry(
+  input: CardBackedOwnerRegistryInput,
+): OwnerAuthorizationRegistry {
+  return {
+    findAuthorization: async (lookup): Promise<OwnerAuthorization | null> => {
+      if (lookup.chainId !== input.lane.chainId) return null;
+      if (!isEvmAddress(lookup.agentId)) return null;
+      let intent;
+      try {
+        intent = await input.intents.findAgentScoped({
+          intentId: lookup.intentId,
+          agentId: lookup.agentId.toLowerCase(),
+        });
+      } catch {
+        return null;
+      }
+      if (intent === null) return null;
+      let card;
+      try {
+        card = await input.cards.getById({
+          cardId: intent.cardId,
+          agentId: intent.agentId,
+        });
+      } catch {
+        return null;
+      }
+      if (card === null) return null;
+      if (card.agent_id.toLowerCase() !== intent.agentId.toLowerCase()) return null;
+      const expiresAtMs = Date.parse(intent.expiresAt);
+      if (!Number.isFinite(expiresAtMs)) return null;
+      return {
+        intentId: lookup.intentId,
+        ownerAddress: card.owner_address.toLowerCase(),
+        agentId: card.agent_id.toLowerCase(),
+        cardId: card.card_id,
+        chainId: card.chain_id,
+        asset: card.asset,
+        controller: card.controller_address.toLowerCase(),
+        issuedBy: card.owner_address.toLowerCase(),
+        policyVersion: card.policy_version,
+        allowlistHash: card.allowlist_hash.toLowerCase(),
+        sourceBlock: card.source_block,
+        sourceTxHash: card.source_tx_hash.toLowerCase(),
+        expiresAtMs,
+      };
+    },
+  };
 }

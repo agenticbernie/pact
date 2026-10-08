@@ -62,7 +62,7 @@ import {
 } from "../_shared/lane-config.ts";
 import {
   buildH2ValidationRecord,
-  createArcCard1OwnerRegistry,
+  createCardBackedOwnerRegistry,
   validateOwnerAuthorization,
   type H2ValidationRecord,
   type OwnerAuthorization,
@@ -595,9 +595,10 @@ type ExecutorCompositionInput = {
   /** Execution lane. Injectable seam defaults legacy; production passes Arc. */
   lane?: LaneSelection | LaneConfig;
   /**
-   * Split-role registry seam. Absent means single-wallet only, even on Arc
-   * (fail closed when the dependency is missing). Production passes the Arc
-   * card-1 registry explicitly in its Deno block; tests inject variants.
+   * Split-role registry seam. When absent on a lane that carries a controller,
+   * the composition root derives the registry dynamically from persistence
+   * (card-backed, never intent-id-pinned); with no persistence it stays
+   * single-wallet only (fail closed). Tests inject static fixtures here.
    */
   ownerAuthorizations?: OwnerAuthorizationRegistry;
   /**
@@ -624,6 +625,22 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
     return createExecutorEntrypointHandler({ configuredRegion, expectedRegion, actualRegion });
   }
   const rpcUrl = env[lane.rpcEnvName];
+  /**
+   * Split-role authorization. Production (default): derived dynamically from
+   * the persistence rows on every lookup (`intent → card → owner → agent →
+   * policy`), never from a pinned intent id — a fresh card needs no registry
+   * change. An explicitly injected registry (tests/regression fixtures)
+   * always wins. Absent (no controller, or no persistence) means
+   * single-wallet only — fail closed.
+   */
+  const ownerAuthorizations = input.ownerAuthorizations ??
+    (persistence !== undefined && lane.controller !== undefined
+      ? createCardBackedOwnerRegistry({
+        intents: persistence.intent,
+        cards: persistence.card,
+        lane,
+      })
+      : undefined);
   // The signing client also serves the static read path (readCard/preflight);
   // the read-only routes only ever receive the narrower view of it.
   const readOnlyClient = input.readOnlyClient ?? input.paymentClient ?? (
@@ -658,7 +675,7 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
         intents: persistence.intent,
         cards: persistence.card,
         lane,
-        ownerAuthorizations: input.ownerAuthorizations,
+        ownerAuthorizations,
       }),
       expectedChainId: lane.chainId,
       signerChainId: input.signerChainId ?? lane.chainId,
@@ -677,7 +694,7 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
         intents: persistence.intent,
         cards: persistence.card,
         lane,
-        ownerAuthorizations: input.ownerAuthorizations,
+        ownerAuthorizations,
       }
       : undefined,
     executeComposition,
@@ -707,10 +724,10 @@ if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   startExecutorServer({
     serve: Deno.serve,
     // H1/H2 production lane: Arc. Legacy lane remains available to the
-    // injectable seam (tests, history) but is not served here.
+    // injectable seam (tests, history) but is not served here. Split-role
+    // authorization is derived dynamically from the persistence rows
+    // (card-backed registry); no static fixture is consulted.
     lane: "arc",
-    // Explicit split-role registry for Arc card 1 (supplement §6 facts).
-    ownerAuthorizations: createArcCard1OwnerRegistry(),
     env: {
       PACT_EXPECTED_REGION: Deno.env.get("PACT_EXPECTED_REGION"),
       SB_REGION: Deno.env.get("SB_REGION"),
