@@ -924,7 +924,7 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     which does not re-export it (the type lives in `_shared/persistence-composition.ts`). Datable to
     2026-09-21 and type-only — `node --experimental-strip-types` erases it, so runtime is unaffected —
     but a strict `tsc` over `neon/` still fails until the re-export/import is fixed.
-  - **Deploy status — aigateway revision deployed 2026-10-09; verified read-only (P1.2): production `GET /health` now returns 200 `modelAvailable:true` (that deployed revision still hardcoded the literal — the source now derives it, see the derived-signal bullet below), `GET /` → 404 `INPUT_INVALID` unsupported route, unauth `POST /v1/agent/intents` → 401 `AUTH_REQUIRED`, `readapi GET /v1/config` → 200 with a fresh `latestIndexedBlock`; no authenticated Neon session exists here, so the remote revision/digest is not retrievable from this sandbox. Not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
+  - **Deploy status — aigateway revision deployed 2026-10-09; verified read-only (P1.2): production `GET /health` now returns 200 `modelAvailable:true` (that deployed revision still hardcoded the literal — the source now derives it, see the derived-signal bullet below), `GET /` → 404 `INPUT_INVALID` unsupported route, unauth `POST /v1/agent/intents` → 401 `AUTH_REQUIRED`, `readapi GET /v1/config` → 200 with a fresh `latestIndexedBlock`; no authenticated Neon session exists here, so the remote revision/digest is not retrievable from this sandbox. Historically not deployable from this sandbox** (no Neon credential was present and no production deploy was authorized at the time):
     `NEON_API_KEY` is absent from the repo, `.base44` secrets and `/run/base44/app.env`, and
     `npx neonctl projects list` can only start an interactive browser OAuth that times out headless
     (the CLI itself IS fetchable — `npx neonctl@latest` resolves to the `neon` CLI; `api.neon.tech`
@@ -939,6 +939,22 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     `polished-dream-04296130` / branch `main` with the Neon CLI or dashboard; (3) after both land,
     re-run the canonical intent → preflight → execute flow against production and confirm
     `POST /v1/agent/intents` answers 200 instead of a bare 400.
+    - **aigateway REDEPLOYED to production (2026-10-09, authorized):** once the `NEON_API_KEY` app
+      secret existed, `neonctl functions deploy aigateway --project-id polished-dream-04296130
+      --branch main --src neon/functions/aigateway/index.ts --runtime nodejs24 --wait` completed —
+      **deployment ID 10**, created `2026-10-09T09:21:37Z`, status `completed`; `neonctl functions
+      get aigateway` reports it as the current active deployment. Live verify: production `GET
+      /health` → 200 `{configuredRegion:us-east-1, expectedRegion:us-east-1, chainId:5042002,
+      provider:openai, model:gpt-4o-mini, modelAvailable:true}` and `GET /` → 404 `INPUT_INVALID`
+      "Unsupported gateway route." `/health` answers identically before and after (the derived
+      signal returns `true` whenever the key is present and the region/model gates pass), so
+      `/health` alone cannot prove which revision is live — the deployment ID/timestamp is the
+      provenance. Only `aigateway` was deployed; `session`, `agentexecutor` and `readapi` are
+      untouched, and no function env vars, migrations or rows were changed.
+      - **Quirk — store the key bare:** the `NEON_API_KEY` secret arrived wrapped in double quotes
+        (`NEON_API_KEY="napi_…"`), which the Neon API rejects verbatim ("the Neon API rejected the
+        API key"). Strip the surrounding quotes before use:
+        `K="$(sed -n 's/^NEON_API_KEY=//p' /run/base44/app.env)"; K="${K#\"}"; K="${K%\"}"; export NEON_API_KEY="$K"`.
 - **`/health` `modelAvailable` is derived, not a literal (2026-10-09):** the gateway entrypoint used
   to answer `modelAvailable: true` at every `/health` (a hardcoded literal in
   `supabase/functions/ai-gateway/index.ts`), which is why earlier lanes that read it as provider

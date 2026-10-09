@@ -4,6 +4,11 @@
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": [
     {
+      "name": "NEON_API_KEY",
+      "description": "Neon API key (Neon Console -> Account settings -> API keys, or `neonctl api-keys create`) used ONLY by the Neon CLI to deploy the Pact Neon Functions from this sandbox (`neonctl functions deploy <slug> ...`). The app does not read it at boot or at runtime. Enter the bare key with NO surrounding quotes — a quoted value is rejected verbatim by the Neon API.",
+      "requiredAtBoot": false
+    },
+    {
       "name": "DATABASE_URL",
       "description": "Hosted Neon Postgres connection string for the Pact Neon runtime (Neon console -> Project -> Connection string, or `neon connection-string --project-id <id> --branch main`). Include sslmode=require; the role must own the tables so the baseline's RLS deny policies do not block the app. Optional for local work: without it the api service falls back to the compose Postgres via .env.base44-defaults.",
       "requiredAtBoot": false
