@@ -742,6 +742,14 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `allowFallback:false`); `OPENAI_MODEL` must match it or the gateway fails closed. The
   `intents.model` DDL default in the migration files is inert (the adapter always inserts the
   model explicitly) and is left byte-verbatim for the checksum pins.
+- **AI merchantId is enum-constrained (fixed 2026-10-09):** `POST /v1/agent/intents` used to fail
+  intermittently with `PROVIDER_OUTPUT_INVALID` (~1 in 3 calls) because gpt-4o-mini concatenated
+  the appended merchant-list hint into the id (e.g. `"coffee-demo.merchants:coffee-demo"`), which
+  `assertMerchantInCatalog` then rejected. `OpenAiProvider.parseIntent` now puts the catalog ids in
+  the strict schema as `enum`, so the model can only name a real merchant; the hint text also reads
+  "Allowed merchant ids (choose exactly one)". Reproduce with
+  `docker compose exec -T api node --experimental-strip-types <probe>` calling
+  `OpenAiProvider.parseIntent` directly.
 - **Migrations:** the one-shot `migrate` compose service applies `neon/migrations/*.sql` in lexical
   order to the compose Postgres on every boot. The DDL is idempotent, so this is safe to re-run and a
   new migration reaches an existing `db-data` volume (the old `docker-entrypoint-initdb.d` mount only
@@ -765,10 +773,14 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     `0xB8Bd…` (card-1's owner, not card-2's) — using it for card-2 auth yields 401 `AUTH_INVALID`
     at verify. `ASC_AUTHORITY_PRIVATE_KEY` derives `0x6E90…` but `ASC_WALLET_ADDRESS` declares
     `0x1250…` (unrelated to this flow, but the pairing is wrong in the current secrets).
-  - **Intent ids are replay-pinned:** `intentId = intent-${x-request-id}` and the gateway INSERTs
-    it; a duplicate `x-request-id` (or one whose intent row already exists) fails save and maps
-    to 400 `INPUT_INVALID`. A replay with the same id after expiry is *correctly* declined —
-    re-run the flow with a fresh request id, or delete the expired `intents` row first.
+  - **Intent ids are replay-pinned, and identical replays now reconcile (fixed 2026-10-09):**
+    `intentId = intent-${x-request-id}` and the gateway INSERTs it, so a repeated `x-request-id`
+    (or one whose row already exists) hits the unique key. The store's reconcile read used to
+    scope by the caller's `ownerAddress`; `save()` passed the **agent** there, so the read always
+    found zero rows and fell through to `CONFLICT` → surfaced to clients as 400 `INPUT_INVALID`.
+    `IntentInsertInput.ownerAddress` is now optional and the replay read derives the owner from the
+    card row, so a byte-identical replay returns the prior intent (200). Same id with **differing**
+    canonical fields is still declined (`IDEMPOTENCY_CONFLICT` → `INPUT_INVALID`), which is correct.
   - **Preflight authorization is a static fixture:** `createArcLaneOwnerRegistry()` in
     `supabase/functions/_shared/owner-authorization.ts` matches exactly on
     `(intentId, agentId, chainId)`; card-2's authorization is pinned to

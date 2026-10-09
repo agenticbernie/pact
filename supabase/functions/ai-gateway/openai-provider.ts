@@ -82,6 +82,11 @@ export class OpenAiProvider implements AiProvider {
   }): Promise<ProviderIntentResult> {
     assertModelConfigAllowsCall(this.modelConfig);
     const model = resolveOpenAIModel({ ...this.modelConfig, region: this.region }, this.envModel);
+    // Constrain `merchantId` to the server catalog. Without the enum the model
+    // intermittently concatenates the appended merchant-list hint into the id
+    // (e.g. "coffee-demo.merchants:coffee-demo"), which the gateway then fails
+    // closed on as PROVIDER_OUTPUT_INVALID. The enum makes the id deterministic.
+    const merchantIds = input.merchants.map((merchant) => merchant.id);
     const body = {
       model,
       store: false,
@@ -97,7 +102,9 @@ export class OpenAiProvider implements AiProvider {
             type: "object",
             additionalProperties: false,
             properties: {
-              merchantId: { type: "string" },
+              merchantId: merchantIds.length > 0
+                ? { type: "string", enum: merchantIds }
+                : { type: "string" },
               amountDecimal: { type: "string" },
               purpose: { type: "string" },
               confidence: { type: "number" },
@@ -113,7 +120,7 @@ export class OpenAiProvider implements AiProvider {
             { type: "input_text", text: input.prompt },
             {
               type: "input_text",
-              text: `merchants: ${input.merchants.map((m) => m.id).join(",")}`,
+              text: `Allowed merchant ids (choose exactly one): ${merchantIds.join(", ")}`,
             },
           ],
         },

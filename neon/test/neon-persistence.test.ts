@@ -223,6 +223,62 @@ describe("Neon persistence adapter (RED-first, fake Pool)", () => {
     })).rejects.toThrow();
   });
 
+  it("save() derives the replay owner from the card, so an identical replay reconciles", async () => {
+    const intent = {
+      intentId: "intent-arc-save-1",
+      agentId: WALLET,
+      cardId: "1",
+      merchantId: "arc-demo-merchant",
+      amountBaseUnits: "1000",
+      asset: "arc-testnet-usdc",
+      purpose: "probe",
+      confidence: 0.9,
+      provider: "openai",
+      model: "gpt-4o-mini",
+      createdAt: "2026-09-19T00:00:00.000Z",
+      expiresAt: "2027-09-19T00:00:00.000Z",
+      policyVersion: 1,
+      intentHash: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    };
+    const priorRow = {
+      intent_id: "intent-arc-save-1",
+      card_id: "1",
+      agent_id: WALLET.toLowerCase(),
+      merchant_id: "arc-demo-merchant",
+      amount_base_units: "1000",
+      asset: "arc-testnet-usdc",
+      chain_id: 5042002,
+      purpose: "probe",
+      confidence: 0.9,
+      provider: "openai",
+      model: "gpt-4o-mini",
+      policy_version: 1,
+      intent_hash: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      status: "ready",
+      request_id: "intent-arc-save-1",
+      idempotency_key: "intent-arc-save-1",
+      created_at: "2026-09-19T00:00:00.000Z",
+      expires_at: "2027-09-19T00:00:00.000Z",
+      cards_owner_address: OWNER.toLowerCase(),
+    };
+    const replay = fakePool(({ text }) => {
+      if (text.startsWith("INSERT INTO intents")) throw { code: "23505", constraint: "intents_pkey" };
+      if (text.includes("FROM cards WHERE card_id")) {
+        return {
+          rows: [{ card_id: "1", agent_id: WALLET.toLowerCase(), owner_address: OWNER.toLowerCase(), status: "ACTIVE" }],
+          rowCount: 1,
+        };
+      }
+      return { rows: [priorRow], rowCount: 1 };
+    });
+    const store = createNeonPersistence(replay.pool, "arc");
+    // The gateway's save() path pins no owner, so it must derive OWNER (the
+    // card's) rather than WALLET (the agent's), or the reconcile read misses.
+    await expect(store.intent.save(intent)).resolves.toBeUndefined();
+    const replayRead = replay.recorded.find((q) => q.text.includes("idempotency_key = $1"));
+    expect(replayRead?.params).toEqual(["intent-arc-save-1", WALLET.toLowerCase(), OWNER.toLowerCase()]);
+  });
+
   it("maps duplicate-active vs generic conflicts by constraint name", async () => {
     const dup = fakePool(() => { throw { code: "23505", constraint: "cards_agent_active_uidx" }; });
     await expect(
