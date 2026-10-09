@@ -71,6 +71,32 @@ export type ApiPaymentDetail = ApiPayment & {
   blockNumber?: number;
 };
 
+/**
+ * One persisted intent, as the read model stores it. The console never invents
+ * these fields: card, agent, asset and policy version were bound server-side
+ * when the gateway created the intent.
+ */
+export type ApiIntentRead = {
+  intentId: string;
+  cardId: string;
+  agentId: string;
+  merchantId: string;
+  amountBaseUnits: string;
+  asset: string;
+  chainId: number;
+  status: string;
+  policyVersion: number;
+  intentHash: string;
+  requestId: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type ApiIntentDetail = IndexerSignal & {
+  intent: ApiIntentRead;
+  payments: ApiPayment[];
+};
+
 export type ApiConfig = {
   chainId: number;
   controller: string;

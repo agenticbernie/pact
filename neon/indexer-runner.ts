@@ -22,6 +22,8 @@ import {
 import { createSqlCardProjector } from "../supabase/functions/indexer/card-projection.ts";
 import { createEthersChainReader } from "../supabase/functions/indexer/chain-reader.ts";
 import { createPactEventDecoder } from "../supabase/functions/indexer/event-decoder.ts";
+import { createPolicyVersionReconciler } from "../supabase/functions/indexer/policy-version-reconciler.ts";
+import { createChainPolicyVersionReader } from "../supabase/functions/_shared/policy-version.ts";
 import { createNeonPool } from "./adapter/neon-persistence.ts";
 
 export const DEFAULT_INDEXER_INTERVAL_MS = 15_000;
@@ -71,8 +73,39 @@ export function createIndexerRunner(options: IndexerRunnerOptions): IndexerRunne
     chainId,
     addresses: [controller, poolAddress, merchant],
   });
+  // `cards.policy_version` cannot come from the decoded events (the controller
+  // emits no version with them), so the projection writes a placeholder and this
+  // reconciler replaces it with an authoritative, provenance-carrying read.
+  const policyVersions = createPolicyVersionReconciler({
+    query,
+    chainId,
+    readPolicyVersion: createChainPolicyVersionReader({
+      rpcUrl: options.rpcUrl,
+      chainId,
+      controllerAddress: controller,
+    }),
+  });
+
+  /** Refresh the authoritative policy version of every card that needs it. */
+  async function reconcilePolicyVersions(): Promise<void> {
+    try {
+      const confirmations = BigInt(options.confirmations ?? 1);
+      const behind = (await reader.latestBlock()) - confirmations;
+      const summary = await policyVersions.reconcile(behind < 0n ? 0n : behind);
+      if (summary.verified > 0 || summary.unreadable > 0 || summary.superseded > 0) {
+        log(
+          `policy version: ${summary.verified} verified on chain, ${summary.unreadable} unreadable, ${summary.superseded} superseded`,
+        );
+      }
+    } catch (error) {
+      // A policy-version refresh never blocks the ledger/projection work above.
+      const message = error instanceof Error ? error.message : "unknown error";
+      log(`policy version reconcile failed: ${message}`);
+    }
+  }
 
   async function runOnce(): Promise<void> {
+    let caughtUp = false;
     for (let i = 0; i < MAX_TICKS_PER_CYCLE; i += 1) {
       const result = await runIndexerTick({
         chainId,
@@ -89,9 +122,15 @@ export function createIndexerRunner(options: IndexerRunnerOptions): IndexerRunne
         );
       }
       // Not advanced => at the confirmed head, or waiting on a reorg rewind.
-      if (!result.advanced) return;
+      if (!result.advanced) {
+        caughtUp = true;
+        break;
+      }
     }
-    log(`catch-up budget (${MAX_TICKS_PER_CYCLE} ranges) exhausted; continuing next cycle`);
+    if (!caughtUp) {
+      log(`catch-up budget (${MAX_TICKS_PER_CYCLE} ranges) exhausted; continuing next cycle`);
+    }
+    await reconcilePolicyVersions();
   }
 
   function start(): () => void {

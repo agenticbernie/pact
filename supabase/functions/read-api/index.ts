@@ -8,6 +8,8 @@
  *   GET /v1/cards/:cardId/activity     (wallet-bound session required)
  *   GET /v1/payments?cardId=:cardId    (wallet-bound session required: attempts for an owned card)
  *   GET /v1/payments/:paymentId        (wallet-bound session required)
+ *   GET /v1/intents/:intentId          (wallet-bound session required: one persisted intent
+ *                                       plus the attempts bound to it)
  *
  * Truth rule (AC-14): a payment is reported `settled` ONLY when a successful
  * on-chain receipt AND a matching indexed PaymentSettled event are both
@@ -137,6 +139,46 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
         latestIndexedBlock: latest,
         stale: latest === null,
         chainReadAt: new Date(now()).toISOString(),
+      },
+      200,
+      requestId,
+    );
+  }
+
+  /**
+   * One persisted intent, owner-scoped, with the attempts bound to it. The
+   * console keeps an intent id in component state today, so this route is what
+   * makes an intent refreshable/reconcilable after a reload.
+   */
+  async function intentRoute(intentId: string, request: Request, requestId: string): Promise<Response> {
+    if (!isPaymentId(intentId)) return json(createApiError("INPUT_INVALID", requestId), 400, requestId);
+    const ctx = session(request, requestId);
+    if (ctx instanceof Response) return ctx;
+    const latest = await freshness();
+    const intent = await deps.store.getIntent(intentId, ctx.wallet);
+    if (intent === null) return json(createApiError("INPUT_INVALID", requestId), 404, requestId);
+    const attempts = await deps.store.listIntentPayments(intentId, ctx.wallet, PAYMENT_LIST_LIMIT);
+    const payments = [];
+    for (const attempt of attempts) {
+      payments.push({
+        paymentId: attempt.paymentId,
+        intentId: attempt.intentId,
+        cardId: attempt.cardId,
+        merchantId: attempt.merchantId,
+        amountBaseUnits: attempt.amountBaseUnits,
+        asset: attempt.asset,
+        chainId: attempt.chainId,
+        ...attemptFields(attempt),
+        ...(await truthFor(attempt, latest)),
+      });
+    }
+    return json(
+      {
+        requestId,
+        intent,
+        latestIndexedBlock: latest,
+        stale: latest === null,
+        payments,
       },
       200,
       requestId,
@@ -300,6 +342,11 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
 
     const card = /^\/v1\/cards\/([^/]+)$/.exec(path);
     if (card !== null) return cardRoute(card[1], request, requestId);
+
+    // `/v1/agent/intents` (POST) is the gateway's; this is the persisted read of
+    // one intent, so a reloaded console can still reconcile what it created.
+    const intent = /^\/v1\/intents\/([^/]+)$/.exec(path);
+    if (intent !== null) return intentRoute(intent[1], request, requestId);
 
     if (path === "/v1/cards") return cardsRoute(request, requestId);
     if (path === "/v1/payments") return paymentsRoute(new URL(request.url), request, requestId);
