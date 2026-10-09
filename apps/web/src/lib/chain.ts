@@ -327,8 +327,30 @@ export async function issueCard(input: {
   const activateReceipt = await activateTx.wait();
   assertMined(activateReceipt, "The activation transaction did not succeed.");
 
-  const card = await readChainCard(input.runner, input.controller, cardId);
+  // Both receipts are confirmed: the card exists on chain and its id came from
+  // the create receipt's own `CardCreated` event. This re-read only enriches the
+  // result for the caller, so a transient RPC failure here must not be reported
+  // as a failed issuance — that is how a confirmed card used to surface to the
+  // user as "Card not created".
+  const card = await readConfirmedCard(input.runner, input.controller, cardId);
   return { cardId, createTxHash: createTx.hash, activateTxHash: activateTx.hash, card };
+}
+
+/**
+ * Advisory on-chain snapshot of an already-confirmed card; `null` when the read
+ * itself fails. Callers reach this only after the create/activate receipts are
+ * asserted, so `null` means "snapshot unavailable", never "not created".
+ */
+export async function readConfirmedCard(
+  runner: ContractRunner,
+  controller: string,
+  cardId: string,
+): Promise<ChainCardSnapshot | null> {
+  try {
+    return await readChainCard(runner, controller, cardId);
+  } catch {
+    return null;
+  }
 }
 
 function assertMined(receipt: ReceiptLike | null, message: string): asserts receipt is ReceiptLike {
