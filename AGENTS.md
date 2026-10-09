@@ -987,3 +987,19 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `policy_version = 0`, expiring `2026-10-09T07:31:49Z` (i.e. ~5 min after that read — check expiry
   before acting rather than assuming it is historical). The only `payment_attempts` rows are card 2's:
   `intent-req-card2-pay-1` **settled** (`0x947a92…dc72`) and one `declined`.
+- **Hosted Neon already carries `0004` (verified 2026-10-09, read-only):** the `DATABASE_URL` app
+  secret points the `api` service at hosted Neon (`neon.branch_id br-spring-poetry-au5ekyxd`,
+  endpoint `ep-lingering-salad-auwrwde0`, PG 17.11; the local `pact` role is absent, so it is NOT the
+  compose Postgres). `0004_card_policy_version.sql` is **applied** there: `cards.policy_version_source`
+  (text not null default `'PROJECTION'`), `policy_version_block` (bigint not null default 0),
+  `policy_version_observed_at` (timestamptz), both `*_source_check` / `*_block_check` constraints and
+  the `cards_policy_version_pending_idx` partial index exist, and the reconciler has written
+  `policy_version_source='CHAIN'` for card 2 (block 66272618 → read model `policyVersionStatus:
+  "verified"`). So no migration run is needed; the one-shot `migrate` compose service only ever
+  touches the compose Postgres, and a hosted branch must be migrated out of band.
+  Verify read-only without printing the connection string, from inside the container:
+  `docker compose -f docker-compose.base44.yml exec -T api node --input-type=module` (piped script
+  using `pg` + `process.env.DATABASE_URL`), plus the authenticated read path
+  (`POST /v1/session/challenge` → sign EIP-191 with `OWNER_WALLET_PRIVATE_KEY` → `/v1/session/verify`
+  → `GET /v1/cards/2` on `http://127.0.0.1:8000`). Suites: `corepack yarn vitest run
+  supabase/functions/read-api supabase/functions/indexer` → 6 files / 48 tests pass.
