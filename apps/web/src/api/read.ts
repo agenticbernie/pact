@@ -8,6 +8,7 @@ import type {
   ApiCardResponse,
   ApiCardsResponse,
   ApiConfig,
+  ApiIntentDetail,
   ApiPaymentDetail,
   ApiPaymentsResponse,
 } from "./types";
@@ -44,6 +45,14 @@ export function listCardPayments(cardId: string, signal?: AbortSignal): Promise<
 export function getPayment(paymentId: string, signal?: AbortSignal): Promise<ApiPaymentDetail> {
   return apiGet<ApiPaymentDetail>(
     `/v1/payments/${encodeURIComponent(paymentId)}`,
+    signal === undefined ? {} : { signal },
+  );
+}
+
+/** One persisted intent plus the attempts bound to it. */
+export function getIntent(intentId: string, signal?: AbortSignal): Promise<ApiIntentDetail> {
+  return apiGet<ApiIntentDetail>(
+    `/v1/intents/${encodeURIComponent(intentId)}`,
     signal === undefined ? {} : { signal },
   );
 }

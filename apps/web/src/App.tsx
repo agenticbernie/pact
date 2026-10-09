@@ -7,6 +7,7 @@ import { CardActivityPage } from "./pages/CardActivityPage";
 import { CardPage } from "./pages/CardPage";
 import { CreateCardPage } from "./pages/CreateCardPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { IntentPage } from "./pages/IntentPage";
 import { LandingPage } from "./pages/LandingPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PaymentDetailPage } from "./pages/PaymentDetailPage";
@@ -59,6 +60,7 @@ export function App() {
         <Route path="/console" element={<DashboardPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/payments/:paymentId" element={<PaymentDetailPage />} />
+        <Route path="/intents/:intentId" element={<IntentPage />} />
         <Route path="/cards/new" element={<CreateCardPage />} />
         <Route path="/cards/:cardId" element={<CardPage />} />
         <Route path="/cards/:cardId/activity" element={<CardActivityPage />} />

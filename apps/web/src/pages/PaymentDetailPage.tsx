@@ -94,7 +94,9 @@ function PaymentReceipt({ paymentId }: { paymentId: string }) {
               <MonoValue value={payment.nonce} />
             </MetadataListItem>
             <MetadataListItem label="Intent">
-              <MonoValue value={payment.intentId} />
+              <Link href={`/intents/${encodeURIComponent(payment.intentId)}`}>
+                {payment.intentId}
+              </Link>
             </MetadataListItem>
             <MetadataListItem label="Intent hash">
               <MonoValue value={payment.intentHash} />

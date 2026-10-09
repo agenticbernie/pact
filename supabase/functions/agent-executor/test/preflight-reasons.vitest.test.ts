@@ -45,6 +45,7 @@ function deps(input: {
     resolveIntent: createInMemoryIntentResolver(
       new Map(input.intent === null ? [] : [["intent-1", input.intent]]),
     ),
+    signerAddress: AGENT,
     expectedChainId: CHAIN,
     signerChainId: CHAIN,
     nowMs: 1_000_000_000_000,

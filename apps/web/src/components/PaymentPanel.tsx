@@ -32,6 +32,7 @@ import {
 } from "../lib/chain";
 import { merchantCatalog, merchantLabel } from "../lib/merchants";
 import { ARC_TESTNET_RPC_URL } from "../lib/network";
+import { describeReasonCode } from "../lib/reason-codes";
 import { useSession } from "../session/SessionProvider";
 
 const CHECK_TONE = { ok: "success", fail: "error", unknown: "warning" } as const;
@@ -76,6 +77,8 @@ export function PaymentPanel({
   const [idempotencyKey, setIdempotencyKey] = useState(
     () => `pay-${cardId}-${Date.now().toString(36)}`,
   );
+  /** Once the intent exists the default key is rebound to it (see `createIntent`). */
+  const [keyEdited, setKeyEdited] = useState(false);
 
   // `undefined` while the on-chain read is in flight; null when it failed.
   const [chainCard, setChainCard] = useState<ChainCardSnapshot | null | undefined>(undefined);
@@ -88,6 +91,8 @@ export function PaymentPanel({
   const [settlement, setSettlement] = useState<ApiExecuteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"intent" | "preflight" | "execute" | null>(null);
+  /** Nothing is broadcast until the operator confirms the exact payment. */
+  const [confirming, setConfirming] = useState(false);
 
   const sessionWallet = state.status === "active" ? state.wallet : "";
   const controller = config?.controller ?? "";
@@ -195,6 +200,11 @@ export function PaymentPanel({
         setIntent(null);
         throw new Error("The intent's agent does not match the card's on-chain agent.");
       }
+      // Default the settlement key to the intent, unless the operator named one:
+      // an attempt's `paymentId` IS its idempotency key (and its on-chain nonce
+      // derives from it), so this keeps one intent to one attempt no matter
+      // whether settlement is submitted here or from the intent page.
+      if (!keyEdited) setIdempotencyKey(`pay-${resolved.intentId}`);
       setIntent(resolved);
     } catch (cause) {
       setError(describeError(cause));
@@ -227,6 +237,7 @@ export function PaymentPanel({
     } catch (cause) {
       setError(describeError(cause));
     } finally {
+      setConfirming(false);
       setBusy(null);
     }
   }
@@ -278,7 +289,10 @@ export function PaymentPanel({
           <TextInput
             label="Idempotency reference"
             value={idempotencyKey}
-            onChange={(value) => setIdempotencyKey(value)}
+            onChange={(value) => {
+              setKeyEdited(true);
+              setIdempotencyKey(value);
+            }}
             description="Bound to the settlement attempt: reusing it can never settle the same payment twice."
             isDisabled={busy !== null || settlement !== null}
           />
@@ -365,7 +379,9 @@ export function PaymentPanel({
               description={
                 preflight.reasonCode === undefined
                   ? `Checked at ${preflight.checkedAt}.`
-                  : `Checked at ${preflight.checkedAt}. Reason: ${preflight.reasonCode}.`
+                  : `Checked at ${preflight.checkedAt}. ${
+                      describeReasonCode(preflight.reasonCode) ?? ""
+                    } Reason: ${preflight.reasonCode}.`
               }
             />
           )}
@@ -409,6 +425,10 @@ export function PaymentPanel({
                 </MetadataListItem>
               </MetadataList>
 
+              <Link href={`/intents/${encodeURIComponent(intent.intentId)}`}>
+                Open the intent after a reload
+              </Link>
+
               {intentExpired ? (
                 <Banner
                   status="warning"
@@ -418,25 +438,46 @@ export function PaymentPanel({
               ) : null}
 
               {eligibility.callerIsAgent ? (
-                <Stack direction="horizontal" gap={2} wrap="wrap">
-                  <Button
-                    label={busy === "preflight" ? "Checking…" : "Run preflight"}
-                    isLoading={busy === "preflight"}
-                    isDisabled={busy !== null || intentExpired}
-                    onClick={() => {
-                      void runPreflight();
-                    }}
-                  />
-                  <Button
-                    label={busy === "execute" ? "Submitting settlement…" : "Submit settlement"}
-                    variant="primary"
-                    isLoading={busy === "execute"}
-                    isDisabled={busy !== null || intentExpired || settlement !== null}
-                    onClick={() => {
-                      void settle();
-                    }}
-                  />
-                </Stack>
+                confirming ? (
+                  <VStack gap={2}>
+                    <Text type="supporting">
+                      {`Submit the agent lane's settlement for ${formatAmount(amountBaseUnits.toString(), card.asset)} to ${merchantLabel(merchantId)} on card ${cardId}? The reference above is bound to this attempt, so a repeat reconciles it instead of paying twice.`}
+                    </Text>
+                    <Stack direction="horizontal" gap={2} wrap="wrap">
+                      <Button
+                        label={busy === "execute" ? "Submitting settlement…" : "Confirm settlement"}
+                        variant="primary"
+                        isLoading={busy === "execute"}
+                        isDisabled={busy !== null}
+                        onClick={() => {
+                          void settle();
+                        }}
+                      />
+                      <Button
+                        label="Cancel"
+                        isDisabled={busy !== null}
+                        onClick={() => setConfirming(false)}
+                      />
+                    </Stack>
+                  </VStack>
+                ) : (
+                  <Stack direction="horizontal" gap={2} wrap="wrap">
+                    <Button
+                      label={busy === "preflight" ? "Checking…" : "Run preflight"}
+                      isLoading={busy === "preflight"}
+                      isDisabled={busy !== null || intentExpired}
+                      onClick={() => {
+                        void runPreflight();
+                      }}
+                    />
+                    <Button
+                      label="Review settlement"
+                      variant="primary"
+                      isDisabled={busy !== null || intentExpired || settlement !== null}
+                      onClick={() => setConfirming(true)}
+                    />
+                  </Stack>
+                )
               ) : (
                 <Banner
                   status="info"

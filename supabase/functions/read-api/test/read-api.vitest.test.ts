@@ -21,8 +21,27 @@ const CARD: CardReadModel = {
   spent: "5",
   expiresAt: "2026-12-01T00:00:00.000Z",
   policyVersion: 1,
+  policyVersionStatus: "verified",
+  policyVersionSource: "CHAIN",
+  policyVersionBlock: 66170400,
   sourceBlock: 66170000,
   updatedAt: "2026-10-08T00:00:00.000Z",
+};
+
+const INTENT = {
+  intentId: "intent-req-card2-pay-1",
+  cardId: "2",
+  agentId: "0x1111111111111111111111111111111111111111",
+  merchantId: "coffee-demo",
+  amountBaseUnits: "5",
+  asset: "arc-testnet-usdc",
+  chainId: 5042002,
+  status: "ready",
+  policyVersion: 1,
+  intentHash: "0x" + "22".repeat(32),
+  requestId: "req-card2-pay-1",
+  createdAt: "2026-10-09T07:00:00.000Z",
+  expiresAt: "2026-10-09T07:15:00.000Z",
 };
 
 const ATTEMPT: PaymentAttemptRow = {
@@ -57,6 +76,12 @@ function baseStore(overrides: Partial<ReadStore> = {}): ReadStore {
       return ATTEMPT;
     },
     async listPayments() {
+      return [ATTEMPT];
+    },
+    async getIntent() {
+      return INTENT;
+    },
+    async listIntentPayments() {
       return [ATTEMPT];
     },
     async hasIndexedPaymentEvent() {
@@ -126,6 +151,11 @@ describe("Phase 05 read API", () => {
     const payload = await body(response);
     const card = payload["card"] as Record<string, unknown>;
     expect(card["cardId"]).toBe("2");
+    // Policy-version provenance travels with the value, so a placeholder can
+    // never be rendered as if the chain confirmed it.
+    expect(card["policyVersionStatus"]).toBe("verified");
+    expect(card["policyVersionSource"]).toBe("CHAIN");
+    expect(card["policyVersionBlock"]).toBe(66170400);
     expect(payload["latestIndexedBlock"]).toBe(66170486);
     expect(payload["stale"]).toBe(false);
   });
@@ -229,6 +259,30 @@ describe("Phase 05 read API", () => {
     expect(events[0]?.["eventType"]).toBe("PaymentSettled");
     expect(payload["blockNumber"]).toBe(66170486);
     expect(payload["attemptStatus"]).toBe("settled");
+  });
+
+  it("returns a persisted intent with the attempts bound to it", async () => {
+    const handler = makeHandler(
+      { async hasIndexedPaymentEvent() { return true; } },
+      { receiptLookup: async () => ({ status: 1 as const }) },
+    );
+    const payload = await body(await handler(get(`/v1/intents/${INTENT.intentId}`, TOKEN)));
+    const intent = payload["intent"] as Record<string, unknown>;
+    expect(intent["intentId"]).toBe(INTENT.intentId);
+    expect(intent["agentId"]).toBe(INTENT.agentId);
+    expect(intent["policyVersion"]).toBe(1);
+    const payments = payload["payments"] as Record<string, unknown>[];
+    expect(payments).toHaveLength(1);
+    expect(payments[0]?.["status"]).toBe("settled");
+  });
+
+  it("scopes the intent read to the session and rejects unknown intents", async () => {
+    const unauthorized = await makeHandler()(get(`/v1/intents/${INTENT.intentId}`));
+    expect(unauthorized.status).toBe(401);
+    const missing = await makeHandler({ async getIntent() { return null; } })(
+      get(`/v1/intents/${INTENT.intentId}`, TOKEN),
+    );
+    expect(missing.status).toBe(404);
   });
 
   it("rejects non-GET reads and unknown routes", async () => {
