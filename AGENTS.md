@@ -1036,7 +1036,7 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   no frontend change. Tests: `supabase/functions/agent-executor/test/preflight-reasons.vitest.test.ts`
   plus `supabase/functions/_shared/test/policy-version.vitest.test.ts` and
   `supabase/functions/ai-gateway/test/policy-version-source.vitest.test.ts`.
-- **Card-3 prerequisites provisioned 2026-10-09; settlement itself NOT re-run:** the two external
+- **Card-3 end-to-end payment VERIFIED 2026-10-09:** the two external
   blockers recorded here were both cleared. Card 3's assigned agent `0xfda8…8435` (owner == agent, a
   browser wallet) now HAS a per-agent signer in `AGENT_SIGNER_KEYS` (supplied as a single BARE key,
   accepted by the tolerant shape above), and its on-chain `verifiedCredit` was attested from `0` to
@@ -1044,8 +1044,16 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `ascAuthority` `0x6e90…7313` and calls `applyVerifiedCreditForAgent`), with the credit expiry set to
   the card's own `expiresAt` and the row projected into `cards` (`verified_credit` `1e18`,
   `policy_version` `1`). So `session wallet == intent.agent` and the credit gate are both satisfiable.
-  What is NOT verified is the flow: no fresh card-3 intent → preflight → `controller.pay` settlement has
-  been run since, so card-3 settlement stays unproven until that run happens.
+  **The full flow is now verified (2026-10-09):** one `node` script inside the `api` container read the
+  bare `AGENT_SIGNER_KEYS` key (never printed), signed the EIP-191 challenge (owner == agent, so the
+  same key authorizes the session), then ran `POST /v1/agent/intents` (x-request-id
+  `req-c3-e2e-mv0sqdug`, prompt "…0.005 USDC from card 3 to coffee-demo…") → `preflight`
+  `would_settle` → `POST /v1/payments/execute` `settled`, tx `0x73fbf77f…eeec350` (block 66289043,
+  `PaymentSettled` cardId `3`, amount `5000000000000000`, `intentHash` matching the intent), and the
+  read model reports `attemptStatus settled` (receiptConfirmed + indexedPaymentEvent true). The
+  persisted intent is `intent-req-c3-e2e-mv0sqdug` (the pre-existing card-3 rows were expired or
+  carried the stale placeholder policy version). The console intent page renders it as Settled once a
+  card-3-owner session is seeded into `sessionStorage["pact.console.session"]` and the tab reloaded.
 - **Current persisted state (2026-10-09 ~07:26 UTC, read from the runtime's own DB):** cards 1/2 are
   hand-seeded with `policy_version = 1` and credit `1e17`; card 3 has `policy_version = 0`,
   `verified_credit = 0`; `intent-req-b05e4d86-9318-467d-bfd6-fd53fa32f691` is still `ready`, still
