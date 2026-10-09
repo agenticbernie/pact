@@ -924,7 +924,7 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     which does not re-export it (the type lives in `_shared/persistence-composition.ts`). Datable to
     2026-09-21 and type-only — `node --experimental-strip-types` erases it, so runtime is unaffected —
     but a strict `tsc` over `neon/` still fails until the re-export/import is fixed.
-  - **Deploy status — aigateway revision deployed 2026-10-09; verified read-only (P1.2): production `GET /health` now returns 200 `modelAvailable:true` (matches the source's **hardcoded** value — still not a provider-health signal), `GET /` → 404 `INPUT_INVALID` unsupported route, unauth `POST /v1/agent/intents` → 401 `AUTH_REQUIRED`, `readapi GET /v1/config` → 200 with a fresh `latestIndexedBlock`; no authenticated Neon session exists here, so the remote revision/digest is not retrievable from this sandbox. Not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
+  - **Deploy status — aigateway revision deployed 2026-10-09; verified read-only (P1.2): production `GET /health` now returns 200 `modelAvailable:true` (that deployed revision still hardcoded the literal — the source now derives it, see the derived-signal bullet below), `GET /` → 404 `INPUT_INVALID` unsupported route, unauth `POST /v1/agent/intents` → 401 `AUTH_REQUIRED`, `readapi GET /v1/config` → 200 with a fresh `latestIndexedBlock`; no authenticated Neon session exists here, so the remote revision/digest is not retrievable from this sandbox. Not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
     `NEON_API_KEY` is absent from the repo, `.base44` secrets and `/run/base44/app.env`, and
     `npx neonctl projects list` can only start an interactive browser OAuth that times out headless
     (the CLI itself IS fetchable — `npx neonctl@latest` resolves to the `neon` CLI; `api.neon.tech`
@@ -932,13 +932,30 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     exact single-function command is
     `neonctl functions deploy aigateway --project-id polished-dream-04296130 --branch main --src neon/functions/aigateway/index.ts --runtime nodejs24 --wait`.
     P1.1 probe baseline (2026-10-09, no deploy performed): production `GET /health` → 200
-    `modelAvailable:false` (stale; source pins `true`), `GET /v1/config` → 200, unauth
+    `modelAvailable:false` (stale: deployed revision predates the derived signal), `GET /v1/config` → 200, unauth
     `POST /v1/agent/intents` → 401 `AUTH_REQUIRED` (correct routing, endpoint reachable). To ship: (1) merge `dev-intent-fix` into
     the production branch so Netlify rebuilds `apps/web` and picks up the new `netlify.toml`
     redirects; (2) independently deploy the four Neon Functions declared in `neon.ts` against project
     `polished-dream-04296130` / branch `main` with the Neon CLI or dashboard; (3) after both land,
     re-run the canonical intent → preflight → execute flow against production and confirm
     `POST /v1/agent/intents` answers 200 instead of a bare 400.
+- **`/health` `modelAvailable` is derived, not a literal (2026-10-09):** the gateway entrypoint used
+  to answer `modelAvailable: true` at every `/health` (a hardcoded literal in
+  `supabase/functions/ai-gateway/index.ts`), which is why earlier lanes that read it as provider
+  evidence were wrong (`docs/phase-04-h1-provider-failure-audit_19-09-26.md` §4). It now goes through
+  `deriveModelAvailability({ apiKey, modelConfig, regionValid })`: `true` only when the
+  expected-vs-observed region gate passes, `OPENAI_API_KEY` is non-empty, and the pinned
+  `config/ai/model-config.json` passes `assertModelConfigAllowsCall` (`provider:openai`,
+  `model:gpt-4o-mini`, `allowFallback:false`); any missing input fails closed to `false`. It stays
+  side-effect-free — no provider request, no chain call, no persistence — so `/health` is still safe
+  to poll, and it is still NOT a live key-validity probe (that remains a separate, approval-gated
+  step). The compose `api` service currently reports `true` (key present, regions matched); a
+  runtime without `OPENAI_API_KEY` now reports `false` instead of the old misleading `true`.
+  Verified 2026-10-09: `corepack yarn test` → 70 files / 436 tests pass, `corepack yarn typecheck`
+  clean, and `curl -s localhost:3000/health` → `modelAvailable:true` after the `api` service
+  hot-reloaded. Tests: `supabase/functions/ai-gateway/test/model-availability.vitest.test.ts`; the
+  stale `neon/test/neon-runtime-smoke.test.ts` expectation (`false` although its env sets a key) was
+  corrected to `true`.
 - **Agent-lane settlement requires the card's ASSIGNED agent identity (verified 2026-10-09):** the
   hand-off is owner-session → `POST /v1/agent/intents` (aigateway; the gateway binds
   `agentId = card.agent`) → agent-lane session → `POST /v1/payments/preflight` + `/execute`
