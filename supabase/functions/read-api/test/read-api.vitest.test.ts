@@ -238,4 +238,30 @@ describe("Phase 05 read API", () => {
     const missing = await handler(get("/v1/unknown"));
     expect(missing.status).toBe(404);
   });
+
+  it("documents the generic 400 a misrouted write route produces here", async () => {
+    // Incident 2026-10-09: netlify.toml sent POST /v1/agent/intents to this
+    // read-only API, so the client saw exactly this shape — 400, generic
+    // INPUT_INVALID, request id echoed from the header — while the gateway,
+    // merchant validation and idempotency store were never reached. Pinned so
+    // the misroute stays recognizable rather than looking like a gateway bug.
+    const handler = makeHandler();
+    const requestId = "832d7d3b-86af-49d6-8edf-c7fbe0178fa2";
+    const response = await handler(
+      new Request("http://localhost/v1/agent/intents", {
+        method: "POST",
+        headers: { "x-request-id": requestId, "content-type": "application/json" },
+        body: JSON.stringify({
+          cardId: "3",
+          prompt:
+            'Send a Pact card payment of exactly 0.1 USDC from card 3 to merchant "coffee-demo".',
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.get("x-request-id")).toBe(requestId);
+    const payload = await body(response);
+    expect(payload["code"]).toBe("INPUT_INVALID");
+    expect(payload["requestId"]).toBe(requestId);
+  });
 });

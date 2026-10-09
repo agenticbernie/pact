@@ -20,6 +20,7 @@
  */
 import { createApiError, toApiError } from "../_shared/api.ts";
 import { requireSession, type SessionContext } from "../_shared/auth.ts";
+import { logRejection } from "../_shared/diagnostics.ts";
 import {
   deriveReceiptTruth,
   type ReceiptTruth,
@@ -263,6 +264,18 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
       return json(createApiError("INPUT_INVALID", requestId), 400, requestId);
     }
     if (request.method !== "GET") {
+      // This is read-only by construction, so a write route that reaches here is
+      // almost always a routing mistake upstream, not a bad client request. Log
+      // the refusal (route + method only) so the misroute is diagnosable instead
+      // of hiding behind the generic client-facing INPUT_INVALID.
+      logRejection({
+        surface: "read-api",
+        requestId,
+        code: "INPUT_INVALID",
+        stage: "method-guard",
+        method: request.method,
+        route: path,
+      });
       return json(createApiError("INPUT_INVALID", requestId), 400, requestId);
     }
 
@@ -294,6 +307,14 @@ export function createReadApiHandler(deps: ReadApiDeps): (request: Request) => P
     const payment = /^\/v1\/payments\/([^/]+)$/.exec(path);
     if (payment !== null) return paymentRoute(payment[1], request, requestId);
 
+    logRejection({
+      surface: "read-api",
+      requestId,
+      code: "INPUT_INVALID",
+      stage: "route-miss",
+      method: request.method,
+      route: path,
+    });
     return json(createApiError("INPUT_INVALID", requestId), 404, requestId);
   };
 }
