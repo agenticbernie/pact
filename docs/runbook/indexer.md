@@ -13,6 +13,8 @@ raise credit, or override a contract result.
 | Cursor store | `supabase/functions/indexer/cursor-store.ts` | SQL upsert + cursor (`ON CONFLICT DO NOTHING`) |
 | Chain reader | `supabase/functions/indexer/chain-reader.ts` | read-only ethers provider (`getLogs`/`getBlock`/`getReceipt`) |
 | Indexer tick | `supabase/functions/indexer/indexer.ts` | confirmation window, idempotent replay, reorg rewind |
+| Card projection | `supabase/functions/indexer/card-projection.ts` | decoded card lifecycle/credit/policy events → the `cards` read projection (idempotent, monotonic) |
+| Runner | `neon/indexer-runner.ts` | schedules the tick and clears a backlog (started by the local dev host) |
 | Read API | `supabase/functions/read-api/index.ts` | `GET /v1/config`, `/v1/cards/:id`, `/v1/cards/:id/activity`, `/v1/payments/:id` |
 | Read store | `supabase/functions/read-api/read-store.ts` | owner-scoped SQL over the read model |
 | Neon entry | `neon/functions/readapi/index.ts` | composition root (pool + ethers receipt reader) |
@@ -36,6 +38,12 @@ read route.
   settles.
 - **Address allowlist**: only the configured controller/pool/merchant addresses
   are decoded.
+- **The `cards` projection is derived and safe to replay**: `CardCreated` inserts
+  at most once (`on conflict (card_id) do nothing`) and lifecycle/credit/policy
+  updates are monotonic (`source_block <= $block`). A card the chain created and
+  activated therefore appears in the read model without a manual seed, and a
+  replayed range can never regress a newer projection. Columns the events do not
+  carry (`policy_version`, `allowlist_hash`) are projection placeholders.
 
 ## Migrating the database
 
@@ -53,10 +61,18 @@ Until `0003_read_model.sql` is applied to the hosted branch, `/v1/config`,
 
 ## Running a tick
 
-The tick is a plain function (`runIndexerTick`) over injected reader/store, so it
-runs in tests without network. For a one-off live run, seed the cursor and call
-it with a Node script inside the api container (one-off scripts live in `/tmp`,
-never in the repo):
+The local dev host (`neon/dev-host.ts`, the sandbox `api` service) **schedules the
+tick automatically** via `neon/indexer-runner.ts`: it catches up on any backlog,
+then runs every 15s against the same `DATABASE_URL` the read API reads, and only
+writes the derived read model. Set `PACT_INDEXER_DISABLED=1` to turn it off, or
+call `startIndexerFromEnv` yourself. A non-local deployment (Netlify/Vercel/Neon
+Functions) has no in-process host, so it still needs an external scheduler to
+invoke `runIndexerTick`.
+
+The tick itself is a plain function (`runIndexerTick`) over injected reader/store,
+so it runs in tests without network. For a one-off live run, seed the cursor and
+call it with a Node script inside the api container (one-off scripts live in
+`/tmp`, never in the repo):
 
 ```bash
 docker compose -f docker-compose.base44.yml exec -T \
@@ -98,4 +114,9 @@ End-to-end against the local compose database (real Arc events, real receipt):
   the handler serves bare paths (what `neon/dev-host.ts` and the Neon function
   entry do).
 - Activity pagination is a fixed `limit 50`; no cursor paging yet.
-- No scheduled runner/health surface yet — ticks are invoked explicitly.
+- The local dev host schedules ticks; a hosted/edge deployment still needs an
+  external scheduler (cron/queue) to invoke `startIndexerFromEnv` or
+  `runIndexerTick`. There is no indexer lag/health endpoint yet.
+- `spent` is not yet projected from `PaymentSettled` (only card lifecycle,
+  `CreditVerified` and `PolicyUpdated` are); a card's `spent` stays at its seeded
+  value until a spend projection lands.
