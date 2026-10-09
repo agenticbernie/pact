@@ -924,7 +924,7 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     which does not re-export it (the type lives in `_shared/persistence-composition.ts`). Datable to
     2026-09-21 and type-only — `node --experimental-strip-types` erases it, so runtime is unaffected —
     but a strict `tsc` over `neon/` still fails until the re-export/import is fixed.
-  - **Deploy status — NOT deployed, and not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
+  - **Deploy status — aigateway revision deployed 2026-10-09; verified read-only (P1.2): production `GET /health` now returns 200 `modelAvailable:true` (that deployed revision still hardcoded the literal — the source now derives it, see the derived-signal bullet below), `GET /` → 404 `INPUT_INVALID` unsupported route, unauth `POST /v1/agent/intents` → 401 `AUTH_REQUIRED`, `readapi GET /v1/config` → 200 with a fresh `latestIndexedBlock`; no authenticated Neon session exists here, so the remote revision/digest is not retrievable from this sandbox. Historically not deployable from this sandbox** (no Neon credential was present and no production deploy was authorized at the time):
     `NEON_API_KEY` is absent from the repo, `.base44` secrets and `/run/base44/app.env`, and
     `npx neonctl projects list` can only start an interactive browser OAuth that times out headless
     (the CLI itself IS fetchable — `npx neonctl@latest` resolves to the `neon` CLI; `api.neon.tech`
@@ -932,13 +932,46 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     exact single-function command is
     `neonctl functions deploy aigateway --project-id polished-dream-04296130 --branch main --src neon/functions/aigateway/index.ts --runtime nodejs24 --wait`.
     P1.1 probe baseline (2026-10-09, no deploy performed): production `GET /health` → 200
-    `modelAvailable:false` (stale; source pins `true`), `GET /v1/config` → 200, unauth
+    `modelAvailable:false` (stale: deployed revision predates the derived signal), `GET /v1/config` → 200, unauth
     `POST /v1/agent/intents` → 401 `AUTH_REQUIRED` (correct routing, endpoint reachable). To ship: (1) merge `dev-intent-fix` into
     the production branch so Netlify rebuilds `apps/web` and picks up the new `netlify.toml`
     redirects; (2) independently deploy the four Neon Functions declared in `neon.ts` against project
     `polished-dream-04296130` / branch `main` with the Neon CLI or dashboard; (3) after both land,
     re-run the canonical intent → preflight → execute flow against production and confirm
     `POST /v1/agent/intents` answers 200 instead of a bare 400.
+    - **aigateway REDEPLOYED to production (2026-10-09, authorized):** once the `NEON_API_KEY` app
+      secret existed, `neonctl functions deploy aigateway --project-id polished-dream-04296130
+      --branch main --src neon/functions/aigateway/index.ts --runtime nodejs24 --wait` completed —
+      **deployment ID 10**, created `2026-10-09T09:21:37Z`, status `completed`; `neonctl functions
+      get aigateway` reports it as the current active deployment. Live verify: production `GET
+      /health` → 200 `{configuredRegion:us-east-1, expectedRegion:us-east-1, chainId:5042002,
+      provider:openai, model:gpt-4o-mini, modelAvailable:true}` and `GET /` → 404 `INPUT_INVALID`
+      "Unsupported gateway route." `/health` answers identically before and after (the derived
+      signal returns `true` whenever the key is present and the region/model gates pass), so
+      `/health` alone cannot prove which revision is live — the deployment ID/timestamp is the
+      provenance. Only `aigateway` was deployed; `session`, `agentexecutor` and `readapi` are
+      untouched, and no function env vars, migrations or rows were changed.
+      - **Quirk — store the key bare:** the `NEON_API_KEY` secret arrived wrapped in double quotes
+        (`NEON_API_KEY="napi_…"`), which the Neon API rejects verbatim ("the Neon API rejected the
+        API key"). Strip the surrounding quotes before use:
+        `K="$(sed -n 's/^NEON_API_KEY=//p' /run/base44/app.env)"; K="${K#\"}"; K="${K%\"}"; export NEON_API_KEY="$K"`.
+- **`/health` `modelAvailable` is derived, not a literal (2026-10-09):** the gateway entrypoint used
+  to answer `modelAvailable: true` at every `/health` (a hardcoded literal in
+  `supabase/functions/ai-gateway/index.ts`), which is why earlier lanes that read it as provider
+  evidence were wrong (`docs/phase-04-h1-provider-failure-audit_19-09-26.md` §4). It now goes through
+  `deriveModelAvailability({ apiKey, modelConfig, regionValid })`: `true` only when the
+  expected-vs-observed region gate passes, `OPENAI_API_KEY` is non-empty, and the pinned
+  `config/ai/model-config.json` passes `assertModelConfigAllowsCall` (`provider:openai`,
+  `model:gpt-4o-mini`, `allowFallback:false`); any missing input fails closed to `false`. It stays
+  side-effect-free — no provider request, no chain call, no persistence — so `/health` is still safe
+  to poll, and it is still NOT a live key-validity probe (that remains a separate, approval-gated
+  step). The compose `api` service currently reports `true` (key present, regions matched); a
+  runtime without `OPENAI_API_KEY` now reports `false` instead of the old misleading `true`.
+  Verified 2026-10-09: `corepack yarn test` → 70 files / 436 tests pass, `corepack yarn typecheck`
+  clean, and `curl -s localhost:3000/health` → `modelAvailable:true` after the `api` service
+  hot-reloaded. Tests: `supabase/functions/ai-gateway/test/model-availability.vitest.test.ts`; the
+  stale `neon/test/neon-runtime-smoke.test.ts` expectation (`false` although its env sets a key) was
+  corrected to `true`.
 - **Agent-lane settlement requires the card's ASSIGNED agent identity (verified 2026-10-09):** the
   hand-off is owner-session → `POST /v1/agent/intents` (aigateway; the gateway binds
   `agentId = card.agent`) → agent-lane session → `POST /v1/payments/preflight` + `/execute`
@@ -1011,3 +1044,34 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   (`POST /v1/session/challenge` → sign EIP-191 with `OWNER_WALLET_PRIVATE_KEY` → `/v1/session/verify`
   → `GET /v1/cards/2` on `http://127.0.0.1:8000`). Suites: `corepack yarn vitest run
   supabase/functions/read-api supabase/functions/indexer` → 6 files / 48 tests pass.
+- **P1.3 authenticated intent creation + preflight verified (2026-10-09, production, NO execute):** the
+  owner-session → `POST /v1/agent/intents` (aigateway) → read-after-write → agent-session
+  `POST /v1/payments/preflight` path passed end to end against the production Neon functions
+  (`https://br-spring-poetry-au5ekyxd-<fn>.compute.c-10.us-east-1.aws.neon.tech`, reachable from the
+  sandbox/`api` container). Execute/broadcast/settlement was deliberately NOT called; the run created one
+  new production row (`intent-req-p13-verify-…`).
+  - **Provider smoke through the gateway, not `/health`:** a fresh request id (card 2, canonical console
+    prompt `Send a Pact card payment of exactly 0.005 USDC from card 2 to merchant "coffee-demo". The
+    merchant id is exactly coffee-demo.`) returned 200 with genuine model output —
+    `provider:"openai"`, `model:"gpt-4o-mini"`, `merchantId:"coffee-demo"`, `amountBaseUnits:"5000000000000000"`,
+    `purpose:"Payment for coffee"`, `confidence:0.95`. `OpenAiProvider.parseIntent` returns exactly these four
+    model fields and the observed `purpose`/`amountBaseUnits`/`confidence` vary across persisted rows, so this
+    is real gpt-4o-mini inference, not a hardcoded value.
+  - **Write + read-after-write:** the persisted row (`status ready`, `policy_version 1`, same
+    `intent_hash 0x2d87e8…`) is read back from hosted Neon; replaying the same request id resolves from storage
+    (200) with every payment-critical field identical
+    (`intentId`/`amountBaseUnits`/`merchantId`/`asset`/`expiresAt`/`policyVersion`/`intentHash`). The replay
+    differs from the write response only cosmetically — `agentId` case (checksummed vs lowercased), `createdAt`
+    (app clock at write vs DB `created_at` on read), and the adapter-added `chainId` — none of which is part of
+    the canonical intent hash.
+  - **Preflight (`preflightPay`, read-only):** signed with the agent lane (`AGENT_SIGNER_PRIVATE_KEY`,
+    `0xC289…F91214` == card 2's agent) the fresh intent answered `decision:"would_settle"` (chainId 5042002) —
+    eligibility, `policy_version` agreement (intent 1 = card 1 = chain 1), signer mapping (session wallet ==
+    intent agent) and credit (card 2 `verified_credit` 1e17 ≥ 5e15) all pass. The documented canonical fixture
+    `intent-req-card2-pay-1` preflights `declined / EXPIRED` (it expired 2026-10-08), so a live-card preflight
+    needs a fresh intent id, not the pinned fixture.
+  - **Preflight nonce is stable:** `handleReadOnlyPreflight` passes `idempotencyKey:"preflight"`, so the static
+    call's nonce is `derivePaymentNonce("preflight")` for every lookup — a fresh, never-settled nonce, never the
+    settlement attempt key.
+  - **Working fixture vs blocked:** card 2 (`0x83bc…` owner / `0xc289…` agent, credit 1e17, policy 1, spent 0)
+    is the usable lane; card 3 stays unusable (`verified_credit` 0, agent has no signer key).
