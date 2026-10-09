@@ -924,8 +924,16 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     which does not re-export it (the type lives in `_shared/persistence-composition.ts`). Datable to
     2026-09-21 and type-only — `node --experimental-strip-types` erases it, so runtime is unaffected —
     but a strict `tsc` over `neon/` still fails until the re-export/import is fixed.
-  - **Deploy status — NOT deployed, and not deployable from this sandbox:** no Neon/Netlify CLI is
-    installed here and no production deploy is authorized. To ship: (1) merge `dev-intent-fix` into
+  - **Deploy status — NOT deployed, and not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
+    `NEON_API_KEY` is absent from the repo, `.base44` secrets and `/run/base44/app.env`, and
+    `npx neonctl projects list` can only start an interactive browser OAuth that times out headless
+    (the CLI itself IS fetchable — `npx neonctl@latest` resolves to the `neon` CLI; `api.neon.tech`
+    does not resolve from the sandbox, `console.neon.tech/api/v2` answers 401 unauthenticated). The
+    exact single-function command is
+    `neonctl functions deploy aigateway --project-id polished-dream-04296130 --branch main --src neon/functions/aigateway/index.ts --runtime nodejs24 --wait`.
+    P1.1 probe baseline (2026-10-09, no deploy performed): production `GET /health` → 200
+    `modelAvailable:false` (stale; source pins `true`), `GET /v1/config` → 200, unauth
+    `POST /v1/agent/intents` → 401 `AUTH_REQUIRED` (correct routing, endpoint reachable). To ship: (1) merge `dev-intent-fix` into
     the production branch so Netlify rebuilds `apps/web` and picks up the new `netlify.toml`
     redirects; (2) independently deploy the four Neon Functions declared in `neon.ts` against project
     `polished-dream-04296130` / branch `main` with the Neon CLI or dashboard; (3) after both land,
