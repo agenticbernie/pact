@@ -950,3 +950,40 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     `POST /v1/session/challenge` → `verify` (signed by the agent key) → `/v1/payments/preflight` +
     `/execute`. The lane's own identity yields `PREFLIGHT_DECLINED` / `INPUT_INVALID` because the
     intent resolves only under the assigned agent; nothing reaches `payment_attempts`.
+- **Intent policy version now comes from the controller, not the projection (2026-10-09):**
+  `cards.policy_version` is a projection placeholder — the card lifecycle events carry no policy
+  version, so a card issued from the console projects `0` while on-chain `cards(id).policyVersion`
+  is `1`. Every intent created for such a card therefore recorded the placeholder and the executor's
+  on-chain compare refused settlement with `CARD_NOT_ELIGIBLE` (this is card 3's blocker, not a
+  credit or agent problem). Fix: `createChainPolicyVersionReader`
+  (`supabase/functions/_shared/policy-version.ts`) reads `controller.cards(id)` in one `eth_call`
+  (no signer, never a write) and `applyAuthoritativePolicyVersion` in the ai-gateway entrypoint binds
+  it to the card context before the intent hash and the row are written; an unreadable RPC keeps the
+  record value (never a fabricated one). The Neon gateway entry wires it from `ARC_RPC_URL` +
+  `ARC_LANE.controller` — production must set those as function env vars (both are already in the
+  `api` compose environment). Verified live 2026-10-09: for card 3 a record of `0` binds `1`, and an
+  unreadable chain keeps `0`. Note (1) an *existing* intent row keeps its stale value — the
+  idempotent replay returns the stored row, so a fresh request id (new intent) is required, and
+  (2) the read model still displays the placeholder until the projection carries the real value.
+- **Preflight returns actionable reason codes (2026-10-09):** `handleReadOnlyPreflight` collapsed
+  expiry, a policy mismatch and every chain refusal into `PREFLIGHT_DECLINED`/`CARD_NOT_ELIGIBLE`, so
+  the console could not name the condition it was blocking on. It now answers `EXPIRED`,
+  `POLICY_STALE` (persisted *or* on-chain policy version disagrees with the intent) and, on a chain
+  refusal, the chain's own reason (`CREDIT_EXCEEDED`, `NONCE_USED`, …) when it is token-shaped, else
+  `PREFLIGHT_DECLINED`; `handlePreflight` (signing composition) mirrors it. The response *shape* is
+  unchanged — only `reasonCode` is richer — so the console's existing `Reason:` line surfaces it with
+  no frontend change. Tests: `supabase/functions/agent-executor/test/preflight-reasons.vitest.test.ts`
+  plus `supabase/functions/_shared/test/policy-version.vitest.test.ts` and
+  `supabase/functions/ai-gateway/test/policy-version-source.vitest.test.ts`.
+- **Still blocked for card 3 (external prerequisites, NOT code):** its assigned agent is
+  `0xfda8…8435` (owner == agent, a browser wallet with no provisioned key), so the lane's single
+  signer `0xC289…F91214` cannot satisfy `session wallet == intent.agent` / the controller's
+  `WRONG_CALLER`, and on-chain `verifiedCredit` is `0` (`CREDIT_EXCEEDED`). Both need provisioning
+  (issue the card to an agent whose key is stored as `AGENT_SIGNER_PRIVATE_KEY`, or add a per-agent
+  signer, and attest credit); no code change can make it settle.
+- **Current persisted state (2026-10-09 ~07:26 UTC, read from the runtime's own DB):** cards 1/2 are
+  hand-seeded with `policy_version = 1` and credit `1e17`; card 3 has `policy_version = 0`,
+  `verified_credit = 0`; `intent-req-b05e4d86-9318-467d-bfd6-fd53fa32f691` is still `ready`, still
+  `policy_version = 0`, expiring `2026-10-09T07:31:49Z` (i.e. ~5 min after that read — check expiry
+  before acting rather than assuming it is historical). The only `payment_attempts` rows are card 2's:
+  `intent-req-card2-pay-1` **settled** (`0x947a92…dc72`) and one `declined`.

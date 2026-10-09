@@ -40,6 +40,7 @@ import {
 } from "../_shared/persistence-composition.ts";
 import type { SessionPersistence } from "../session/index.ts";
 import type { CardStore } from "../_shared/card-store.ts";
+import type { PolicyVersionReader } from "../_shared/policy-version.ts";
 import { regionsMatch, resolveRegionConfig } from "../_shared/region-config.ts";
 import {
   ARC_LANE_ASSET_ID,
@@ -85,6 +86,12 @@ export type GatewayRuntimeDeps = GatewayDeps & { store: IntentStore };
 export type GatewayRequestDeps = Omit<GatewayRuntimeDeps, "card"> & {
   card?: ProviderCardContext;
   cardStore?: Pick<CardStore, "getById">;
+  /**
+   * Authoritative card policy version, read from the controller rather than the
+   * `cards` projection (whose `policy_version` is a placeholder). Overrides the
+   * loaded card when it answers; a `null` answer keeps the record value.
+   */
+  resolvePolicyVersion?: PolicyVersionReader;
   configuredRegion: string;
   sessionSecret?: string;
   sessionPersistence?: SessionPersistence;
@@ -201,6 +208,33 @@ function providerCardFromRecord(record: Awaited<ReturnType<CardStore["getById"]>
     recipient: "",
     policyVersion: record.policy_version,
   };
+}
+
+/**
+ * Replace the persisted card's `policy_version` with the controller's
+ * authoritative value before the intent binds it.
+ *
+ * `cards.policy_version` is a projection placeholder (the card lifecycle events
+ * carry no policy version), so an intent created from it records a stale value
+ * and the executor's on-chain compare rejects every settlement with
+ * `CARD_NOT_ELIGIBLE`. A resolver that answers wins; an unreadable chain
+ * (null or a throw) keeps the record value instead of refusing the intent, and
+ * never widens any check.
+ */
+export async function applyAuthoritativePolicyVersion(
+  card: ProviderCardContext,
+  resolvePolicyVersion?: PolicyVersionReader,
+): Promise<ProviderCardContext> {
+  if (resolvePolicyVersion === undefined) return card;
+  try {
+    const version = await resolvePolicyVersion(card.cardId);
+    if (version !== null && Number.isInteger(version) && version >= 0) {
+      return { ...card, policyVersion: version };
+    }
+  } catch {
+    // Unreadable authoritative source: keep the record value.
+  }
+  return card;
 }
 
 export async function handleHealthRequest(
@@ -350,6 +384,9 @@ export function createGatewayEntrypointHandler(input: {
         });
       }
     }
+    if (card !== undefined) {
+      card = await applyAuthoritativePolicyVersion(card, input.deps.resolvePolicyVersion);
+    }
     if (card === undefined) {
       return new Response(JSON.stringify(createApiError("CARD_NOT_ELIGIBLE", requestId)), {
         status: 400,
@@ -376,6 +413,8 @@ type GatewayCompositionInput = {
   provider?: AiProvider;
   card?: ProviderCardContext;
   cardStore?: Pick<CardStore, "getById">;
+  /** Authoritative card policy-version reader (controller), see `GatewayRequestDeps`. */
+  resolvePolicyVersion?: PolicyVersionReader;
   merchants?: ReadonlyArray<MerchantCatalogItem>;
   store?: IntentStore;
   intentStore?: IntentStore;
@@ -467,6 +506,9 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
       configuredRegion: runtimeConfiguredRegion,
       sessionSecret,
       sessionPersistence: input.sessionPersistence ?? persistence?.session,
+      ...(input.resolvePolicyVersion === undefined
+        ? {}
+        : { resolvePolicyVersion: input.resolvePolicyVersion }),
     },
   });
 }
@@ -477,6 +519,8 @@ export function startGatewayServer(input: {
   provider?: AiProvider;
   card?: ProviderCardContext;
   cardStore?: Pick<CardStore, "getById">;
+  /** Authoritative card policy-version reader (controller), see `GatewayRequestDeps`. */
+  resolvePolicyVersion?: PolicyVersionReader;
   merchants?: ReadonlyArray<MerchantCatalogItem>;
   store?: IntentStore;
   intentStore?: IntentStore;

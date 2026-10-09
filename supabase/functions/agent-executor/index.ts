@@ -117,12 +117,17 @@ export async function handlePreflight(
 ): Promise<{ decision: "would_settle" | "declined"; reasonCode?: string; chainId: number; checkedAt: string }> {
   const intent = await deps.resolveIntent({ intentId: input.intentId });
   const checkedAt = new Date(deps.nowMs).toISOString();
-  if (intent === null || intent.expiresAtMs <= deps.nowMs) {
+  if (intent === null) {
     return { decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: deps.expectedChainId, checkedAt };
+  }
+  if (intent.expiresAtMs <= deps.nowMs) {
+    return { decision: "declined", reasonCode: "EXPIRED", chainId: deps.expectedChainId, checkedAt };
   }
   const card = await deps.client.readCard(intent.cardId);
   if (card.policyVersion !== intent.policyVersion) {
-    return { decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: deps.expectedChainId, checkedAt };
+    // The controller's policy version no longer matches the one the intent
+    // bound: the intent is stale and must be recreated.
+    return { decision: "declined", reasonCode: "POLICY_STALE", chainId: deps.expectedChainId, checkedAt };
   }
   const pre = await deps.client.preflight({
     intentId: intent.intentId,
@@ -131,7 +136,11 @@ export async function handlePreflight(
     nonce: `${intent.cardId}:${intent.policyVersion}`,
   });
   if (!pre.ok) {
-    return { decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: deps.expectedChainId, checkedAt };
+    const reasonCode =
+      typeof pre.reasonCode === "string" && /^[A-Z0-9_]{1,32}$/.test(pre.reasonCode)
+        ? pre.reasonCode
+        : "PREFLIGHT_DECLINED";
+    return { decision: "declined", reasonCode, chainId: deps.expectedChainId, checkedAt };
   }
   return { decision: "would_settle", chainId: deps.expectedChainId, checkedAt };
 }
@@ -464,7 +473,7 @@ async function handleReadOnlyPreflight(
   }
   const expiresAtMs = Date.parse(intent.expiresAt);
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: lane.chainId, checkedAt };
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "EXPIRED", chainId: lane.chainId, checkedAt };
   }
   const card = await deps.cards.getById({
     cardId: intent.cardId,
@@ -509,6 +518,11 @@ async function handleReadOnlyPreflight(
       ...(reasonCode === undefined ? {} : { reasonCode }),
       evaluatedAt: checkedAt,
     });
+  // Policy inconsistency is its own actionable state (the intent must be
+  // recreated) rather than a generic eligibility refusal.
+  if (card.policy_version !== intent.policyVersion) {
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "POLICY_STALE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "POLICY_STALE") };
+  }
   // Lane binding: exact (chain, asset) pair plus the lane controller when
   // the lane defines one. A CTC row in the Arc lane (or vice versa) and an
   // Arc card under the wrong controller decline here, fail-closed.
@@ -517,8 +531,7 @@ async function handleReadOnlyPreflight(
     card.chain_id !== lane.chainId ||
     (lane.controller !== undefined &&
       card.controller_address.toLowerCase() !== lane.controller.toLowerCase()) ||
-    card.agent_id.toLowerCase() !== intent.agentId.toLowerCase() ||
-    card.policy_version !== intent.policyVersion
+    card.agent_id.toLowerCase() !== intent.agentId.toLowerCase()
   ) {
     return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "CARD_NOT_ELIGIBLE") };
   }
@@ -558,10 +571,13 @@ async function handleReadOnlyPreflight(
   const chainCard = await deps.client.readCard(intent.cardId, intent.agentId);
   if (
     chainCard.chainId !== lane.chainId ||
-    chainCard.agent.toLowerCase() !== intent.agentId.toLowerCase() ||
-    chainCard.policyVersion !== intent.policyVersion
+    chainCard.agent.toLowerCase() !== intent.agentId.toLowerCase()
   ) {
     return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "CARD_NOT_ELIGIBLE") };
+  }
+  if (chainCard.policyVersion !== intent.policyVersion) {
+    // The controller's policy version moved on after the intent was created.
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "POLICY_STALE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "POLICY_STALE") };
   }
   const result = await deps.client.preflight({
     intentId: intent.intentId,
@@ -575,14 +591,21 @@ async function handleReadOnlyPreflight(
     policyVersion: intent.policyVersion,
     agent: intent.agentId,
   });
+  // The chain's own refusal carries the actionable condition (CREDIT_EXCEEDED,
+  // NONCE_USED, …). Only a token-shaped code is surfaced; anything else falls
+  // back to the generic refusal so the envelope stays closed.
+  const chainDecline =
+    !result.ok && typeof result.reasonCode === "string" && /^[A-Z0-9_]{1,32}$/.test(result.reasonCode)
+      ? result.reasonCode
+      : "PREFLIGHT_DECLINED";
   return {
     requestId: input.requestId,
     intentId: input.intentId,
     decision: result.ok ? "would_settle" : "declined",
-    ...(result.ok ? {} : { reasonCode: "PREFLIGHT_DECLINED" }),
+    ...(result.ok ? {} : { reasonCode: chainDecline }),
     chainId: lane.chainId,
     checkedAt,
-    validation: pvl(result.ok ? "would_settle" : "declined", result.ok ? undefined : "PREFLIGHT_DECLINED"),
+    validation: pvl(result.ok ? "would_settle" : "declined", result.ok ? undefined : chainDecline),
   };
 }
 
