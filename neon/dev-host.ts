@@ -39,6 +39,9 @@ const ROUTES: ReadonlyArray<{ matches: (path: string) => boolean; handler: Fetch
       path === "/v1/cards" ||
       path === "/v1/payments" ||
       path.startsWith("/v1/cards/") ||
+      // `GET /v1/intents/:intentId` is a read-API route the console's intent
+      // page calls; production reaches it through the `/v1/*` catch-all.
+      path.startsWith("/v1/intents/") ||
       path.startsWith("/v1/payments/"),
     handler: readEntry.fetch,
   },
@@ -58,6 +61,7 @@ const ENDPOINTS: ReadonlyArray<readonly [string, string]> = [
   ["GET", "/v1/cards/:cardId/activity"],
   ["GET", "/v1/payments?cardId=:cardId"],
   ["GET", "/v1/payments/:paymentId"],
+  ["GET", "/v1/intents/:intentId"],
 ];
 
 function toHeaders(raw: IncomingHttpHeaders): Headers {

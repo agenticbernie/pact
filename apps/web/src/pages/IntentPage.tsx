@@ -126,23 +126,30 @@ function IntentDetail({ intentId }: { intentId: string }) {
 
       <CardSurface>
         <VStack gap={4}>
-          <VStack gap={2}>
+          {/* Headline: the state and the amount are the two facts the page is about. */}
+          <Stack direction="horizontal" gap={3} wrap="wrap" align="center">
+            <Text type="code" size="3xl" weight="semibold" hasTabularNumbers>
+              {formatAmount(intent.amountBaseUnits, intent.asset)}
+            </Text>
             <StatusToken
               label={lifecycle.label}
               tone={lifecycle.tone}
               description={`Intent ${intent.intentId}`}
             />
+          </Stack>
+
+          <VStack gap={1}>
+            <Text weight="medium">
+              {`${merchantLabel(intent.merchantId)} (${intent.merchantId})`}
+            </Text>
             <Text type="supporting">{lifecycle.detail}</Text>
             {reason === undefined ? null : <Text type="supporting">{reason}</Text>}
           </VStack>
 
+          <Divider />
+
+          {/* What the intent is bound to — the facts a reader looks for first. */}
           <MetadataList columns="multi">
-            <MetadataListItem label="Amount">
-              {formatAmount(intent.amountBaseUnits, intent.asset)}
-            </MetadataListItem>
-            <MetadataListItem label="Merchant">
-              {`${merchantLabel(intent.merchantId)} (${intent.merchantId})`}
-            </MetadataListItem>
             <MetadataListItem label="Card">
               <Link href={`/cards/${encodeURIComponent(intent.cardId)}`}>
                 {`Card ${intent.cardId}`}
@@ -156,6 +163,19 @@ function IntentDetail({ intentId }: { intentId: string }) {
                 {String(intent.policyVersion)}
               </Text>
             </MetadataListItem>
+          </MetadataList>
+
+          <Divider />
+
+          {/* Subordinate: the persisted record behind the two groups above. */}
+          <MetadataList
+            columns="multi"
+            title={
+              <Text type="label" size="xsm" color="secondary">
+                Intent record
+              </Text>
+            }
+          >
             <MetadataListItem label="Asset">
               <Text type="code">{intent.asset}</Text>
             </MetadataListItem>
@@ -186,39 +206,6 @@ function IntentDetail({ intentId }: { intentId: string }) {
           </MetadataList>
         </VStack>
       </CardSurface>
-
-      <VStack gap={3}>
-        <Heading level={2}>Agent hand-off</Heading>
-        <CardSurface>
-          <VStack gap={3}>
-            {isAgent ? (
-              <Banner
-                status="success"
-                title="This session is the card's assigned agent"
-                description="Settlement runs through the executor's authorized API, which signs with the signer bound to this agent. No signing key ever reaches the browser."
-              />
-            ) : (
-              <Banner
-                status="info"
-                title="The agent lane holds this intent"
-                description={`The controller accepts \`pay\` only from the card's assigned agent (${intent.agentId}), and the executor's session must be that same agent. This session is ${sessionWallet === "" ? "not connected" : sessionWallet}, so it can read the intent but cannot settle it. Hand the intent id to the agent lane, then refresh this page.`}
-              />
-            )}
-            <MetadataList columns="multi">
-              <MetadataListItem label="Intent id">
-                <MonoValue value={intent.intentId} />
-              </MetadataListItem>
-              <MetadataListItem label="Settlement key">
-                <MonoValue value={settlementKey} />
-              </MetadataListItem>
-            </MetadataList>
-            <Text type="supporting">
-              The settlement key is derived from the attempt, so handing the intent on and settling it
-              again reconciles the same attempt instead of submitting a second one.
-            </Text>
-          </VStack>
-        </CardSurface>
-      </VStack>
 
       <VStack gap={3}>
         <Heading level={2}>Settlement</Heading>
@@ -366,6 +353,39 @@ function IntentDetail({ intentId }: { intentId: string }) {
                 </Text>
               </>
             )}
+          </VStack>
+        </CardSurface>
+      </VStack>
+
+      <VStack gap={3}>
+        <Heading level={2}>Agent hand-off</Heading>
+        <CardSurface>
+          <VStack gap={3}>
+            {isAgent ? (
+              <Banner
+                status="success"
+                title="This session is the card's assigned agent"
+                description="Settlement runs through the executor's authorized API, which signs with the signer bound to this agent. No signing key ever reaches the browser."
+              />
+            ) : (
+              <Banner
+                status="info"
+                title="The agent lane holds this intent"
+                description={`The controller accepts \`pay\` only from the card's assigned agent (${intent.agentId}), and the executor's session must be that same agent. This session is ${sessionWallet === "" ? "not connected" : sessionWallet}, so it can read the intent but cannot settle it. Hand the intent id to the agent lane, then refresh this page.`}
+              />
+            )}
+            <MetadataList columns="multi">
+              <MetadataListItem label="Intent id">
+                <MonoValue value={intent.intentId} />
+              </MetadataListItem>
+              <MetadataListItem label="Settlement key">
+                <MonoValue value={settlementKey} />
+              </MetadataListItem>
+            </MetadataList>
+            <Text type="supporting">
+              The settlement key is derived from the attempt, so handing the intent on and settling it
+              again reconciles the same attempt instead of submitting a second one.
+            </Text>
           </VStack>
         </CardSurface>
       </VStack>
