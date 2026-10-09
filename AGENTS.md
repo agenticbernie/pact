@@ -1011,3 +1011,34 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   (`POST /v1/session/challenge` → sign EIP-191 with `OWNER_WALLET_PRIVATE_KEY` → `/v1/session/verify`
   → `GET /v1/cards/2` on `http://127.0.0.1:8000`). Suites: `corepack yarn vitest run
   supabase/functions/read-api supabase/functions/indexer` → 6 files / 48 tests pass.
+- **P1.3 authenticated intent creation + preflight verified (2026-10-09, production, NO execute):** the
+  owner-session → `POST /v1/agent/intents` (aigateway) → read-after-write → agent-session
+  `POST /v1/payments/preflight` path passed end to end against the production Neon functions
+  (`https://br-spring-poetry-au5ekyxd-<fn>.compute.c-10.us-east-1.aws.neon.tech`, reachable from the
+  sandbox/`api` container). Execute/broadcast/settlement was deliberately NOT called; the run created one
+  new production row (`intent-req-p13-verify-…`).
+  - **Provider smoke through the gateway, not `/health`:** a fresh request id (card 2, canonical console
+    prompt `Send a Pact card payment of exactly 0.005 USDC from card 2 to merchant "coffee-demo". The
+    merchant id is exactly coffee-demo.`) returned 200 with genuine model output —
+    `provider:"openai"`, `model:"gpt-4o-mini"`, `merchantId:"coffee-demo"`, `amountBaseUnits:"5000000000000000"`,
+    `purpose:"Payment for coffee"`, `confidence:0.95`. `OpenAiProvider.parseIntent` returns exactly these four
+    model fields and the observed `purpose`/`amountBaseUnits`/`confidence` vary across persisted rows, so this
+    is real gpt-4o-mini inference, not a hardcoded value.
+  - **Write + read-after-write:** the persisted row (`status ready`, `policy_version 1`, same
+    `intent_hash 0x2d87e8…`) is read back from hosted Neon; replaying the same request id resolves from storage
+    (200) with every payment-critical field identical
+    (`intentId`/`amountBaseUnits`/`merchantId`/`asset`/`expiresAt`/`policyVersion`/`intentHash`). The replay
+    differs from the write response only cosmetically — `agentId` case (checksummed vs lowercased), `createdAt`
+    (app clock at write vs DB `created_at` on read), and the adapter-added `chainId` — none of which is part of
+    the canonical intent hash.
+  - **Preflight (`preflightPay`, read-only):** signed with the agent lane (`AGENT_SIGNER_PRIVATE_KEY`,
+    `0xC289…F91214` == card 2's agent) the fresh intent answered `decision:"would_settle"` (chainId 5042002) —
+    eligibility, `policy_version` agreement (intent 1 = card 1 = chain 1), signer mapping (session wallet ==
+    intent agent) and credit (card 2 `verified_credit` 1e17 ≥ 5e15) all pass. The documented canonical fixture
+    `intent-req-card2-pay-1` preflights `declined / EXPIRED` (it expired 2026-10-08), so a live-card preflight
+    needs a fresh intent id, not the pinned fixture.
+  - **Preflight nonce is stable:** `handleReadOnlyPreflight` passes `idempotencyKey:"preflight"`, so the static
+    call's nonce is `derivePaymentNonce("preflight")` for every lookup — a fresh, never-settled nonce, never the
+    settlement attempt key.
+  - **Working fixture vs blocked:** card 2 (`0x83bc…` owner / `0xc289…` agent, credit 1e17, policy 1, spent 0)
+    is the usable lane; card 3 stays unusable (`verified_credit` 0, agent has no signer key).
