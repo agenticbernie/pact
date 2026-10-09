@@ -2,21 +2,49 @@
   command = "yarn build:web"
   publish = "apps/web/dist"
 
+# Route precedence matters: Netlify applies the FIRST matching rule, so every
+# path that belongs to a specific Neon function must be listed BEFORE the
+# generic `/v1/*` read-model catch-all. Routing `POST /v1/agent/intents` (or the
+# executor's preflight/execute) into the read-only read-api produced a bare 400
+# `INPUT_INVALID` — the read API refuses any non-GET by construction — so the
+# gateway and the intent/idempotency code were never reached in production.
+
 [[redirects]]
   from = "/v1/session/*"
   to = "https://br-spring-poetry-au5ekyxd-session.compute.c-10.us-east-1.aws.neon.tech/v1/session/:splat"
   status = 200
   force = true
 
+# AI gateway: owns POST /v1/agent/intents and GET /health.
 [[redirects]]
-  from = "/v1/*"
-  to = "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/v1/:splat"
+  from = "/v1/agent/intents"
+  to = "https://br-spring-poetry-au5ekyxd-aigateway.compute.c-10.us-east-1.aws.neon.tech/v1/agent/intents"
   status = 200
   force = true
 
 [[redirects]]
   from = "/health"
-  to = "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/health"
+  to = "https://br-spring-poetry-au5ekyxd-aigateway.compute.c-10.us-east-1.aws.neon.tech/health"
+  status = 200
+  force = true
+
+# Agent executor: owns the two write steps that follow an intent.
+[[redirects]]
+  from = "/v1/payments/preflight"
+  to = "https://br-spring-poetry-au5ekyxd-agentexecutor.compute.c-10.us-east-1.aws.neon.tech/v1/payments/preflight"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v1/payments/execute"
+  to = "https://br-spring-poetry-au5ekyxd-agentexecutor.compute.c-10.us-east-1.aws.neon.tech/v1/payments/execute"
+  status = 200
+  force = true
+
+# Read model catch-all: every remaining /v1 route is a read (GET).
+[[redirects]]
+  from = "/v1/*"
+  to = "https://br-spring-poetry-au5ekyxd-readapi.compute.c-10.us-east-1.aws.neon.tech/v1/:splat"
   status = 200
   force = true
 

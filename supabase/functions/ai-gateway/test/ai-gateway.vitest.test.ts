@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { handleIntentRequest, type GatewayDeps } from "../index.ts";
+import {
+  handleIntentRequest,
+  handleRuntimeIntentRequest,
+  type GatewayDeps,
+  type IntentStore,
+} from "../index.ts";
 import { OpenAiProvider } from "../openai-provider.ts";
 import type { AiProvider } from "../provider-port.ts";
+import type { AgentIntent } from "../../../../packages/domain/src/types.ts";
 
 const CARD = {
   cardId: "7",
@@ -209,6 +215,68 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       expect(src).not.toMatch(/AGENT_SIGNER_PRIVATE_KEY/);
       expect(src).not.toMatch(/from ["']openai["']/);
     }
+  });
+
+  it("resolves an identical replay from storage instead of re-deriving the intent", async () => {
+    // Incident 2026-10-09: a retry with the same request id answered 400
+    // INPUT_INVALID (IDEMPOTENCY_CONFLICT). Two identical prompts never re-derive
+    // the same intent — the model phrasing drifts ("Pact card payment" vs
+    // "Payment for coffee" observed in production) and `expiresAt` is recomputed
+    // from the clock — so the replay is answered from the stored intent, before
+    // any provider call.
+    const output = {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      merchantId: "coffee-demo",
+      amountDecimal: "0.1",
+      purpose: "Payment for coffee",
+      confidence: 1,
+    };
+    let parseCalls = 0;
+    const provider: AiProvider = {
+      parseIntent: () => {
+        parseCalls += 1;
+        return Promise.resolve(output as never);
+      },
+    };
+    let stored: AgentIntent | null = null;
+    const store: IntentStore = {
+      async save(intent) {
+        stored = intent;
+      },
+      async getByIdempotencyKey({ idempotencyKey, agentId }) {
+        return stored !== null &&
+          stored.intentId === idempotencyKey &&
+          stored.agentId.toLowerCase() === agentId.toLowerCase()
+          ? stored
+          : null;
+      },
+    };
+    const deps = {
+      ...depsWith(provider),
+      ownerAddress: "0x83bc1007076f6681a90d7d60ad62cb53a120f833",
+      store,
+    };
+    const input = { prompt: "buy coffee", cardId: "7", requestId: "req-replay" };
+    const first = await handleRuntimeIntentRequest(input, deps);
+    expect(first.ok).toBe(true);
+    const retry = await handleRuntimeIntentRequest(input, deps);
+    expect(retry.ok).toBe(true);
+    if (first.ok && retry.ok) {
+      expect(retry.intentId).toBe(first.intentId);
+      expect(retry.intent.intentHash).toBe(first.intent.intentHash);
+      expect(retry.intent.expiresAt).toBe(first.intent.expiresAt);
+    }
+    // One intent never costs two model calls.
+    expect(parseCalls).toBe(1);
+
+    // The same key against a different card is not the same intent.
+    const otherCard = await handleRuntimeIntentRequest(
+      { prompt: "buy coffee", cardId: "8", requestId: "req-replay" },
+      { ...deps, card: { ...CARD, cardId: "8" } },
+    );
+    expect(otherCard.ok).toBe(false);
+    if (!otherCard.ok) expect(otherCard.error.code).toBe("INPUT_INVALID");
   });
 
   it("constrains merchantId to the catalog enum so model drift cannot contaminate it", async () => {
