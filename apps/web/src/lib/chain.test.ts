@@ -32,17 +32,42 @@ const DRAFT: CardDraft = {
   merchants: ["coffee-demo"],
 };
 
-/** A mined `createCard`/`activateCard` receipt carrying the controller's own events. */
-function receiptFor(cardId: bigint, event: "CardCreated" | "CardActivated") {
-  const fragment = iface.getEvent(event)!;
-  const args: unknown[] =
-    event === "CardCreated"
-      ? [cardId, OWNER, AGENT, 100000000000000000n, 10000000000000000n, 1792151400n]
-      : [cardId];
-  const encoded = iface.encodeEventLog(fragment, args);
+/** A mined receipt in the shape ethers' `getTransactionReceipt` must return. */
+function receiptFor(hash: string, event: "CardCreated" | "CardActivated" | null) {
+  const logs: { address: string; topics: string[]; data: string }[] = [];
+  if (event !== null) {
+    const fragment = iface.getEvent(event)!;
+    const args: unknown[] =
+      event === "CardCreated"
+        ? [4n, OWNER, AGENT, 100000000000000000n, 10000000000000000n, 1792151400n]
+        : [4n];
+    const encoded = iface.encodeEventLog(fragment, args);
+    logs.push({ address: CONTROLLER, topics: [...encoded.topics], data: encoded.data });
+  }
   return {
+    hash,
     status: 1,
-    logs: [{ address: CONTROLLER, topics: [...encoded.topics], data: encoded.data }],
+    to: CONTROLLER,
+    from: OWNER,
+    contractAddress: null,
+    index: 0,
+    blockNumber: 1,
+    blockHash: `0x${"aa".repeat(32)}`,
+    logsBloom: `0x${"00".repeat(256)}`,
+    gasUsed: 21000n,
+    cumulativeGasUsed: 21000n,
+    gasPrice: 1n,
+    blobGasUsed: null,
+    blobGasPrice: null,
+    type: 0,
+    root: null,
+    logs: logs.map((log, i) => ({
+      ...log,
+      blockNumber: 1,
+      transactionHash: hash,
+      index: i,
+      removed: false,
+    })),
   };
 }
 
@@ -50,11 +75,21 @@ function receiptFor(cardId: bigint, event: "CardCreated" | "CardActivated") {
  * A contract runner whose `createCard`/`activateCard` sends confirm, and whose
  * `cards(cardId)` READ fails — the exact shape of the race that produced the
  * false "Card not created".
+ *
+ * `tx.wait()` on a contract response goes through the runner's `provider`
+ * (`getTransactionReceipt`), so the stub supplies a mined receipt there.
  */
-function runnerWithFailingCardRead(brokenRead: boolean): ContractRunner {
-  const sent: string[] = [];
+function runnerWithFailingCardRead(
+  brokenRead: boolean,
+  createEvent: "CardCreated" | null = "CardCreated",
+): ContractRunner {
+  const receipts = new Map<string, unknown>();
   return {
-    provider: null,
+    provider: {
+      async getTransactionReceipt(hash: string) {
+        return receipts.get(hash) ?? null;
+      },
+    },
     async call(tx: { data: string; to: string }) {
       if (tx.data.startsWith(agentActiveCardSelector)) {
         return iface.encodeFunctionResult("agentActiveCard", [0n]);
@@ -79,9 +114,9 @@ function runnerWithFailingCardRead(brokenRead: boolean): ContractRunner {
     },
     async sendTransaction(tx: { data: string }) {
       const isCreate = tx.data.startsWith(iface.getFunction("createCard")!.selector);
-      sent.push(isCreate ? CREATE_TX : ACTIVATE_TX);
       const hash = isCreate ? CREATE_TX : ACTIVATE_TX;
-      return { hash, wait: async () => receiptFor(4n, isCreate ? "CardCreated" : "CardActivated") };
+      receipts.set(hash, receiptFor(hash, isCreate ? createEvent : "CardActivated"));
+      return { hash };
     },
   } as unknown as ContractRunner;
 }
@@ -127,17 +162,11 @@ describe("issueCard", () => {
   });
 
   it("still fails closed when the creation receipt carries no CardCreated event", async () => {
-    const runner = runnerWithFailingCardRead(false);
-    const noEvent: ContractRunner = {
-      ...(runner as object),
-      async sendTransaction() {
-        return { hash: CREATE_TX, wait: async () => ({ status: 1, logs: [] }) };
-      },
-    } as unknown as ContractRunner;
+    const runner = runnerWithFailingCardRead(false, null);
     await expect(
       issueCard({
-        runner: noEvent,
-        signer: noEvent as never,
+        runner,
+        signer: runner as never,
         controller: CONTROLLER,
         draft: DRAFT,
       }),
