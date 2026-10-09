@@ -762,6 +762,22 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `--list` to read the registry. A generated key is printed once and belongs immediately in the
   `AGENT_SIGNER_PRIVATE_KEY` secret; the signing path stays read-only (execute → 503) while that secret
   is absent.
+- **Per-agent signers (multi-agent lane, `AGENT_SIGNER_KEYS`):** the executor already supports a
+  second signer shape — `AGENT_SIGNER_KEYS` is a JSON map `{ "<agent address>": "<0x key>" }`
+  (`supabase/functions/agent-executor/agent-signers.ts`). An entry is kept ONLY when the key's derived
+  address equals the declared agent (a declared mismatch is discarded, never trusted), and execute
+  resolves the intent's OWN agent, so a signer can never be borrowed for another agent's card;
+  `AGENT_SIGNER_PRIVATE_KEY` remains the single-key shape. No compose change is needed — it is delivered
+  like every secret through `/run/base44/app.env` (the `api` service's last `env_file:`). Enter the value
+  as BARE JSON with NO surrounding quotes: a quoted value parses as a string and every binding is
+  dropped (same trap as the `NEON_API_KEY` quirk). This binds a key to an agent that ALREADY exists
+  on chain: `PactCardController.createCard` fixes `agent` for the card's whole life (there is no
+  `setAgent`), so a card whose agent key was never provisioned can only be settled by supplying that
+  agent's key — re-issuing creates a NEW card and leaves the old one unsettleable. State as of
+  2026-10-09: `AGENT_SIGNER_KEYS` is unset, so the lane signs only as `0xC289…F91214` (card 2);
+  card 3's agent `0xfda8…8435` (owner == agent, a browser wallet) has no key in secrets and no `wallets`
+  row, and its on-chain `verifiedCredit` is still `0` (`CREDIT_EXCEEDED`) — a signer alone does not
+  make card 3 settle.
 - **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
   repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
   `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.
