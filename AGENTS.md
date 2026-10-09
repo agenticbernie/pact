@@ -902,9 +902,10 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `select event_type from chain_events` and `select * from cards where card_id='…'` show the new rows.
   Note the `cards` `policy_version`/`allowlist_hash` are projection placeholders (the controller's
   `Card` struct carries neither), and `spent` is not yet projected from `PaymentSettled`.
-- **Production routing + idempotent replay (code verified 2026-10-09, NOT deployed):** two fixes sit
-  committed-but-unshipped on branch `dev-intent-fix` (HEAD `a3a5524161`, clean worktree). Production
-  has NOT been confirmed updated; do not report the fix as live.
+- **Production routing + idempotent replay (verified LIVE 2026-10-09):** the two fixes were developed on
+  branch `dev-intent-fix` and are now deployed — the Neon functions were redeployed from this branch on
+  2026-10-09 (~10:07Z), and production was exercised end to end: `POST /v1/agent/intents` → 200 and
+  `POST /v1/payments/execute` → `settled` (see the signer-binding bullet below).
   - **Root cause of the bare 400 `INPUT_INVALID` on `POST /v1/agent/intents`:** `netlify.toml` sent
     every `/v1/*` to `readapi`. The read API is GET-only by construction, so it refused the POST at
     its method guard and the gateway — its merchant validation and the idempotency store — was never
@@ -1106,4 +1107,24 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     call's nonce is `derivePaymentNonce("preflight")` for every lookup — a fresh, never-settled nonce, never the
     settlement attempt key.
   - **Working fixture vs blocked:** card 2 (`0x83bc…` owner / `0xc289…` agent, credit 1e17, policy 1, spent 0)
-    is the usable lane; card 3 stays unusable (`verified_credit` 0, agent has no signer key).
+    is the usable lane. Card 3 (`0xfda8…8435`, owner == agent) is usable too: `verified_credit` was
+    attested to `1e18` and its agent key is a bound signer (see the card-3 bullets above).
+- **Production execute needs the signer binding in the Neon function env (fixed 2026-10-09):** the live
+  site (`hackon-pact.netlify.app` → the `agentexecutor` Neon function) answered `400 CARD_NOT_ELIGIBLE`
+  for the card-3 intent `intent-req-34065ec0-…` while the identical request preflighted `would_settle`
+  from the sandbox against the same DB and chain. `handleExecute` resolves the signer for the intent's
+  OWN agent and fails closed when none is bound to it, and the deployed function's env carried only
+  `AGENT_SIGNER_PRIVATE_KEY` (card 2's agent) — no `AGENT_SIGNER_KEYS`, so card 3's agent could never
+  resolve. The code was correct; the deployment was stale. Fix (run inside the `api` container so the
+  key is never printed):
+  `neonctl functions deploy agentexecutor --project-id polished-dream-04296130 --branch main --src neon/functions/agentexecutor/index.ts --runtime nodejs24 --env "AGENT_SIGNER_KEYS=$AGENT_SIGNER_KEYS" --wait`.
+  `--env` MERGES into the existing set, so production's other env values (its own `SESSION_HMAC_SECRET`,
+  `AGENT_SIGNER_PRIVATE_KEY`, `ARC_RPC_URL`, …) are untouched; verify names with
+  `neonctl functions get agentexecutor --list-env-variables` (names only — values are not readable from
+  the sandbox). Verified live afterwards: `preflight` `would_settle` and `execute` **settled** (tx
+  `0xb0072ba9…d0c0a5`, block 66290642, `PaymentSettled` cardId `3` amount `2e17`, `intentHash`
+  matching), read model `status: settled`.
+  - **Post-deploy warm-up:** for roughly a minute after a Neon function deploy some requests are still
+    served by the PREVIOUS instance (observed `503 PREFLIGHT_DECLINED` "Request input is invalid." for
+    card-3 and card-2 preflight, plus the old `400 CARD_NOT_ELIGIBLE`). Re-probe before diagnosing; a
+    failure immediately after a deploy is not evidence about the new revision.
