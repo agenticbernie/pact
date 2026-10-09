@@ -808,6 +808,24 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `apps/web/src/session/session-store.ts`) and reload; the dashboard then renders the owner card
   and payment read model. Two `GET /v1/cards` entries with a null status in the devtools log are
   React StrictMode aborting the first effect run, not an API failure.
+- **Card issuance / `createCard` reverts (2026-10-09):** the controller issues **at most one
+  active card per agent** — `agentActiveCard[agent] != 0` makes `createCard` revert
+  `InvalidPolicy`. Re-issuing to an agent that already holds a card therefore always fails, and
+  two live agents are already taken: `0xC289b3c8…F91214` (card 2's agent, which is also the
+  documented owner-lane fixture's agent) and `0xdc26A45c…316682` (card 1's agent). Anything else
+  about the form (zero agent, past expiry) is caught by `validateCardDraft` before signing.
+  - The console ABI must carry the controller's **error fragments**: with only functions/events
+    in `apps/web/src/lib/controller-abi.ts`, ethers cannot decode revert data and every failure
+    — including this one — reaches the user as "execution reverted (unknown custom error)".
+    `controller-abi.test.ts` enforces parity with `packages/pact-sdk/src/abi.ts` for functions,
+    events **and** errors, so add new fragments there, never by hand-editing selectors.
+  - `issueCard` preflights `agentActiveCard(draft.agent)` against the configured controller and
+    refuses with `ChainError("agent-already-active")` before the wallet prompt; the read is
+    advisory (a failed read never blocks a submission the chain will still validate).
+  - Reproduce read-only against the live lane from the api container: `eth_call` `createCard`
+    with `from` = the owner returns revert data `0xd06b96b1` = `InvalidPolicy()`, while a fresh
+    agent address returns success. Scripts outside `/app` need `NODE_PATH=/app/node_modules` to
+    resolve `ethers`.
 - **Public landing page (2026-10-09):** `/` renders the public landing page
   (`apps/web/src/pages/LandingPage.tsx`; one band per file under `apps/web/src/landing/`) for a
   visitor with no session. It is intentionally outside the console chrome — its own `TopNav`, no
