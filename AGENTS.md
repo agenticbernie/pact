@@ -924,7 +924,7 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     which does not re-export it (the type lives in `_shared/persistence-composition.ts`). Datable to
     2026-09-21 and type-only — `node --experimental-strip-types` erases it, so runtime is unaffected —
     but a strict `tsc` over `neon/` still fails until the re-export/import is fixed.
-  - **Deploy status — NOT deployed, and not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
+  - **Deploy status — aigateway revision deployed 2026-10-09; verified read-only (P1.2): production `GET /health` now returns 200 `modelAvailable:true` (matches the source's **hardcoded** value — still not a provider-health signal), `GET /` → 404 `INPUT_INVALID` unsupported route, unauth `POST /v1/agent/intents` → 401 `AUTH_REQUIRED`, `readapi GET /v1/config` → 200 with a fresh `latestIndexedBlock`; no authenticated Neon session exists here, so the remote revision/digest is not retrievable from this sandbox. Not deployable from this sandbox:** no Neon credential is available here and no production deploy is authorized:
     `NEON_API_KEY` is absent from the repo, `.base44` secrets and `/run/base44/app.env`, and
     `npx neonctl projects list` can only start an interactive browser OAuth that times out headless
     (the CLI itself IS fetchable — `npx neonctl@latest` resolves to the `neon` CLI; `api.neon.tech`
