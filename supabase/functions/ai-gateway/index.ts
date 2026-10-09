@@ -33,6 +33,7 @@ import { TARGET_CHAIN_ID } from "../_shared/chain-config.ts";
 import { requireSession } from "../_shared/auth.ts";
 import { hashToken } from "../_shared/session-token.ts";
 import { toApiError } from "../_shared/errors.ts";
+import { internalCodeOf, logRejection } from "../_shared/diagnostics.ts";
 import {
   createPostgrestPersistenceFromEnv,
   type PostgrestPersistence,
@@ -58,10 +59,25 @@ export type GatewayDeps = {
   expectedRegion: string;
   actualRegion: string;
   nowMs: number;
+  /**
+   * Session wallet that owns the card. Required for the owner-scoped
+   * idempotent-replay read; when absent the replay falls back to the
+   * post-insert reconcile only.
+   */
+  ownerAddress?: string;
 };
 
 export type IntentStore = {
   save(intent: AgentIntent): Promise<void>;
+  /**
+   * Owner- and agent-scoped idempotent-replay read. Optional: a store without
+   * it keeps the post-insert reconcile (the race guard) as its only path.
+   */
+  getByIdempotencyKey?(input: {
+    idempotencyKey: string;
+    ownerAddress: string;
+    agentId: string;
+  }): Promise<AgentIntent | null>;
 };
 
 export type GatewayRuntimeDeps = GatewayDeps & { store: IntentStore };
@@ -81,8 +97,30 @@ export type GatewayResult =
 const NATIVE_DECIMALS = 18;
 const INTENT_TTL_MS = 15 * 60 * 1000;
 
+/**
+ * Server-derived intent id: one request id maps to exactly one intent. The same
+ * value is the intent's idempotency key on the `save()` path, so the pre-provider
+ * replay read and the insert agree on the key by construction.
+ */
+export function intentIdForRequest(requestId: string): string {
+  return `intent-${requestId}`;
+}
+
 function fail(requestId: string, code: string): GatewayResult {
-  const safe = isApiErrorCode(code) ? code : "INPUT_INVALID";
+  const known = isApiErrorCode(code);
+  const safe = known ? code : "INPUT_INVALID";
+  if (!known) {
+    // A non-API code is collapsed to the generic INPUT_INVALID for the client.
+    // Keep the internal reason (token-shaped only) server-side so the collapse
+    // stays diagnosable instead of erasing why the intent was refused.
+    logRejection({
+      surface: "ai-gateway",
+      requestId,
+      code: safe,
+      stage: "intent-validation",
+      internalCode: code,
+    });
+  }
   return {
     ok: false,
     error: createApiError(safe, requestId),
@@ -93,12 +131,61 @@ export async function handleRuntimeIntentRequest(
   input: { prompt: unknown; cardId: unknown; requestId: unknown },
   deps: GatewayRuntimeDeps,
 ): Promise<GatewayResult> {
+  const requestIdValue = typeof input.requestId === "string" ? input.requestId : "";
+  // Idempotent replay is resolved BEFORE the provider call. The replay key is
+  // server-derived from the request id, and a re-derived intent can never match
+  // the stored one byte-for-byte — the model's phrasing drifts and `expiresAt`
+  // is recomputed from the clock — so a post-insert comparison alone rejects
+  // every honest retry as IDEMPOTENCY_CONFLICT (surfaced to clients as
+  // INPUT_INVALID). Returning the prior intent also means one intent never
+  // costs two model calls.
+  if (
+    requestIdValue.length > 0 &&
+    deps.ownerAddress !== undefined &&
+    deps.store.getByIdempotencyKey !== undefined
+  ) {
+    let prior: AgentIntent | null;
+    try {
+      prior = await deps.store.getByIdempotencyKey({
+        idempotencyKey: intentIdForRequest(requestIdValue),
+        ownerAddress: deps.ownerAddress,
+        agentId: deps.card.agent,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, requestIdValue);
+      logRejection({
+        surface: "ai-gateway",
+        requestId: requestIdValue,
+        code: apiError.code,
+        stage: "intent-replay-read",
+        internalCode: internalCodeOf(error),
+      });
+      return { ok: false, error: apiError };
+    }
+    if (prior !== null) {
+      // The same key replayed against a different card is not the same intent.
+      if (prior.cardId !== deps.card.cardId) {
+        return fail(requestIdValue, "IDEMPOTENCY_CONFLICT");
+      }
+      return { ok: true, intent: prior, intentId: prior.intentId, requestId: requestIdValue, status: "ready" };
+    }
+  }
   const result = await handleIntentRequest(input, deps);
   if (result.ok) {
     try {
       await deps.store.save(result.intent);
     } catch (error) {
-      return { ok: false, error: toApiError(error, result.requestId) };
+      const apiError = toApiError(error, result.requestId);
+      // Persistence failures (e.g. an idempotency conflict) map to the generic
+      // INPUT_INVALID; log the internal code so a bare 400 is traceable.
+      logRejection({
+        surface: "ai-gateway",
+        requestId: result.requestId,
+        code: apiError.code,
+        stage: "intent-persist",
+        internalCode: internalCodeOf(error),
+      });
+      return { ok: false, error: apiError };
     }
   }
   return result;
@@ -273,7 +360,7 @@ export function createGatewayEntrypointHandler(input: {
       prompt: body.prompt,
       cardId: body.cardId,
       requestId,
-    }, { ...input.deps, card });
+    }, { ...input.deps, card, ownerAddress: sessionWallet });
     return new Response(JSON.stringify(result.ok ? result : result.error), {
       status: result.ok ? 200 : 400,
       headers: { "content-type": "application/json", "x-request-id": requestId },
@@ -504,7 +591,7 @@ export async function handleIntentRequest(
 
   const createdAt = new Date(deps.nowMs).toISOString();
   const expiresAt = new Date(deps.nowMs + INTENT_TTL_MS).toISOString();
-  const intentId = `intent-${requestId}`;
+  const intentId = intentIdForRequest(requestId);
   // Server-bound lane asset: the CardStore row (lane-checked at composition)
   // is the authority. Unknown card assets fail closed; no CTC literal lives
   // on this path anymore.
