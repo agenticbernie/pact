@@ -855,3 +855,18 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   sits on an inverted region because its wordmark is white — `ConnectGate` nests
   `<Theme mode="dark">` to give it one. Never write a raw hex/px in a component; extend the
   theme instead.
+- **Phase 05 indexer actually runs now (2026-10-09):** two gaps made a freshly created card
+  never appear in the read model, which the console reports as *"the transaction is confirmed
+  but no card row is indexed yet"*. (1) `runIndexerTick` had **no caller** — the cursor sat at
+  one block forever, so no `CardCreated`/`CardActivated` ever reached `chain_events`.
+  (2) Nothing projected card events into the `cards` table `GET /v1/cards` reads, so even an
+  indexed card would not appear; only the hand-seeded cards 1/2 existed. Fix: `neon/indexer-runner.ts`
+  (started by `neon/dev-host.ts`) schedules the tick (15s, catch-up first, `PACT_INDEXER_DISABLED=1`
+  to disable) and `supabase/functions/indexer/card-projection.ts` projects decoded card
+  lifecycle/credit/policy events into `cards` (idempotent: `CardCreated` inserts once and updates are
+  guarded by `source_block <= $block`). The api service resolves `DATABASE_URL`/`ARC_RPC_URL` from
+  `env_file:`, so the runner indexes the same DB the read API serves. Verify: watch
+  `docker compose -f docker-compose.base44.yml logs -f api` for `[indexer] block <n> (+k new …)`, then
+  `select event_type from chain_events` and `select * from cards where card_id='…'` show the new rows.
+  Note the `cards` `policy_version`/`allowlist_hash` are projection placeholders (the controller's
+  `Card` struct carries neither), and `spent` is not yet projected from `PaymentSettled`.

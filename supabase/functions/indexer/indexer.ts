@@ -2,7 +2,8 @@
  * Phase 05 indexer tick.
  *
  * One tick = scan the next confirmed block range, decode known events, upsert
- * them idempotently, and ONLY THEN advance the cursor. Guarantees:
+ * them idempotently (and, when a `projector` is supplied, apply the derived
+ * card projection), and ONLY THEN advance the cursor. Guarantees:
  *
  * - confirms before indexing: never scans past `latestBlock - confirmations`.
  * - idempotent replay: uniqueness is (chainId, txHash, logIndex); a replayed
@@ -13,6 +14,7 @@
  *   hash, the cursor rewinds by the configured window and the tick does not
  *   advance (reprocessing is safe because upserts dedupe).
  */
+import type { CardProjector } from "./card-projection.ts";
 import type {
   ChainReader,
   CursorStore,
@@ -30,6 +32,12 @@ export type IndexerTickInput = {
   reader: ChainReader;
   store: CursorStore;
   decoder: PactEventDecoder;
+  /**
+   * Optional card projection: applied for every decoded event (idempotent and
+   * monotonic), so a crash between the ledger write and the projection self-heals
+   * on the next replay instead of losing the card row forever.
+   */
+  projector?: CardProjector;
   confirmations?: number;
   maxRange?: number;
   reorgWindow?: number;
@@ -105,6 +113,7 @@ export async function runIndexerTick(input: IndexerTickInput): Promise<IndexerTi
     const result = await input.store.upsertEvent(decoded);
     if (result === "inserted") inserted += 1;
     else duplicates += 1;
+    if (input.projector !== undefined) await input.projector.project(decoded);
   }
 
   const blockHash = await input.reader.getBlockHash(toBlock);

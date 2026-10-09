@@ -4,7 +4,7 @@ import { PACT_ABI } from "../../../../packages/pact-sdk/src/abi.ts";
 import { createPactEventDecoder } from "../event-decoder.ts";
 import { createMemoryCursorStore } from "../cursor-store.ts";
 import { runIndexerTick } from "../indexer.ts";
-import type { ChainLog, ChainReader } from "../types.ts";
+import type { ChainLog, ChainReader, DecodedPactEvent } from "../types.ts";
 
 const CHAIN_ID = 5042002;
 const CONTROLLER = "0x7a474c005433def5fc496d2016f6ae794edfc423";
@@ -164,6 +164,34 @@ describe("Phase 05 indexer tick", () => {
     expect(result.reorgRewind).toBe(true);
     expect(result.advanced).toBe(false);
     expect(result.nextBlock).toBe(88n);
+  });
+
+  it("projects every decoded event, including a replay", async () => {
+    const store = createMemoryCursorStore({
+      chainId: CHAIN_ID,
+      nextBlock: 90n,
+      latestConfirmedBlock: 90n,
+    });
+    const projected: string[] = [];
+    const projector = {
+      async project(event: DecodedPactEvent): Promise<void> {
+        projected.push(event.eventType);
+      },
+    };
+    const tickInput = {
+      chainId: CHAIN_ID,
+      reader: reader({ latest: 100n, logs: [paymentSettledLog()], hashes: { "99": HASH_99 } }),
+      store,
+      decoder,
+      projector,
+      confirmations: 1,
+      maxRange: 5000,
+    };
+    await runIndexerTick(tickInput);
+    // Re-point the cursor and replay: projection is idempotent, so it re-runs.
+    await store.save({ chainId: CHAIN_ID, nextBlock: 90n, latestConfirmedBlock: 99n });
+    await runIndexerTick(tickInput);
+    expect(projected).toEqual(["PaymentSettled", "PaymentSettled"]);
   });
 
   it("ignores unknown events in the range", async () => {

@@ -7,9 +7,11 @@
  * same thing offline — it mounts the three existing handlers on one local HTTP port
  * for the sandbox preview.
  *
- * It adds no business logic: every request is dispatched to the existing entry
- * handler, which owns routing (`normalizeFunctionPath`), auth, region gating, lane
- * checks, and error mapping. The only host-local surface is the `GET /` status page.
+ * It adds no request business logic: every request is dispatched to the existing
+ * entry handler, which owns routing (`normalizeFunctionPath`), auth, region gating,
+ * lane checks, and error mapping. The two host-local surfaces are the `GET /`
+ * status page and the Phase 05 indexer tick loop (`indexer-runner.ts`), which
+ * `neon dev` would otherwise schedule outside the request path.
  *
  * Run: node --experimental-strip-types neon/dev-host.ts
  */
@@ -19,6 +21,7 @@ import sessionEntry from "./functions/session/index.ts";
 import gatewayEntry from "./functions/aigateway/index.ts";
 import executorEntry from "./functions/agentexecutor/index.ts";
 import readEntry from "./functions/readapi/index.ts";
+import { startIndexerFromEnv } from "./indexer-runner.ts";
 
 type FetchHandler = (request: Request) => Response | Promise<Response>;
 
@@ -161,4 +164,8 @@ createServer((request, response) => {
   });
 }).listen(PORT, HOST, () => {
   console.log(`Pact local runtime listening on http://${HOST}:${PORT}`);
+  // The read model only learns about cards/payments from indexed chain events;
+  // `neon dev` would schedule the indexer externally, so this host runs the
+  // Phase 05 tick loop in-process (no-op when DATABASE_URL/ARC_RPC_URL absent).
+  startIndexerFromEnv(process.env as Record<string, string | undefined>);
 });
