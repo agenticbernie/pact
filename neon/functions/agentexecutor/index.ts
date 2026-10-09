@@ -59,18 +59,24 @@ async function buildHandler(): Promise<FetchHandler> {
   // DERIVED from the key rather than declared. Signing is optional at boot: with
   // no usable binding the entry stays read-only and execute answers 503 instead
   // of taking the preflight surface down with it.
+
   const signers = createAgentSignerRegistry({
-    bindings: parseAgentSignerBindings({
-      json: process.env["AGENT_SIGNER_KEYS"],
-      legacyPrivateKey: process.env["AGENT_SIGNER_PRIVATE_KEY"],
-    }),
-    createClient: (binding) =>
-      createAgentSignerPaymentClient({
-        rpcUrl,
-        expectedChainId: ARC_LANE.chainId,
-        controllerAddress: ARC_LANE.controller ?? "",
-        privateKey: binding.privateKey,
+    bindings: [
+      ...parseAgentSignerBindings({
+        json: process.env["AGENT_SIGNER_KEYS"],
+        legacyPrivateKey: process.env["AGENT_SIGNER_PRIVATE_KEY"],
       }),
+      ...parseAgentSignerBindings({
+        legacyPrivateKey: process.env["AGENT_SIGNER_CARD4_PRIVATE_KEY"],
+      }),
+    ],
+    createClient: (binding) =>
+    createAgentSignerPaymentClient({
+      rpcUrl,
+      expectedChainId: ARC_LANE.chainId,
+      controllerAddress: ARC_LANE.controller ?? "",
+      privateKey: binding.privateKey,
+    }),
   });
   let paymentClient: PaymentClient | undefined;
   let signerAddress: string | undefined;
