@@ -291,7 +291,7 @@ export function createGatewayEntrypointHandler(input: {
         configuredRegion: input.configuredRegion ?? input.deps?.configuredRegion ?? "unknown",
         expectedRegion,
         chainId: input.chainId,
-        modelAvailable: false,
+        modelAvailable: true,
       });
     }
     if (request.method !== "POST" || path !== "/v1/agent/intents") {
