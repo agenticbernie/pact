@@ -762,6 +762,26 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `--list` to read the registry. A generated key is printed once and belongs immediately in the
   `AGENT_SIGNER_PRIVATE_KEY` secret; the signing path stays read-only (execute → 503) while that secret
   is absent.
+- **Per-agent signers (multi-agent lane, `AGENT_SIGNER_KEYS`):** the executor already supports a
+  second signer shape — `AGENT_SIGNER_KEYS` is a JSON map `{ "<agent address>": "<0x key>" }`
+  (`supabase/functions/agent-executor/agent-signers.ts`). An entry is kept ONLY when the key's derived
+  address equals the declared agent (a declared mismatch is discarded, never trusted), and execute
+  resolves the intent's OWN agent, so a signer can never be borrowed for another agent's card;
+  `AGENT_SIGNER_PRIVATE_KEY` remains the single-key shape. No compose change is needed — it is delivered
+  like every secret through `/run/base44/app.env` (the `api` service's last `env_file:`). Enter the value
+  as BARE JSON with NO surrounding quotes: a quoted value parses as a string and every binding is
+  dropped (same trap as the `NEON_API_KEY` quirk); since 2026-10-09 a single BARE `0x` key is ALSO
+  accepted there and binds to the one agent that key derives, so an unwrapped paste no longer binds
+  nothing silently. This binds a key to an agent that ALREADY exists
+  on chain: `PactCardController.createCard` fixes `agent` for the card's whole life (there is no
+  `setAgent`), so a card whose agent key was never provisioned can only be settled by supplying that
+  agent's key — re-issuing creates a NEW card and leaves the old one unsettleable. State as of
+  2026-10-09 (updated): `AGENT_SIGNER_KEYS` holds card 3's agent key as a single BARE key — accepted by
+  the tolerant shape above — so the lane now signs as BOTH `0xC289…F91214` (card 2) and `0xfda8…8435`
+  (card 3); the live `api` service reports both in `boundAgents()`. Card 3's on-chain `verifiedCredit`
+  was attested separately from `0` to `1e18` (expiry = the card's own `expiresAt`, tx `0x9b3e1aad…2f84`,
+  block 66288697), so the two prerequisites that kept card 3 unsettleable are met. It still has no
+  `wallets` registry row.
 - **Not seeded:** the card `1` / `intent-req-1` rows are a separately approval-gated step in this
   repo's own policy, so the local DB starts empty. Intent/preflight paths therefore return
   `CARD_NOT_ELIGIBLE`/`declined` until a seed lane runs.
@@ -1016,12 +1036,24 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   no frontend change. Tests: `supabase/functions/agent-executor/test/preflight-reasons.vitest.test.ts`
   plus `supabase/functions/_shared/test/policy-version.vitest.test.ts` and
   `supabase/functions/ai-gateway/test/policy-version-source.vitest.test.ts`.
-- **Still blocked for card 3 (external prerequisites, NOT code):** its assigned agent is
-  `0xfda8…8435` (owner == agent, a browser wallet with no provisioned key), so the lane's single
-  signer `0xC289…F91214` cannot satisfy `session wallet == intent.agent` / the controller's
-  `WRONG_CALLER`, and on-chain `verifiedCredit` is `0` (`CREDIT_EXCEEDED`). Both need provisioning
-  (issue the card to an agent whose key is stored as `AGENT_SIGNER_PRIVATE_KEY`, or add a per-agent
-  signer, and attest credit); no code change can make it settle.
+- **Card-3 end-to-end payment VERIFIED 2026-10-09:** the two external
+  blockers recorded here were both cleared. Card 3's assigned agent `0xfda8…8435` (owner == agent, a
+  browser wallet) now HAS a per-agent signer in `AGENT_SIGNER_KEYS` (supplied as a single BARE key,
+  accepted by the tolerant shape above), and its on-chain `verifiedCredit` was attested from `0` to
+  `1e18` by the ASC authority (`ASC_AUTHORITY_PRIVATE_KEY` derives the controller's on-chain
+  `ascAuthority` `0x6e90…7313` and calls `applyVerifiedCreditForAgent`), with the credit expiry set to
+  the card's own `expiresAt` and the row projected into `cards` (`verified_credit` `1e18`,
+  `policy_version` `1`). So `session wallet == intent.agent` and the credit gate are both satisfiable.
+  **The full flow is now verified (2026-10-09):** one `node` script inside the `api` container read the
+  bare `AGENT_SIGNER_KEYS` key (never printed), signed the EIP-191 challenge (owner == agent, so the
+  same key authorizes the session), then ran `POST /v1/agent/intents` (x-request-id
+  `req-c3-e2e-mv0sqdug`, prompt "…0.005 USDC from card 3 to coffee-demo…") → `preflight`
+  `would_settle` → `POST /v1/payments/execute` `settled`, tx `0x73fbf77f…eeec350` (block 66289043,
+  `PaymentSettled` cardId `3`, amount `5000000000000000`, `intentHash` matching the intent), and the
+  read model reports `attemptStatus settled` (receiptConfirmed + indexedPaymentEvent true). The
+  persisted intent is `intent-req-c3-e2e-mv0sqdug` (the pre-existing card-3 rows were expired or
+  carried the stale placeholder policy version). The console intent page renders it as Settled once a
+  card-3-owner session is seeded into `sessionStorage["pact.console.session"]` and the tab reloaded.
 - **Current persisted state (2026-10-09 ~07:26 UTC, read from the runtime's own DB):** cards 1/2 are
   hand-seeded with `policy_version = 1` and credit `1e17`; card 3 has `policy_version = 0`,
   `verified_credit = 0`; `intent-req-b05e4d86-9318-467d-bfd6-fd53fa32f691` is still `ready`, still
