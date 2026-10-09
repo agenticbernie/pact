@@ -17,6 +17,16 @@ export type ReadQueryResult = {
 
 export type ReadQueryFn = (text: string, params: unknown[]) => Promise<ReadQueryResult>;
 
+/**
+ * Provenance of `policyVersion`. The controller's card events carry no policy
+ * version, so the column alone can be a projection placeholder:
+ * - `unknown`  — never observed from the chain; do not present it as verified.
+ * - `stale`    — observed, but a newer card event was indexed since; the value
+ *                may no longer match the controller.
+ * - `verified` — observed on chain at (or after) the newest indexed event.
+ */
+export type PolicyVersionStatus = "unknown" | "stale" | "verified";
+
 export type CardReadModel = {
   cardId: string;
   controllerAddress: string;
@@ -30,8 +40,28 @@ export type CardReadModel = {
   spent: string;
   expiresAt: string;
   policyVersion: number;
+  policyVersionStatus: PolicyVersionStatus;
+  policyVersionSource: string;
+  policyVersionBlock: number;
   sourceBlock: number;
   updatedAt: string;
+};
+
+/** A server-bound payment intent, as persisted by the AI gateway. */
+export type IntentReadModel = {
+  intentId: string;
+  cardId: string;
+  agentId: string;
+  merchantId: string;
+  amountBaseUnits: string;
+  asset: string;
+  chainId: number;
+  status: string;
+  policyVersion: number;
+  intentHash: string;
+  requestId: string;
+  createdAt: string;
+  expiresAt: string;
 };
 
 export type ActivityItem = {
@@ -77,6 +107,8 @@ export type ReadStore = {
   listActivity(chainId: number, cardId: string, limit: number): Promise<ActivityItem[]>;
   getPayment(paymentId: string, ownerWallet: string): Promise<PaymentAttemptRow | null>;
   listPayments(chainId: number, cardId: string, ownerWallet: string, limit: number): Promise<PaymentAttemptRow[]>;
+  getIntent(intentId: string, ownerWallet: string): Promise<IntentReadModel | null>;
+  listIntentPayments(intentId: string, ownerWallet: string, limit: number): Promise<PaymentAttemptRow[]>;
   hasIndexedPaymentEvent(chainId: number, txHash: string): Promise<boolean>;
   paymentEvents(chainId: number, txHash: string): Promise<IndexedEventRow[]>;
 };
@@ -84,11 +116,22 @@ export type ReadStore = {
 const LATEST_BLOCK_SQL =
   "select latest_confirmed_block from indexer_state where chain_id = $1";
 
+/**
+ * Card columns plus the newest indexed event block for the same card. The
+ * policy-version provenance is derived from those two facts (`toCard`), so the
+ * read model can say `unknown`/`stale`/`verified` without a second round trip.
+ */
+const CARD_COLUMNS =
+  "c.card_id, c.controller_address, c.owner_address, c.agent_id, c.asset, c.status, " +
+  "c.owner_configured_cap, c.per_transaction_limit, c.verified_credit, c.spent, c.expires_at, " +
+  "c.policy_version, c.policy_version_source, c.policy_version_block, " +
+  "c.source_block, c.updated_at, " +
+  "(select max(e.block_number) from chain_events e " +
+  "where e.chain_id = c.chain_id and e.payload ->> 'cardId' = c.card_id) as policy_version_event_block";
+
 const CARD_SQL =
-  "select card_id, controller_address, owner_address, agent_id, asset, status, " +
-  "owner_configured_cap, per_transaction_limit, verified_credit, spent, expires_at, " +
-  "policy_version, source_block, updated_at " +
-  "from cards where card_id = $1 and lower(owner_address) = lower($2)";
+  "select " + CARD_COLUMNS + " from cards c " +
+  "where c.card_id = $1 and lower(c.owner_address) = lower($2)";
 
 const ACTIVITY_SQL =
   "select event_type, tx_hash, block_number, log_index, payload from chain_events " +
@@ -96,10 +139,8 @@ const ACTIVITY_SQL =
   "order by block_number desc, log_index desc limit $3";
 
 const CARDS_SQL =
-  "select card_id, controller_address, owner_address, agent_id, asset, status, " +
-  "owner_configured_cap, per_transaction_limit, verified_credit, spent, expires_at, " +
-  "policy_version, source_block, updated_at " +
-  "from cards where lower(owner_address) = lower($1) order by card_id";
+  "select " + CARD_COLUMNS + " from cards c " +
+  "where lower(c.owner_address) = lower($1) order by c.card_id";
 
 const PAYMENT_COLUMNS =
   "pa.idempotency_key, pa.intent_id, pa.status, pa.tx_hash, pa.card_nonce, " +
@@ -121,6 +162,21 @@ const CARD_PAYMENTS_SQL =
   "where i.card_id = $1 and i.chain_id = $2 and lower(c.owner_address) = lower($3) " +
   "order by pa.updated_at desc limit $4";
 
+const INTENT_SQL =
+  "select i.intent_id, i.card_id, i.merchant_id, i.amount_base_units, i.asset, i.chain_id, " +
+  "i.status, i.policy_version, i.intent_hash, i.request_id, i.created_at, i.expires_at, " +
+  "c.agent_id " +
+  "from intents i join cards c on c.card_id = i.card_id " +
+  "where i.intent_id = $1 and lower(c.owner_address) = lower($2)";
+
+const INTENT_PAYMENTS_SQL =
+  "select " + PAYMENT_COLUMNS + " " +
+  "from payment_attempts pa " +
+  "join intents i on i.intent_id = pa.intent_id " +
+  "join cards c on c.card_id = i.card_id " +
+  "where pa.intent_id = $1 and lower(c.owner_address) = lower($2) " +
+  "order by pa.updated_at desc limit $3";
+
 const PAYMENT_EVENT_SQL =
   "select id from chain_events where chain_id = $1 and tx_hash = $2 and event_type = 'PaymentSettled' limit 1";
 
@@ -137,6 +193,27 @@ function requiredString(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
+/**
+ * The three-state policy-version answer. A projection placeholder is NEVER
+ * reported as verified: without a chain observation the row is `unknown`, and a
+ * card event newer than the observation makes it `stale`. Both states are
+ * self-healing — the reconciler re-reads the controller on the next tick.
+ */
+export function policyVersionStatus(input: {
+  source: unknown;
+  observedBlock: unknown;
+  latestEventBlock: unknown;
+}): PolicyVersionStatus {
+  const source = requiredString(input.source);
+  const observedBlock = Number(input.observedBlock);
+  if (source !== "CHAIN" || !Number.isInteger(observedBlock) || observedBlock <= 0) return "unknown";
+  const latestEventBlock = input.latestEventBlock;
+  if (latestEventBlock === null || latestEventBlock === undefined) return "verified";
+  const newestEvent = Number(latestEventBlock);
+  if (Number.isInteger(newestEvent) && observedBlock < newestEvent) return "stale";
+  return "verified";
+}
+
 function toCard(row: Record<string, unknown>): CardReadModel {
   return {
     cardId: requiredString(row["card_id"]),
@@ -151,8 +228,33 @@ function toCard(row: Record<string, unknown>): CardReadModel {
     spent: requiredString(row["spent"]),
     expiresAt: requiredString(row["expires_at"]),
     policyVersion: Number(row["policy_version"]),
+    policyVersionSource: requiredString(row["policy_version_source"]),
+    policyVersionBlock: Number(row["policy_version_block"]),
+    policyVersionStatus: policyVersionStatus({
+      source: row["policy_version_source"],
+      observedBlock: row["policy_version_block"],
+      latestEventBlock: row["policy_version_event_block"],
+    }),
     sourceBlock: Number(row["source_block"]),
     updatedAt: requiredString(row["updated_at"]),
+  };
+}
+
+function toIntent(row: Record<string, unknown>): IntentReadModel {
+  return {
+    intentId: requiredString(row["intent_id"]),
+    cardId: requiredString(row["card_id"]),
+    agentId: requiredString(row["agent_id"]),
+    merchantId: requiredString(row["merchant_id"]),
+    amountBaseUnits: requiredString(row["amount_base_units"]),
+    asset: requiredString(row["asset"]),
+    chainId: Number(row["chain_id"]),
+    status: requiredString(row["status"]),
+    policyVersion: Number(row["policy_version"]),
+    intentHash: requiredString(row["intent_hash"]),
+    requestId: requiredString(row["request_id"]),
+    createdAt: requiredString(row["created_at"]),
+    expiresAt: requiredString(row["expires_at"]),
   };
 }
 
@@ -227,6 +329,22 @@ export function createSqlReadStore(query: ReadQueryFn): ReadStore {
       limit: number,
     ): Promise<PaymentAttemptRow[]> {
       const result = await query(CARD_PAYMENTS_SQL, [cardId, chainId, ownerWallet, limit]);
+      return result.rows.map(toPayment);
+    },
+
+    async getIntent(intentId: string, ownerWallet: string): Promise<IntentReadModel | null> {
+      const result = await query(INTENT_SQL, [intentId, ownerWallet]);
+      const row = result.rows[0];
+      if (row === undefined) return null;
+      return toIntent(row);
+    },
+
+    async listIntentPayments(
+      intentId: string,
+      ownerWallet: string,
+      limit: number,
+    ): Promise<PaymentAttemptRow[]> {
+      const result = await query(INTENT_PAYMENTS_SQL, [intentId, ownerWallet, limit]);
       return result.rows.map(toPayment);
     },
 

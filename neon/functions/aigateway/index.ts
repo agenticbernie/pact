@@ -17,6 +17,11 @@ import {
   requireNeonEnv,
 } from "../../adapter/neon-persistence.ts";
 import type { FetchFn } from "../../../supabase/functions/ai-gateway/openai-provider.ts";
+import {
+  createChainPolicyVersionReader,
+  type PolicyVersionReader,
+} from "../../../supabase/functions/_shared/policy-version.ts";
+import { ARC_LANE } from "../../../supabase/functions/_shared/lane-config.ts";
 
 type FetchHandler = (request: Request) => Response | Promise<Response>;
 
@@ -27,6 +32,27 @@ function buildHandler(): FetchHandler {
   const { databaseUrl } = requireNeonEnv(process.env as Record<string, string | undefined>);
   const pool = createNeonPool(databaseUrl);
   const persistence = createNeonPersistence(pool, "arc");
+
+  // The persisted `cards.policy_version` is a projection placeholder, so the
+  // intent must bind the controller's authoritative version or the executor's
+  // on-chain compare rejects settlement with CARD_NOT_ELIGIBLE. When the RPC is
+  // unconfigured/unreachable the resolver is absent (or answers null) and the
+  // projection value is kept — never a fabricated one.
+  const rpcUrl = process.env["ARC_RPC_URL"] ?? "";
+  const controllerAddress = ARC_LANE.controller ?? "";
+  let resolvePolicyVersion: PolicyVersionReader | undefined;
+  try {
+    if (rpcUrl.trim().length > 0 && controllerAddress.trim().length > 0) {
+      resolvePolicyVersion = createChainPolicyVersionReader({
+        rpcUrl,
+        chainId: ARC_LANE.chainId,
+        controllerAddress,
+      });
+    }
+  } catch {
+    resolvePolicyVersion = undefined;
+  }
+
   let served: FetchHandler | undefined;
   startGatewayServer({
     serve: (handler) => {
@@ -42,6 +68,7 @@ function buildHandler(): FetchHandler {
     persistence,
     lane: "arc",
     fetchFn: fetch as unknown as FetchFn,
+    ...(resolvePolicyVersion === undefined ? {} : { resolvePolicyVersion }),
   });
   if (served === undefined) {
     throw new Error("Gateway server did not serve a handler.");
