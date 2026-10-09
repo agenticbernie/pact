@@ -931,3 +931,22 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
     `polished-dream-04296130` / branch `main` with the Neon CLI or dashboard; (3) after both land,
     re-run the canonical intent → preflight → execute flow against production and confirm
     `POST /v1/agent/intents` answers 200 instead of a bare 400.
+- **Agent-lane settlement requires the card's ASSIGNED agent identity (verified 2026-10-09):** the
+  hand-off is owner-session → `POST /v1/agent/intents` (aigateway; the gateway binds
+  `agentId = card.agent`) → agent-lane session → `POST /v1/payments/preflight` + `/execute`
+  (agentexecutor). The lane authenticates as its OWN signer wallet (`AGENT_SIGNER_PRIVATE_KEY`,
+  `0xC289…F91214`) and `handleExecute` refuses unless `session wallet == intent.agent` and signs
+  `controller.pay` with that single signer — there is no console path to `pay`
+  (`apps/web/src/lib/chain.ts` omits it by design). So the lane can only settle intents whose card
+  is assigned to the signer. A card issued from the console to the user's own wallet (e.g. card 3,
+  owner == agent == `0xfda8…8435`, which is neither a secret key nor in the `wallets` registry) is
+  therefore NOT settleable: the controller returns `WRONG_CALLER` for any other caller.
+  - Card 3 also shows two further blockers: on-chain `verifiedCredit = 0`, so `preflightPay` from the
+    assigned agent returns `CREDIT_EXCEEDED`; and `intents.policy_version` / `cards.policy_version`
+    are projection placeholders (`0`) while on-chain `cards(3).policyVersion = 1`, so any execute
+    attempt fails `CARD_NOT_ELIGIBLE` at the executor's on-chain `readCard` compare before signing.
+  - Verify read-only: `eth_call` `cards(3)` / `preflightPay(…,{from})` against the lane (scripts need
+    `NODE_PATH=/app/node_modules`), and from the api container
+    `POST /v1/session/challenge` → `verify` (signed by the agent key) → `/v1/payments/preflight` +
+    `/execute`. The lane's own identity yields `PREFLIGHT_DECLINED` / `INPUT_INVALID` because the
+    intent resolves only under the assigned agent; nothing reaches `payment_attempts`.
