@@ -445,9 +445,17 @@ export function createExecutorEntrypointHandler(input: {
       ? undefined
       : { ...input.executeComposition, nowMs: Date.now() });
     if (deps === undefined) return executorResponse({ requestId, code: "PREFLIGHT_DECLINED", message: "Payment boundary is unavailable." }, 503);
-    const result = path === "/v1/payments/preflight"
-      ? await handlePreflight({ intentId: String(body.intentId ?? ""), requestId }, deps)
-      : await handleExecute({ intentId: String(body.intentId ?? ""), idempotencyKey: String(body.idempotencyKey ?? ""), sessionWallet: sessionWallet ?? String(body.sessionWallet ?? ""), requestId }, deps);
+    if (path === "/v1/payments/preflight") {
+      const result = await handlePreflight({ intentId: String(body.intentId ?? ""), requestId }, deps);
+      return executorResponse({ requestId, ...result });
+    }
+    const result = await handleExecute({ intentId: String(body.intentId ?? ""), idempotencyKey: String(body.idempotencyKey ?? ""), sessionWallet: sessionWallet ?? String(body.sessionWallet ?? ""), requestId }, deps);
+    // A refused settlement is an error, not a success: emit the ApiError
+    // envelope (`code`/`message`, as the gateway does) with a non-2xx status,
+    // so a client cannot read a decline as a settlement result. Spreading the
+    // raw `{ ok: false, error }` at HTTP 200 made the console render a
+    // successful banner with an undefined status/paymentId.
+    if (!result.ok) return executorResponse(result.error, 400);
     return executorResponse({ requestId, ...result });
   };
 }
