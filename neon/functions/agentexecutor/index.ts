@@ -83,6 +83,23 @@ async function buildHandler(): Promise<FetchHandler> {
   let signerChainId: number | undefined;
   let signerForAgent: ((agentAddress: string) => Promise<AgentSignerPaymentClient | null>) | undefined;
   const boundAgents = signers.boundAgents();
+
+  // Read-only Card 4 runtime diagnostic; never signs or broadcasts payments.
+  const card4Address = "0x830b58769ce9097abb4885c86e84803ac0e68a18";
+  const card4Configured = boundAgents.includes(card4Address.toLowerCase());
+  const card4Signer = card4Configured
+    ? await signers.resolve(card4Address)
+    : null;
+
+  console.info("[agentexecutor] Card 4 signer diagnostic", {
+    agent: card4Address,
+    configured: card4Configured,
+    resolved: card4Signer !== null,
+    signerAddress: card4Signer?.signerAddress ?? null,
+    signerChainId: card4Signer?.signerChainId ?? null,
+    expectedChainId: ARC_LANE.chainId,
+  });
+
   if (boundAgents.length > 0) {
     // Any bound signer serves the static chain reads; execute resolves the
     // intent's OWN agent, so only the signer bound to it can ever submit.
