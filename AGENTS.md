@@ -882,3 +882,52 @@ Non-obvious facts for running this repo in the Base44 sandbox preview.
   `select event_type from chain_events` and `select * from cards where card_id='…'` show the new rows.
   Note the `cards` `policy_version`/`allowlist_hash` are projection placeholders (the controller's
   `Card` struct carries neither), and `spent` is not yet projected from `PaymentSettled`.
+- **Production routing + idempotent replay (code verified 2026-10-09, NOT deployed):** two fixes sit
+  committed-but-unshipped on branch `dev-intent-fix` (HEAD `a3a5524161`, clean worktree). Production
+  has NOT been confirmed updated; do not report the fix as live.
+  - **Root cause of the bare 400 `INPUT_INVALID` on `POST /v1/agent/intents`:** `netlify.toml` sent
+    every `/v1/*` to `readapi`. The read API is GET-only by construction, so it refused the POST at
+    its method guard and the gateway — its merchant validation and the idempotency store — was never
+    reached (the client never talked to the intent code at all).
+  - **Correct `netlify.toml` order (Netlify applies the FIRST matching rule):** `/v1/session/*` →
+    `session`; `/v1/agent/intents` → `aigateway`; `/health` → `aigateway`;
+    `/v1/payments/preflight` + `/v1/payments/execute` → `agentexecutor`; then the `/v1/*` catch-all →
+    `readapi`; the `/*` SPA fallback stays last. This mirrors `neon/dev-host.ts`'s `ROUTES` table and
+    is pinned by `neon/test/netlify-routing.test.ts`.
+  - **Idempotent replay:** `intentIdForRequest(x-request-id)` = `intent-${requestId}` is both the
+    intent id and its idempotency key. `handleRuntimeIntentRequest` resolves a replay BEFORE the
+    provider call via `store.getByIdempotencyKey(...)`, scoped by the session owner (`ownerAddress`)
+    and the card's agent, and returns the stored intent (200) — so one intent never costs two model
+    calls. The Neon adapter's read joins `cards` and scopes on the card's `owner_address`; `save()`
+    pins no owner and `insertIntent` derives it from the card row (`ownerScope = input.ownerAddress ??
+    card.owner_address`), which is what lets a byte-identical replay reconcile. The same key against
+    a different card is `IDEMPOTENCY_CONFLICT` → `INPUT_INVALID`; a `getByIdempotencyKey`/`save`
+    failure is still surfaced (never swallowed) with its internal code logged. Authorization is not
+    weakened: the replay read is owner-scoped, so a session can only replay its own card's intent.
+  - **Secret-free diagnostics:** `supabase/functions/_shared/diagnostics.ts` logs one closed JSON line
+    (surface, requestId, code, optional stage/method/route/internalCode) and only when the internal
+    code is token-shaped (`/^[A-Za-z0-9_.-]{1,64}$/`). It never logs a prompt, session token, private
+    key, wallet address or request body, and never changes a response. Verified: outside this helper
+    the only `console.*` on the intent/read paths are the informational `[indexer]` and dev-host lines.
+  - **Verification (run from the repo root, results 2026-10-09):** `corepack yarn test` → 63 files /
+    393 tests pass. Changed surfaces in isolation → `corepack yarn vitest run
+    neon/test/netlify-routing.test.ts supabase/functions/ai-gateway
+    supabase/functions/read-api/test/read-api.vitest.test.ts neon/test/neon-persistence.test.ts
+    supabase/functions/_shared/test/intent-store.vitest.test.ts` → 6 files / 48 tests pass (incl.
+    "resolves an identical replay from storage…", "save() derives the replay owner from the card…",
+    and the six netlify-routing precedence assertions). `corepack yarn typecheck` → clean.
+    `corepack yarn workspace @pact/web test` → 41 tests pass and the web `tsc --noEmit` is clean.
+  - **Typecheck coverage gap (pre-existing, NOT introduced by these fixes):** root `tsconfig.json`
+    includes `supabase/functions/**` but NOT `neon/` (nor `apps/web`), so `corepack yarn typecheck`
+    never checks the Neon adapter. A direct `tsc --noEmit neon/adapter/neon-persistence.ts` reports
+    `TS2305` at line 36: it imports `type PostgrestPersistence` from `_shared/persistence-ports.ts`,
+    which does not re-export it (the type lives in `_shared/persistence-composition.ts`). Datable to
+    2026-09-21 and type-only — `node --experimental-strip-types` erases it, so runtime is unaffected —
+    but a strict `tsc` over `neon/` still fails until the re-export/import is fixed.
+  - **Deploy status — NOT deployed, and not deployable from this sandbox:** no Neon/Netlify CLI is
+    installed here and no production deploy is authorized. To ship: (1) merge `dev-intent-fix` into
+    the production branch so Netlify rebuilds `apps/web` and picks up the new `netlify.toml`
+    redirects; (2) independently deploy the four Neon Functions declared in `neon.ts` against project
+    `polished-dream-04296130` / branch `main` with the Neon CLI or dashboard; (3) after both land,
+    re-run the canonical intent → preflight → execute flow against production and confirm
+    `POST /v1/agent/intents` answers 200 instead of a bare 400.
