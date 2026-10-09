@@ -38,7 +38,12 @@ const HEX64_TX = /^0x[0-9a-f]{64}$/;
 export type IntentInsertInput = {
   intent: AgentIntent;
   idempotencyKey: string;
-  ownerAddress: string;
+  /**
+   * Optional caller-pinned owner scope for the idempotent-replay read. When
+   * omitted (the `save()` path) the card row's authoritative `owner_address`
+   * is used — the gateway has already bound the card to the session owner.
+   */
+  ownerAddress?: string;
   requestId: string;
   /** Lane chain override. Defaults to the factory lane, else legacy (102031). */
   chainId?: number;
@@ -249,9 +254,6 @@ export function createPostgrestIntentStore(
       if (input.idempotencyKey.length === 0 || input.requestId.length === 0) {
         throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
-      if (!EVM_ADDRESS.test(input.ownerAddress.toLowerCase())) {
-        throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
-      }
       // Server first resolves the authoritative card row, rejects on
       // missing/inactive/agent-mismatch. Cross-table enforcement is
       // fail-closed application ordering plus UNIQUE/FOREIGN KEY guards.
@@ -266,6 +268,14 @@ export function createPostgrestIntentStore(
       }
       if (cardStatus !== "ACTIVE" && cardStatus !== "ISSUED") {
         throw new PersistenceError("OWNERSHIP_DENIED", "Card ownership denied.", false);
+      }
+      // Replay scope: the caller-pinned owner when given, else the card's
+      // authoritative owner. `save()` has no owner to pin, so deriving it from
+      // the card is what lets an identical replay reconcile instead of falling
+      // through to a CONFLICT (which surfaces to clients as INPUT_INVALID).
+      const ownerScope = input.ownerAddress ?? String(card["owner_address"] ?? "");
+      if (!EVM_ADDRESS.test(ownerScope.toLowerCase())) {
+        throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
       }
 
       let result;
@@ -314,7 +324,7 @@ export function createPostgrestIntentStore(
           existing = await run({
             method: "GET",
             path:
-              scopedIntentPath(`idempotency_key=eq.${encodeURIComponent(input.idempotencyKey)}`, input.ownerAddress, input.intent.agentId),
+              scopedIntentPath(`idempotency_key=eq.${encodeURIComponent(input.idempotencyKey)}`, ownerScope, input.intent.agentId),
           });
         } catch (error) {
           if (error instanceof PersistenceError) throw error;
@@ -327,7 +337,7 @@ export function createPostgrestIntentStore(
         if (rows.length > 1) {
           throw new PersistenceError("INVALID_ROW", "Invalid intent row.", false);
         }
-        const scopedPrior = scopedIntentRow(rows[0] as Record<string, unknown>, input.ownerAddress, input.intent.agentId);
+        const scopedPrior = scopedIntentRow(rows[0] as Record<string, unknown>, ownerScope, input.intent.agentId);
         if (scopedPrior === null) {
           throw new PersistenceError("OWNERSHIP_DENIED", "Intent ownership denied.", false);
         }
@@ -461,13 +471,14 @@ export function createPostgrestIntentStore(
     },
 
     async save(intent: AgentIntent): Promise<void> {
-      // Backward-compatible IntentStore.save: uses intentId as idempotency
-      // and the intent's own card/agent as server scope. Gateway still calls
-      // save() after shared validation; PostgREST path preserves that.
+      // Backward-compatible IntentStore.save: uses intentId as idempotency and
+      // the intent's own card/agent as server scope. Gateway still calls save()
+      // after shared validation. The owner scope is derived from the card row
+      // (see insertIntent) rather than the agent, so an identical replay
+      // reconciles to the prior intent instead of erroring.
       await this.insertIntent({
         intent,
         idempotencyKey: intent.intentId,
-        ownerAddress: intent.agentId,
         requestId: intent.intentId,
       });
     },

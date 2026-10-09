@@ -297,9 +297,6 @@ export function createNeonPersistence(
       if (input.idempotencyKey.length === 0 || input.requestId.length === 0) {
         fail("INVALID_ROW", "Invalid intent row.", false);
       }
-      if (!EVM_ADDRESS.test(input.ownerAddress.toLowerCase())) {
-        fail("INVALID_ROW", "Invalid intent row.", false);
-      }
       const card = await resolveCardAgent(input.intent.cardId);
       if (card === null) {
         fail("OWNERSHIP_DENIED", "Card ownership denied.", false);
@@ -311,6 +308,14 @@ export function createNeonPersistence(
       }
       if (cardStatus !== "ACTIVE" && cardStatus !== "ISSUED") {
         fail("OWNERSHIP_DENIED", "Card ownership denied.", false);
+      }
+      // Replay scope: the caller-pinned owner when given, else the card's
+      // authoritative owner. `save()` pins no owner, so deriving it from the
+      // card is what lets an identical replay reconcile to the prior intent
+      // instead of falling through to a CONFLICT (surfaced as INPUT_INVALID).
+      const ownerScope = input.ownerAddress ?? String(card.owner_address ?? "");
+      if (!EVM_ADDRESS.test(ownerScope.toLowerCase())) {
+        fail("INVALID_ROW", "Invalid intent row.", false);
       }
       try {
         const inserted = await run(
@@ -347,7 +352,7 @@ export function createNeonPersistence(
         }
         const existing = await run(
           "SELECT " + INTENT_COLUMNS + ",cards.owner_address AS cards_owner_address FROM intents JOIN cards ON cards.card_id = intents.card_id WHERE intents.idempotency_key = $1 AND intents.agent_id = $2 AND cards.owner_address = $3",
-          [input.idempotencyKey, input.intent.agentId.toLowerCase(), input.ownerAddress.toLowerCase()],
+          [input.idempotencyKey, input.intent.agentId.toLowerCase(), ownerScope.toLowerCase()],
           "Intent replay read",
         );
         if (existing.rows.length === 0) {
@@ -358,7 +363,7 @@ export function createNeonPersistence(
         }
         const scoped = scopedIntentRow(
           { ...existing.rows[0], cards: { owner_address: existing.rows[0]["cards_owner_address"] } },
-          input.ownerAddress,
+          ownerScope,
           input.intent.agentId,
         );
         if (scoped === null) {
@@ -456,7 +461,6 @@ export function createNeonPersistence(
       await this.insertIntent({
         intent: returnedIntent,
         idempotencyKey: returnedIntent.intentId,
-        ownerAddress: returnedIntent.agentId,
         requestId: returnedIntent.intentId,
       });
     },
