@@ -210,4 +210,33 @@ describe("gateway fail-closed (C-MODEL, merchantId-only)", () => {
       expect(src).not.toMatch(/from ["']openai["']/);
     }
   });
+
+  it("constrains merchantId to the catalog enum so model drift cannot contaminate it", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const stubFetch = (_url: string, init: { body?: string }) => {
+      bodies.push(JSON.parse(init.body ?? "{}") as Record<string, unknown>);
+      return Promise.resolve({
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            output: [
+              { content: [{ text: JSON.stringify({ merchantId: "coffee-demo", amountDecimal: "1", purpose: "x", confidence: 1 }) }] },
+            ],
+          }),
+      });
+    };
+    const provider = new OpenAiProvider({
+      modelConfig: { provider: "openai", model: "gpt-4o-mini", allowFallback: false },
+      fetchFn: stubFetch as never,
+    });
+    await provider.parseIntent({ prompt: "hi", card: CARD, merchants: MERCHANTS });
+    const text = bodies[0]?.["text"] as
+      | { format?: { schema?: { properties?: Record<string, unknown> } } }
+      | undefined;
+    expect(text?.format?.schema?.properties?.["merchantId"]).toEqual({
+      type: "string",
+      enum: ["coffee-demo"],
+    });
+    expect(JSON.stringify(bodies[0])).toContain("Allowed merchant ids");
+  });
 });

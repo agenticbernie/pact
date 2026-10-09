@@ -150,7 +150,6 @@ export function createFakePersistence(): FakePersistence {
       await this.insertIntent({
         intent,
         idempotencyKey: intent.intentId,
-        ownerAddress: intent.agentId,
         requestId: intent.intentId,
       });
     },
