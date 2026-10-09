@@ -329,7 +329,8 @@ describe("H2 Arc owner-agent scoping (RED-first)", () => {
 
     const { status, body } = await preflight(handler, token, "intent-req-1");
     expect(status).toBe(200);
-    expect(body).toMatchObject({ decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: ARC_CHAIN });
+    // Expiry is its own actionable reason, distinct from a generic refusal.
+    expect(body).toMatchObject({ decision: "declined", reasonCode: "EXPIRED", chainId: ARC_CHAIN });
     expect(cardRead).not.toHaveBeenCalled();
     expect(rpc.calls).toEqual([]);
   });

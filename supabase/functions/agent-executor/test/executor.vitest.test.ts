@@ -55,6 +55,8 @@ function deps(client: PaymentClient, extra: Partial<ExecutorDeps> = {}): Executo
   return {
     store: createInMemoryAttemptStore(),
     client,
+    // The lane's signer must be the intent's assigned agent; AGENT is both.
+    signerAddress: AGENT,
     resolveIntent: createInMemoryIntentResolver(new Map([["intent-req-1", intent()]])),
     expectedChainId: 102031,
     signerChainId: 102031,
@@ -195,6 +197,56 @@ describe("executor fail-closed + reconcile (C-DDL)", () => {
       expect(r2.error.code).toBe("PAYMENT_RECONCILIATION_REQUIRED");
     }
     expect(timingOut.calls.send).toBe(1);
+  });
+
+  it("refuses to sign when the lane's signer is not the intent's agent", async () => {
+    const client = fakeClient();
+    const res = await handleExecute(
+      { intentId: "intent-req-1", idempotencyKey: "i-wrong", sessionWallet: AGENT, requestId: "r" },
+      deps(client, { signerAddress: OTHER }),
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      // A borrowed key could only revert with WRONG_CALLER, so it never signs.
+      expect(res.error.code).toBe("CARD_NOT_ELIGIBLE");
+    }
+    expect(client.calls.send).toBe(0);
+  });
+
+  it("resolves the signer per intent agent and fails closed for an unbound agent", async () => {
+    const client = fakeClient();
+    const bound = {
+      client,
+      signerAddress: AGENT,
+      signerChainId: 102031,
+    };
+    const settled = await handleExecute(
+      { intentId: "intent-req-1", idempotencyKey: "i-bound", sessionWallet: AGENT, requestId: "r" },
+      deps(client, { signerForAgent: async (agent) => (agent.toLowerCase() === AGENT ? bound : null) }),
+    );
+    expect(settled.ok).toBe(true);
+
+    const unboundClient = fakeClient();
+    const unbound = await handleExecute(
+      { intentId: "intent-req-1", idempotencyKey: "i-unbound", sessionWallet: AGENT, requestId: "r" },
+      deps(unboundClient, { signerForAgent: async () => null }),
+    );
+    expect(unbound.ok).toBe(false);
+    if (!unbound.ok) expect(unbound.error.code).toBe("CARD_NOT_ELIGIBLE");
+    expect(unboundClient.calls.send).toBe(0);
+
+    // A resolver that hands back a client signing with someone else is a
+    // mismatch too, not a permission.
+    const mismatchedClient = fakeClient();
+    const mismatched = await handleExecute(
+      { intentId: "intent-req-1", idempotencyKey: "i-mismatch", sessionWallet: AGENT, requestId: "r" },
+      deps(mismatchedClient, {
+        signerForAgent: async () => ({ client: mismatchedClient, signerAddress: OTHER, signerChainId: 102031 }),
+      }),
+    );
+    expect(mismatched.ok).toBe(false);
+    if (!mismatched.ok) expect(mismatched.error.code).toBe("CARD_NOT_ELIGIBLE");
+    expect(mismatchedClient.calls.send).toBe(0);
   });
 
   it("settles only on receipt.status==1 and leaks no signer/key material", async () => {

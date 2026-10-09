@@ -25,6 +25,7 @@ import {
   derivePaymentNonce,
 } from "./chain-client.ts";
 import type { PayInput, PaymentClient, ReadOnlyRpcPaymentClient, ReadOnlyRpcTransport } from "./chain-client.ts";
+import type { AgentSignerPaymentClient } from "./agent-signer.ts";
 import { reconcileAfterTimeout } from "./payment-reconciler.ts";
 import { attemptKey, type AttemptRecord, type AttemptStore } from "./attempt-store.ts";
 import { createPersistenceIntentResolver } from "./execute-composition.ts";
@@ -76,8 +77,22 @@ import {
 export type ExecuteComposition = {
   /** Durable or in-memory attempt store (C-DDL first-claim semantics). */
   store: AttemptStore;
-  /** Signing payment client — the agent signer in production. */
+  /**
+   * Signing payment client — the agent signer in production, used for the
+   * chain reads on the execute path and (unless `signerForAgent` overrides it)
+   * to submit `pay`.
+   */
   client: PaymentClient;
+  /** The address `client` signs with. An address, never a key. */
+  signerAddress: string;
+  /**
+   * Per-agent signer resolution. A lane holding more than one agent key
+   * resolves the client for the intent's OWN agent here; when absent the lane
+   * has exactly one signer (`client`/`signerAddress`). Either way an intent
+   * whose assigned agent has no signer fails closed — a single key can never
+   * be borrowed to sign for another agent's card.
+   */
+  signerForAgent?: (agentAddress: string) => Promise<AgentSignerPaymentClient | null>;
   /** Owner+agent scoped intent resolution; fails closed when it resolves nothing. */
   resolveIntent: IntentResolver;
   expectedChainId: number;
@@ -94,6 +109,28 @@ export type ExecuteResult =
 
 function fail(requestId: string, code: Parameters<typeof createApiError>[0]): ExecuteResult {
   return { ok: false, error: createApiError(code, requestId) };
+}
+
+/**
+ * The signer allowed to submit for this intent's assigned agent.
+ *
+ * The controller accepts `pay` only from the card's agent, so a client signing
+ * with any other address could only ever produce a `WRONG_CALLER` revert. That
+ * is refused here, before a card is read or anything is signed — there is no
+ * fallback to "the lane's key": a missing or mismatched signer fails closed.
+ */
+async function resolveSigningClient(
+  deps: ExecutorDeps,
+  agent: string,
+): Promise<AgentSignerPaymentClient | null> {
+  if (deps.signerForAgent !== undefined) {
+    const signer = await deps.signerForAgent(agent);
+    if (signer === null) return null;
+    if (signer.signerAddress.toLowerCase() !== agent.toLowerCase()) return null;
+    return signer;
+  }
+  if (deps.signerAddress.toLowerCase() !== agent.toLowerCase()) return null;
+  return { client: deps.client, signerAddress: deps.signerAddress, signerChainId: deps.signerChainId };
 }
 
 /**
@@ -117,12 +154,17 @@ export async function handlePreflight(
 ): Promise<{ decision: "would_settle" | "declined"; reasonCode?: string; chainId: number; checkedAt: string }> {
   const intent = await deps.resolveIntent({ intentId: input.intentId });
   const checkedAt = new Date(deps.nowMs).toISOString();
-  if (intent === null || intent.expiresAtMs <= deps.nowMs) {
+  if (intent === null) {
     return { decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: deps.expectedChainId, checkedAt };
+  }
+  if (intent.expiresAtMs <= deps.nowMs) {
+    return { decision: "declined", reasonCode: "EXPIRED", chainId: deps.expectedChainId, checkedAt };
   }
   const card = await deps.client.readCard(intent.cardId);
   if (card.policyVersion !== intent.policyVersion) {
-    return { decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: deps.expectedChainId, checkedAt };
+    // The controller's policy version no longer matches the one the intent
+    // bound: the intent is stale and must be recreated.
+    return { decision: "declined", reasonCode: "POLICY_STALE", chainId: deps.expectedChainId, checkedAt };
   }
   const pre = await deps.client.preflight({
     intentId: intent.intentId,
@@ -131,7 +173,11 @@ export async function handlePreflight(
     nonce: `${intent.cardId}:${intent.policyVersion}`,
   });
   if (!pre.ok) {
-    return { decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: deps.expectedChainId, checkedAt };
+    const reasonCode =
+      typeof pre.reasonCode === "string" && /^[A-Z0-9_]{1,32}$/.test(pre.reasonCode)
+        ? pre.reasonCode
+        : "PREFLIGHT_DECLINED";
+    return { decision: "declined", reasonCode, chainId: deps.expectedChainId, checkedAt };
   }
   return { decision: "would_settle", chainId: deps.expectedChainId, checkedAt };
 }
@@ -159,7 +205,14 @@ export async function handleExecute(
   } catch {
     return fail(requestId, "NETWORK_CONFIG_INVALID");
   }
-  const card = await deps.client.readCard(intent.cardId);
+  // Identity binding before anything else: only a signer bound to the intent's
+  // assigned agent may proceed, so no other key can be borrowed to sign here.
+  const signing = await resolveSigningClient(deps, intent.agent);
+  if (signing === null) {
+    return fail(requestId, "CARD_NOT_ELIGIBLE");
+  }
+  const client = signing.client;
+  const card = await client.readCard(intent.cardId);
   if (card.policyVersion !== intent.policyVersion) {
     return fail(requestId, "CARD_NOT_ELIGIBLE");
   }
@@ -205,7 +258,7 @@ export async function handleExecute(
     ...(intent.intentHash === undefined ? {} : { intentHash: intent.intentHash }),
   };
 
-  const pre = await deps.client.preflight(payInput);
+  const pre = await client.preflight(payInput);
   if (!pre.ok) {
     await deps.store.update({
       intentId: input.intentId,
@@ -217,7 +270,7 @@ export async function handleExecute(
 
   let sent: { txHash: string };
   try {
-    sent = await deps.client.sendPayment(payInput);
+    sent = await client.sendPayment(payInput);
   } catch {
     // Unknown outcome: the node may or may not have accepted the transaction.
     // The attempt stays pending and must be reconciled; never a blind retry.
@@ -233,10 +286,10 @@ export async function handleExecute(
 
   let receipt: { status: 0 | 1; txHash: string };
   try {
-    receipt = await deps.client.waitForReceipt(sent.txHash);
+    receipt = await client.waitForReceipt(sent.txHash);
   } catch {
     const reconciled = await reconcileAfterTimeout({
-      client: deps.client,
+      client,
       cardId: intent.cardId,
       nonce: cardNonce,
       txHash: sent.txHash,
@@ -464,7 +517,7 @@ async function handleReadOnlyPreflight(
   }
   const expiresAtMs = Date.parse(intent.expiresAt);
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "PREFLIGHT_DECLINED", chainId: lane.chainId, checkedAt };
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "EXPIRED", chainId: lane.chainId, checkedAt };
   }
   const card = await deps.cards.getById({
     cardId: intent.cardId,
@@ -509,6 +562,11 @@ async function handleReadOnlyPreflight(
       ...(reasonCode === undefined ? {} : { reasonCode }),
       evaluatedAt: checkedAt,
     });
+  // Policy inconsistency is its own actionable state (the intent must be
+  // recreated) rather than a generic eligibility refusal.
+  if (card.policy_version !== intent.policyVersion) {
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "POLICY_STALE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "POLICY_STALE") };
+  }
   // Lane binding: exact (chain, asset) pair plus the lane controller when
   // the lane defines one. A CTC row in the Arc lane (or vice versa) and an
   // Arc card under the wrong controller decline here, fail-closed.
@@ -517,8 +575,7 @@ async function handleReadOnlyPreflight(
     card.chain_id !== lane.chainId ||
     (lane.controller !== undefined &&
       card.controller_address.toLowerCase() !== lane.controller.toLowerCase()) ||
-    card.agent_id.toLowerCase() !== intent.agentId.toLowerCase() ||
-    card.policy_version !== intent.policyVersion
+    card.agent_id.toLowerCase() !== intent.agentId.toLowerCase()
   ) {
     return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "CARD_NOT_ELIGIBLE") };
   }
@@ -558,10 +615,13 @@ async function handleReadOnlyPreflight(
   const chainCard = await deps.client.readCard(intent.cardId, intent.agentId);
   if (
     chainCard.chainId !== lane.chainId ||
-    chainCard.agent.toLowerCase() !== intent.agentId.toLowerCase() ||
-    chainCard.policyVersion !== intent.policyVersion
+    chainCard.agent.toLowerCase() !== intent.agentId.toLowerCase()
   ) {
     return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "CARD_NOT_ELIGIBLE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "CARD_NOT_ELIGIBLE") };
+  }
+  if (chainCard.policyVersion !== intent.policyVersion) {
+    // The controller's policy version moved on after the intent was created.
+    return { requestId: input.requestId, intentId: input.intentId, decision: "declined", reasonCode: "POLICY_STALE", chainId: lane.chainId, checkedAt, validation: pvl("declined", "POLICY_STALE") };
   }
   const result = await deps.client.preflight({
     intentId: intent.intentId,
@@ -575,14 +635,21 @@ async function handleReadOnlyPreflight(
     policyVersion: intent.policyVersion,
     agent: intent.agentId,
   });
+  // The chain's own refusal carries the actionable condition (CREDIT_EXCEEDED,
+  // NONCE_USED, …). Only a token-shaped code is surfaced; anything else falls
+  // back to the generic refusal so the envelope stays closed.
+  const chainDecline =
+    !result.ok && typeof result.reasonCode === "string" && /^[A-Z0-9_]{1,32}$/.test(result.reasonCode)
+      ? result.reasonCode
+      : "PREFLIGHT_DECLINED";
   return {
     requestId: input.requestId,
     intentId: input.intentId,
     decision: result.ok ? "would_settle" : "declined",
-    ...(result.ok ? {} : { reasonCode: "PREFLIGHT_DECLINED" }),
+    ...(result.ok ? {} : { reasonCode: chainDecline }),
     chainId: lane.chainId,
     checkedAt,
-    validation: pvl(result.ok ? "would_settle" : "declined", result.ok ? undefined : "PREFLIGHT_DECLINED"),
+    validation: pvl(result.ok ? "would_settle" : "declined", result.ok ? undefined : chainDecline),
   };
 }
 
@@ -606,6 +673,15 @@ type ExecutorCompositionInput = {
    * graph: `/v1/payments/execute` then answers 503 and never signs.
    */
   paymentClient?: PaymentClient;
+  /** Address `paymentClient` signs with. Required with `paymentClient`. */
+  signerAddress?: string;
+  /**
+   * Per-agent signer resolution (the multi-agent lane). When present, execute
+   * resolves the client for the intent's own agent instead of using
+   * `paymentClient`; when absent, `paymentClient`/`signerAddress` must match
+   * that agent. Either way an unbound agent never signs.
+   */
+  signerForAgent?: (agentAddress: string) => Promise<AgentSignerPaymentClient | null>;
   /** Durable attempt store (`payment_attempts`). Required with `paymentClient`. */
   attempts?: AttemptStore;
   /** Chain ID observed by the signing client; compared to the lane chain. */
@@ -664,13 +740,18 @@ export function createExecutorCompositionRoot(input: ExecutorCompositionInput = 
   }
   // Execute is wired only when a signer, a durable attempt store, persistence
   // and the session secret are all present. Otherwise the route stays 503.
+  // Execute needs both a signer client and the address it signs with: without
+  // the address the lane could not prove it is signing as the intent's agent.
   const executeComposition: ExecuteComposition | undefined = input.paymentClient !== undefined &&
     input.attempts !== undefined &&
     persistence !== undefined &&
-    env.SESSION_HMAC_SECRET !== undefined
+    env.SESSION_HMAC_SECRET !== undefined &&
+    input.signerAddress !== undefined
     ? {
       store: input.attempts,
       client: input.paymentClient,
+      signerAddress: input.signerAddress,
+      ...(input.signerForAgent === undefined ? {} : { signerForAgent: input.signerForAgent }),
       resolveIntent: createPersistenceIntentResolver({
         intents: persistence.intent,
         cards: persistence.card,
