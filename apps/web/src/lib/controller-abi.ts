@@ -32,6 +32,32 @@ export const CARD_CONTROLLER_ABI = [
   "event CardCreated(uint256 indexed cardId, address indexed owner, address indexed agent, uint256 ownerConfiguredCap, uint256 perTransactionLimit, uint64 expiresAt)",
   "event CardActivated(uint256 indexed cardId)",
   "event PaymentSettled(uint256 indexed cardId, bytes32 indexed merchantId, uint256 amount, uint256 nonce, bytes32 intentHash)",
+  // --- errors -------------------------------------------------------------
+  // Revert reasons (`contracts/src/PactErrors.sol` plus the inherited
+  // OpenZeppelin ones). Without these fragments ethers cannot decode revert
+  // data, and every failure — including `createCard` rejecting an agent that
+  // already has an active card — surfaces as the useless
+  // "execution reverted (unknown custom error)". Transcribed from
+  // `packages/pact-sdk/src/abi.ts`, same as the fragments above.
+  "error InvalidPolicy()",
+  "error InvalidAmount()",
+  "error InvalidCardStatus()",
+  "error InvalidAsset()",
+  "error MerchantNotAllowed()",
+  "error CreditExceeded()",
+  "error CardExpired()",
+  "error PaymentDeadlineExpired()",
+  "error NonceAlreadyUsed()",
+  "error PoolBalanceLow()",
+  "error MerchantInactive()",
+  "error EvidenceAlreadyApplied()",
+  "error UnknownAgent()",
+  "error UnauthorizedCaller()",
+  "error AuthorityAlreadySet()",
+  "error RenounceDisabled()",
+  "error OwnableUnauthorizedAccount(address account)",
+  "error OwnableInvalidOwner(address owner)",
+  "error ReentrancyGuardReentrantCall()",
 ] as const;
 
 export const CREDIT_POOL_ABI = [

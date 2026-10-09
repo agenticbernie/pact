@@ -179,6 +179,16 @@ export async function readChainCard(
   };
 }
 
+/** `agentActiveCard(agent)` → the card id this agent already holds, `0n` when none. */
+export async function readAgentActiveCard(
+  runner: ContractRunner,
+  controller: string,
+  agent: string,
+): Promise<bigint> {
+  const contract = new Contract(controller, CARD_CONTROLLER_ABI, runner);
+  return asBigInt(await fn(contract, "agentActiveCard")(agent));
+}
+
 export async function readPoolBalance(runner: ContractRunner, pool: string): Promise<bigint> {
   const contract = new Contract(pool, CREDIT_POOL_ABI, runner);
   return asBigInt(await fn(contract, "availableBalance")());
@@ -271,6 +281,24 @@ export async function issueCard(input: {
 }): Promise<IssuedCard> {
   const contract = new Contract(input.controller, CARD_CONTROLLER_ABI, input.signer);
   const allowlist = input.draft.merchants.map(merchantIdToBytes32);
+
+  // The controller issues at most one active card per agent, so a second
+  // `createCard` for an agent that already holds one reverts with a bare
+  // `InvalidPolicy`. Read the rule first and name it, instead of spending a
+  // wallet signature on a call the chain is certain to reject. Advisory only:
+  // a read that did not happen must not block a submission the chain will
+  // still validate.
+  try {
+    const existing = await readAgentActiveCard(input.runner, input.controller, input.draft.agent);
+    if (existing !== 0n) {
+      throw new ChainError(
+        "agent-already-active",
+        `This agent already holds active card #${existing}. The controller allows one active card per agent — close that card, or issue the new card to a different agent.`,
+      );
+    }
+  } catch (cause) {
+    if (cause instanceof ChainError) throw cause;
+  }
 
   input.onStep?.("submitting-create");
   const createTx = (await fn(contract, "createCard")(

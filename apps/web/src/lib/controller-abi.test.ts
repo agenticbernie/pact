@@ -4,18 +4,18 @@
  * transcribed from. A signature typo here would otherwise only surface as an
  * unexplained revert on chain.
  */
-import { EventFragment, FunctionFragment, Interface, type InterfaceAbi } from "ethers";
+import { ErrorFragment, EventFragment, FunctionFragment, Interface, type InterfaceAbi } from "ethers";
 import { describe, expect, it } from "vitest";
 import { PACT_ABI } from "../../../../packages/pact-sdk/src/abi.ts";
 import { CARD_CONTROLLER_ABI, CREDIT_POOL_ABI, MERCHANT_SIMULATOR_ABI } from "./controller-abi";
 
-/** signature → selector (functions) or topic hash (events). */
+/** signature → selector (functions and errors) or topic hash (events). */
 function index(entries: readonly unknown[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const entry of entries) {
     const iface = new Interface([entry] as InterfaceAbi);
     for (const fragment of iface.fragments) {
-      if (fragment instanceof FunctionFragment) {
+      if (fragment instanceof FunctionFragment || fragment instanceof ErrorFragment) {
         map.set(fragment.format("sighash"), fragment.selector);
       } else if (fragment instanceof EventFragment) {
         map.set(fragment.format("sighash"), fragment.topicHash);
@@ -35,7 +35,7 @@ function expectParity(group: string, fragments: readonly string[], sdk: readonly
     const derived =
       parsed instanceof EventFragment
         ? parsed.topicHash
-        : parsed instanceof FunctionFragment
+        : parsed instanceof FunctionFragment || parsed instanceof ErrorFragment
           ? parsed.selector
           : undefined;
     if (derived === undefined) throw new Error(`Unexpected fragment kind: ${fragment}`);
