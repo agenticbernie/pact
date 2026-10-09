@@ -24,7 +24,8 @@ import { isApiErrorCode } from "../../../packages/domain/src/api.ts";
 import type { AgentIntent } from "../../../packages/domain/src/types.ts";
 import type { ApiError } from "../../../packages/domain/src/api.ts";
 import { OpenAiProvider, type FetchFn } from "./openai-provider.ts";
-import { parseModelConfigJson } from "../../../packages/domain/src/model-config.ts";
+import { assertModelConfigAllowsCall, parseModelConfigJson } from "../../../packages/domain/src/model-config.ts";
+import type { ModelConfig } from "../../../packages/domain/src/model-config.ts";
 import { assertMerchantInCatalog, loadMerchantCatalog } from "./catalog.ts";
 import type { AiProvider, MerchantCatalogItem, ProviderCardContext } from "./provider-port.ts";
 import { buildHealth } from "../_shared/health.ts";
@@ -262,6 +263,40 @@ export async function handleHealthRequest(
   });
 }
 
+/**
+ * Real `/health` availability signal — never a hardcoded literal.
+ *
+ * Derived from the same inputs that gate the provider leg: a valid
+ * expected-vs-observed region pair, a non-empty `OPENAI_API_KEY`, and a pinned
+ * model config that permits a call (`allowFallback:false`). It is
+ * side-effect-free (no provider request, no chain call) so health stays safe to
+ * poll, and it fails closed to `false` whenever an input is missing.
+ */
+export function deriveModelAvailability(input: {
+  apiKey: string | undefined;
+  modelConfig: ModelConfig | undefined;
+  regionValid: boolean;
+}): boolean {
+  if (!input.regionValid) return false;
+  if (typeof input.apiKey !== "string" || input.apiKey.trim().length === 0) return false;
+  if (input.modelConfig === undefined) return false;
+  try {
+    assertModelConfigAllowsCall(input.modelConfig);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/** Pinned model config (`config/ai/model-config.json`); unreadable ⇒ not available. */
+function pinnedModelConfig(): ModelConfig | undefined {
+  try {
+    return parseModelConfigJson(JSON.stringify(modelConfigJson));
+  } catch {
+    return undefined;
+  }
+}
+
 export function createGatewayEntrypointHandler(input: {
   deps?: GatewayRequestDeps;
   configuredRegion?: string;
@@ -269,6 +304,8 @@ export function createGatewayEntrypointHandler(input: {
   failureCode?: "PROVIDER_UNAVAILABLE" | "PROVIDER_MODEL_UNAVAILABLE" | "REGION_MISMATCH";
   /** Lane chain for the health shape. Defaults legacy; production passes Arc. */
   chainId?: number;
+  /** Real provider-leg availability for `/health`; absent ⇒ `false` (fail closed). */
+  modelAvailable?: boolean;
 } = {}): (request: Request) => Promise<Response> {
   const expectedRegion = input.expectedRegion ?? "unknown";
   return async (request) => {
@@ -291,7 +328,7 @@ export function createGatewayEntrypointHandler(input: {
         configuredRegion: input.configuredRegion ?? input.deps?.configuredRegion ?? "unknown",
         expectedRegion,
         chainId: input.chainId,
-        modelAvailable: true,
+        modelAvailable: input.modelAvailable ?? false,
       });
     }
     if (request.method !== "POST" || path !== "/v1/agent/intents") {
@@ -435,11 +472,20 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
   const configuredRegion = region.configuredRegion;
   const healthRegion = configuredRegion;
   const sessionSecret = env.SESSION_HMAC_SECRET;
-  if (!regionsMatch(region.expectedRegion, region.observedRuntimeRegion)) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "REGION_MISMATCH" });
+  const regionValid = regionsMatch(region.expectedRegion, region.observedRuntimeRegion);
+  // `/health` reports real provider-leg availability: the pinned model is usable
+  // only when the region gate passes, an OpenAI key is present and the model
+  // config permits a call. No provider request, so health stays side-effect-free.
+  const modelAvailable = deriveModelAvailability({
+    apiKey: env.OPENAI_API_KEY,
+    modelConfig: pinnedModelConfig(),
+    regionValid,
+  });
+  if (!regionValid) {
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "REGION_MISMATCH", modelAvailable });
   }
   if (typeof sessionSecret !== "string" || sessionSecret.trim().length === 0) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE", modelAvailable });
   }
   const localInjection = input.provider !== undefined && input.card !== undefined &&
     input.merchants !== undefined && input.store !== undefined;
@@ -448,7 +494,7 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
     try {
       persistence = createPostgrestPersistenceFromEnv(env, input.postgrestTransport, lane);
     } catch {
-      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
+      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE", modelAvailable });
     }
   }
   let merchants = input.merchants;
@@ -456,7 +502,7 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
     try {
       merchants = loadMerchantCatalog(merchantCatalogJson).merchants;
     } catch {
-      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
+      return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE", modelAvailable });
     }
   }
   const provider = input.provider ?? (env.OPENAI_API_KEY === undefined || input.fetchFn === undefined
@@ -477,16 +523,17 @@ export function createGatewayCompositionRoot(input: GatewayCompositionInput = {}
     (input.card === undefined && cardStore === undefined)
     || (input.sessionPersistence === undefined && persistence?.session === undefined)
   ) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE", modelAvailable });
   }
   if (configuredRegion === undefined) {
-    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE" });
+    return createGatewayEntrypointHandler({ configuredRegion: healthRegion, expectedRegion, chainId: lane.chainId, failureCode: "PROVIDER_UNAVAILABLE", modelAvailable });
   }
   const runtimeConfiguredRegion = configuredRegion;
   return createGatewayEntrypointHandler({
     configuredRegion: healthRegion,
     expectedRegion,
     chainId: lane.chainId,
+    modelAvailable,
     deps: {
       provider,
       card: input.card,

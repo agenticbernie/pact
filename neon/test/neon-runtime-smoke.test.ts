@@ -90,7 +90,9 @@ describe.skipIf(!HAS_DOCKER)("Neon functions local smoke (docker PG17)", () => {
       chainId: 5042002,
       provider: "openai",
       model: "gpt-4o-mini",
-      modelAvailable: false,
+      // This lane env sets OPENAI_API_KEY, so the derived provider-leg signal
+      // reports available — health still makes NO OpenAI call.
+      modelAvailable: true,
     });
   });
 
