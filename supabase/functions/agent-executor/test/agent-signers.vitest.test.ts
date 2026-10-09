@@ -40,6 +40,15 @@ describe("agent signer bindings (parse)", () => {
     expect(bindings).toEqual([]);
   });
 
+  it("accepts a bare single key in the map variable as one derived binding", () => {
+    // The operator pastes just the key a card's agent was provisioned with.
+    expect(parseAgentSignerBindings({ json: KEY_A })).toEqual([{ agent: AGENT_A, privateKey: KEY_A }]);
+    // Only a bare key is tolerated; a quoted one is a string, not a key.
+    expect(parseAgentSignerBindings({ json: `"${KEY_A}"` })).toEqual([]);
+    // A bare key still cannot widen the lane: it binds the address it derives.
+    expect(parseAgentSignerBindings({ json: KEY_B }).map((binding) => binding.agent)).toEqual([AGENT_B]);
+  });
+
   it("discards malformed keys, malformed JSON and non-address entries", () => {
     expect(
       parseAgentSignerBindings({

@@ -16,7 +16,10 @@
  *   assigned agent has no signer fails closed (the caller refuses) instead of
  *   being signed by a wallet the controller will reject;
  * - the legacy single-key shape needs no declared address: the key *is* the
- *   binding, and the address it resolves for is derived, never assumed.
+ *   binding, and the address it resolves for is derived, never assumed;
+ * - a single BARE key placed in the map variable follows that same legacy
+ *   contract: the derived address is its only identity, so an unwrapped paste
+ *   binds exactly one agent instead of silently binding none.
  *
  * Key hygiene: keys are handed to the client factory as arguments, are never
  * logged, returned, serialized or persisted, and never leave this module in a
@@ -45,10 +48,11 @@ export type AgentSignerRegistry = {
  * Parses the signer bindings the runtime entrypoint hands in.
  *
  * `json` is an optional object of `{ "<agent address>": "<0x private key>" }`
- * (the multi-agent lane). `legacyPrivateKey` is the single-key shape. Every
- * entry is validated independently and SKIPPED when it is unusable — a bad
- * entry must never widen what the lane may sign for, and a declared agent whose
- * derived address disagrees is a mismatch, not a binding.
+ * (the multi-agent lane), or a single BARE `0x` key, whose agent is derived from
+ * the key exactly as the legacy shape derives it. `legacyPrivateKey` is the
+ * single-key shape. Every entry is validated independently and SKIPPED when it
+ * is unusable — a bad entry must never widen what the lane may sign for, and a
+ * declared agent whose derived address disagrees is a mismatch, not a binding.
  */
 export function parseAgentSignerBindings(input: {
   json?: string | undefined;
@@ -87,6 +91,17 @@ export function parseAgentSignerBindings(input: {
         // The declared identity must be the one the key actually controls.
         if (derived !== agent.toLowerCase()) continue;
         add(derived, privateKey);
+      }
+    } else if (EVM_KEY.test(declared)) {
+      // Tolerated shape: the map variable holding one BARE key instead of the
+      // JSON map. Its agent is the address that key derives — the legacy
+      // single-key contract — so an operator who pastes the key unwrapped still
+      // binds exactly one agent. A quoted key parses as a string and stays
+      // dropped, and a key can never be bound to an agent it does not control.
+      try {
+        add(computeAddress(declared).toLowerCase(), declared);
+      } catch {
+        // An unreadable key is simply not a signer.
       }
     }
   }

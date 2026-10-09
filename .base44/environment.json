@@ -25,6 +25,11 @@
       "requiredAtBoot": false
     },
     {
+      "name": "AGENT_SIGNER_KEYS",
+      "description": "Multi-agent signer lane: a JSON map of {\"0x<agent address>\":\"0x<64-hex private key>\"} the agent-executor may sign controller.pay with, keyed by the agent each key is bound to. An entry is kept only when the key's derived address equals the declared agent. Supply the key controlling card 3's agent (0xfda82d8911f43a93b4d5d5ce9fffce4ad7f88435) to let the lane execute for card 3. Enter bare JSON with NO surrounding quotes; a single BARE 0x key is also accepted (2026-10-09) and binds to the one agent that key derives. Optional for boot: while absent the lane signs only with AGENT_SIGNER_PRIVATE_KEY.",
+      "requiredAtBoot": false
+    },
+    {
       "name": "OPENAI_API_KEY",
       "description": "OpenAI API key for the AI-gateway intent path (platform.openai.com). Without it POST /v1/agent/intents returns PROVIDER_UNAVAILABLE while GET /health still answers 200.",
       "requiredAtBoot": false
