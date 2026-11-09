@@ -10,7 +10,7 @@ export async function startRelayerDaemon(options?: {
   port?: number;
   dbPath?: string;
 }) {
-  const port = options?.port ?? Number(process.env.RELAYER_PORT || 4000);
+  const port = options?.port ?? Number(process.env.PORT || process.env.RELAYER_PORT || 4000);
   const store = new RelayerStore(options?.dbPath);
   const solver = new PactSolver(store);
   const server = createRelayerHttpServer(store);
@@ -28,10 +28,10 @@ export async function startRelayerDaemon(options?: {
   await solver.start();
 
   await new Promise<void>((resolve) => {
-    server.listen(port, () => {
-      console.log(`[API] Relayer HTTP Server listening on http://localhost:${port}`);
-      console.log(`      - Quote : http://localhost:${port}/api/v1/quote?amount=3.50&targetChainId=421614`);
-      console.log(`      - Health: http://localhost:${port}/api/v1/health`);
+    server.listen(port, "0.0.0.0", () => {
+      console.log(`[API] Relayer HTTP Server listening on port ${port}`);
+      console.log(`      - Quote : /api/v1/quote?amount=3.50&targetChainId=421614`);
+      console.log(`      - Health: /api/v1/health`);
       resolve();
     });
   });

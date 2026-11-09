@@ -1,0 +1,69 @@
+services:
+  # --------------------------------------------------------------------------
+  # 1. PACT RELAYER & SOLVER DAEMON (Node.js API + On-Chain Listener)
+  # --------------------------------------------------------------------------
+  - type: web
+    name: pact-relayer
+    runtime: node
+    plan: starter # $7/month (Dùng thoải mái với $50 credit)
+    buildCommand: npm install
+    startCommand: npm --workspace=relayer start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: RELAYER_PRIVATE_KEY
+        sync: false # Nhập Private Key ví Relayer của bạn trên Render Dashboard
+      - key: PRIVATE_KEY
+        sync: false # Nhập cùng Private Key
+      - key: AVALANCHE_FUJI_RPC_PRIMARY
+        value: https://avalanche-fuji-c-chain-rpc.publicnode.com
+      - key: AVALANCHE_FUJI_RPC_FALLBACK
+        value: https://avalanche-fuji-c-chain-rpc.publicnode.com
+      - key: ARBITRUM_SEPOLIA_RPC_PRIMARY
+        value: https://sepolia-rollup.arbitrum.io/rpc
+      - key: ARBITRUM_SEPOLIA_RPC_FALLBACK
+        value: https://arbitrum-sepolia-rpc.publicnode.com
+      - key: BASE_SEPOLIA_RPC_PRIMARY
+        value: https://sepolia.base.org
+      - key: BASE_SEPOLIA_RPC_FALLBACK
+        value: https://base-sepolia-rpc.publicnode.com
+      - key: PACT_ESCROW_FUJI
+        value: "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708"
+      - key: MOCK_USDC_FUJI
+        value: "0x937408C5194bb6885fB51ab4607575c52524933E"
+      - key: MOCK_USDC_ARB_SEPOLIA
+        value: "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708"
+      - key: MOCK_USDC_BASE_SEPOLIA
+        value: "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708"
+      - key: PACT_BATCH_DISPATCHER_ARB_SEPOLIA
+        value: "0x2d29dAc762d43B036eDe889d3D18fF1fBA553878"
+      - key: PACT_BATCH_DISPATCHER_BASE_SEPOLIA
+        value: "0x937408C5194bb6885fB51ab4607575c52524933E"
+      - key: ECONOMY_BATCH_WINDOW_MS
+        value: "15000"
+      - key: POLLING_INTERVAL_MS
+        value: "400"
+
+  # --------------------------------------------------------------------------
+  # 2. PACT WEB PWA & MERCHANT POS TERMINAL (Next.js 14)
+  # --------------------------------------------------------------------------
+  - type: web
+    name: pact-web
+    runtime: node
+    plan: starter # $7/month
+    buildCommand: npm install && npm run web:build
+    startCommand: npm --workspace=web start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NEXT_PUBLIC_RELAYER_API_URL
+        sync: false # Nhập URL của pact-relayer (ví dụ: https://pact-relayer.onrender.com)
+      - key: NEXT_PUBLIC_PACT_ESCROW_FUJI
+        value: "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708"
+      - key: NEXT_PUBLIC_MOCK_USDC_FUJI
+        value: "0x937408C5194bb6885fB51ab4607575c52524933E"
+      - key: NEXT_PUBLIC_MOCK_USDC_ARB_SEPOLIA
+        value: "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708"
+      - key: NEXT_PUBLIC_MOCK_USDC_BASE_SEPOLIA
+        value: "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708"
