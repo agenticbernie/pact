@@ -1,0 +1,28 @@
+{
+  "name": "@pact/relayer",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Pact Protocol Off-Chain Solver & Multi-Chain Relayer Daemon",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "verify": "tsx src/scripts/verify-phase2.ts",
+    "verify:p3": "tsx src/scripts/verify-phase3.ts",
+    "verify:p5": "tsx src/scripts/verify-phase5.ts",
+    "verify:p6": "tsx src/scripts/verify-phase6.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "dotenv": "^16.4.5",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

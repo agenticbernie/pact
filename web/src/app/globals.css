@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Brand Accent: Avalanche Flame Red */
+  --color-primary: #E84142;
+  --color-primary-hover: #D03031;
+
+  /* Semantic Success: MoMo Emerald */
+  --color-success: #10B981;
+  --color-success-bg: rgba(16, 185, 129, 0.12);
+
+  /* Surfaces & Neutrals */
+  --color-bg-base: #0F172A;       /* Slate 900 */
+  --color-surface-card: #1E293B;   /* Slate 800 */
+  --color-border: #334155;         /* Slate 700 */
+  --color-text-main: #F8FAFC;      /* Slate 50 */
+  --color-text-muted: #94A3B8;     /* Slate 400 */
+
+  /* Typography */
+  --font-family: 'Inter', -apple-system, sans-serif;
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-main);
+  font-family: var(--font-family);
+}

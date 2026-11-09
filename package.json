@@ -1,0 +1,28 @@
+{
+  "name": "pact-protocol",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Pact Protocol — MoMo for Stablecoins with Smart Intent-Based Flow Routing (Avalanche Fuji -> Arbitrum/Base Sepolia)",
+  "workspaces": [
+    "relayer",
+    "web"
+  ],
+  "scripts": {
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test -vvv",
+    "relayer:dev": "npm --workspace=relayer run dev",
+    "relayer:build": "npm --workspace=relayer run build",
+    "relayer:typecheck": "npm --workspace=relayer run typecheck",
+    "web:dev": "npm --workspace=web run dev",
+    "web:build": "npm --workspace=web run build",
+    "web:typecheck": "npm --workspace=web run typecheck",
+    "typecheck": "npm run relayer:typecheck && npm run web:typecheck",
+    "verify:p2": "npm --workspace=relayer run verify",
+    "verify:p3": "npm --workspace=relayer run verify:p3",
+    "verify:p5": "npm --workspace=relayer run verify:p5",
+    "verify:p6": "npm --workspace=relayer run verify:p6"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "networks": {
+    "avalancheFuji": {
+      "chainId": 43113,
+      "name": "Avalanche Fuji C-Chain",
+      "rpcPrimary": "https://api.avax-test.network/ext/bc/C/rpc",
+      "rpcFallback": "https://avalanche-fuji-c-chain-rpc.publicnode.com",
+      "contracts": {
+        "PactEscrow": "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708",
+        "MockUSDC": "0x937408C5194bb6885fB51ab4607575c52524933E"
+      }
+    },
+    "arbitrumSepolia": {
+      "chainId": 421614,
+      "name": "Arbitrum Sepolia",
+      "rpcPrimary": "https://sepolia-rollup.arbitrum.io/rpc",
+      "rpcFallback": "https://arbitrum-sepolia-rpc.publicnode.com",
+      "contracts": {
+        "MockUSDC": "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708",
+        "PactBatchDispatcher": "0x2d29dAc762d43B036eDe889d3D18fF1fBA553878"
+      }
+    },
+    "baseSepolia": {
+      "chainId": 84532,
+      "name": "Base Sepolia",
+      "rpcPrimary": "https://sepolia.base.org",
+      "rpcFallback": "https://base-sepolia-rpc.publicnode.com",
+      "contracts": {
+        "MockUSDC": "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708",
+        "PactBatchDispatcher": "0x937408C5194bb6885fB51ab4607575c52524933E"
+      }
+    }
+  }
+}
