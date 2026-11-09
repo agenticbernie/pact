@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { QrScanner } from "@/components/QrScanner";
 import { RouteSelectorModal, type QuoteData } from "@/components/RouteSelectorModal";
-import { type PactPaymentRequest } from "@/lib/pact-schema";
+import { type PactPaymentRequest, type SupportedTargetChainId } from "@/lib/pact-schema";
 import { PACT_CONFIG, getChainName, getExplorerTxUrl } from "@/lib/config";
 import { playTingTingSound, triggerHapticFeedback } from "@/lib/feedback";
 import {
@@ -31,6 +31,9 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  Keyboard,
+  ArrowRight,
+  X,
 } from "lucide-react";
 import type { Address, Hex } from "viem";
 
@@ -50,6 +53,12 @@ export function PayerClient() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRefunding, setIsRefunding] = useState(false);
   const [refundTxHash, setRefundTxHash] = useState<Hex | null>(null);
+
+  // Manual payment entry modal state
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualAddress, setManualAddress] = useState("");
+  const [manualAmount, setManualAmount] = useState("1.00");
+  const [manualChainId, setManualChainId] = useState<SupportedTargetChainId>(421614);
   // In-flight payment tracking (FR-10 / §1.4: guaranteed refund if the merchant is not paid by the deadline)
   const [pendingOrder, setPendingOrder] = useState<{
     orderId: string;
@@ -131,6 +140,73 @@ export function PayerClient() {
     setFaucetTxHash(null);
   };
 
+  // Fetch quote from Relayer
+  const fetchQuote = useCallback(
+    async (
+      amount: string,
+      targetChainId: SupportedTargetChainId,
+      merchant: string,
+      orderId: string
+    ) => {
+      setIsLoadingQuote(true);
+      setErrorMessage(null);
+      const startTime = performance.now();
+      try {
+        const res = await fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/quote`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount,
+            targetChainId,
+            merchant,
+            orderId,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Quote failed with status ${res.status}`);
+        }
+
+        const quoteData = (await res.json()) as QuoteData;
+        setQuote(quoteData);
+
+        const elapsed = performance.now() - startTime;
+        console.log(`[Payer] Quote received in ${elapsed.toFixed(1)}ms (<300ms target)`);
+        return quoteData;
+      } catch (err: any) {
+        console.error("Failed to fetch quote", err);
+        setErrorMessage("Could not connect to Pact Relayer. Check connection.");
+        return null;
+      } finally {
+        setIsLoadingQuote(false);
+      }
+    },
+    []
+  );
+
+  // Re-fetch quote when user modifies amount or destination chain in RouteSelectorModal
+  const handleRefreshQuote = useCallback(
+    async (newAmount: string, newTargetChainId: SupportedTargetChainId) => {
+      if (!scannedRequest) return;
+      setScannedRequest((prev) =>
+        prev
+          ? {
+              ...prev,
+              amount: newAmount,
+              targetChainId: newTargetChainId,
+            }
+          : null
+      );
+      await fetchQuote(
+        newAmount,
+        newTargetChainId,
+        scannedRequest.merchant,
+        scannedRequest.orderId
+      );
+    },
+    [scannedRequest, fetchQuote]
+  );
+
   // Handle successful QR detection
   const handleScanSuccess = async (data: PactPaymentRequest) => {
     // §4.3 Screen 2: merchant QR codes auto-refresh; reject stale ones so a payer never pays an expired invoice
@@ -139,38 +215,31 @@ export function PayerClient() {
       return;
     }
     setIsScanning(false);
+    setShowManualModal(false);
     setScannedRequest(data);
-    setIsLoadingQuote(true);
-    setErrorMessage(null);
+    await fetchQuote(data.amount, data.targetChainId, data.merchant, data.orderId);
+  };
 
-    const startTime = performance.now();
-    try {
-      const res = await fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/quote`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: data.amount,
-          targetChainId: data.targetChainId,
-          merchant: data.merchant,
-          orderId: data.orderId,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Quote failed with status ${res.status}`);
-      }
-
-      const quoteData = (await res.json()) as QuoteData;
-      setQuote(quoteData);
-
-      const elapsed = performance.now() - startTime;
-      console.log(`[Payer] Quote received in ${elapsed.toFixed(1)}ms (<300ms target)`);
-    } catch (err: any) {
-      console.error("Failed to fetch quote", err);
-      setErrorMessage("Could not connect to Pact Relayer. Check connection.");
-    } finally {
-      setIsLoadingQuote(false);
+  // Handle Manual Form Submission (No camera needed)
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = manualAddress.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+      setErrorMessage("Địa chỉ ví không hợp lệ (phải là 0x... 42 ký tự)");
+      return;
     }
+    const amountVal = Number(manualAmount) > 0 ? manualAmount : "1.00";
+    const req: PactPaymentRequest = {
+      protocol: "pact",
+      version: "1.0",
+      orderId: `MANUAL-${Date.now().toString().slice(-6)}`,
+      merchant: trimmed as `0x${string}`,
+      targetChainId: manualChainId,
+      targetToken: "USDC",
+      amount: amountVal,
+      timestamp: Date.now(),
+    };
+    await handleScanSuccess(req);
   };
 
   // FR-02, FR-03, FR-06: Confirm payment execution via ZeroDev Kernel v3 Scoped Session Key
@@ -198,8 +267,9 @@ export function PayerClient() {
           Math.round(Number(selectedRoute.totalPayable) * 1e6)
       );
 
+      const targetChainId = (quoteData.targetChainId || scannedRequest.targetChainId) as SupportedTargetChainId;
       const tokenOut =
-        scannedRequest.targetChainId === 421614
+        targetChainId === 421614
           ? PACT_CONFIG.arbitrumSepolia.mockUsdc
           : PACT_CONFIG.baseSepolia.mockUsdc;
 
@@ -209,13 +279,15 @@ export function PayerClient() {
         await claimGaslessFaucet(activeSession);
       }
 
+      const receiver = (quoteData.merchant || scannedRequest.merchant) as Address;
+
       // Execute gasless 1-Tap UserOperation signed by the Scoped Session Key ($50/24h limit)
       const { userOpHash, txHash } = await executeGaslessPaymentIntent({
         session: activeSession,
         amountAtomic,
         totalPayableAtomic,
-        targetChainId: scannedRequest.targetChainId,
-        receiver: scannedRequest.merchant as Address,
+        targetChainId,
+        receiver,
         tokenOut,
         priority,
         hashLock: quoteData.hashLock,
@@ -662,13 +734,120 @@ export function PayerClient() {
             </button>
           </div>
         ) : (
-          <QrScanner
-            active={isScanning}
-            onScanSuccess={handleScanSuccess}
-            onError={(err) => setErrorMessage(err)}
-          />
+          <>
+            <QrScanner
+              active={isScanning}
+              onScanSuccess={handleScanSuccess}
+              onError={(err) => setErrorMessage(err)}
+            />
+            {/* Floating Manual 0x Entry Button */}
+            {isScanning && !scannedRequest && !settledPayment && (
+              <div className="absolute bottom-6 inset-x-4 z-20 flex justify-center pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => setShowManualModal(true)}
+                  className="pointer-events-auto py-2.5 px-4 rounded-2xl bg-surface-card/90 backdrop-blur-md border border-surface-border text-text-main hover:text-white text-xs font-bold shadow-xl hover:bg-surface-card flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <Keyboard className="w-4 h-4 text-primary" />
+                  <span>Nhập địa chỉ ví người nhận thủ công</span>
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Manual Input Dialog Modal */}
+      {showManualModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-surface-card border border-surface-border rounded-3xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-surface-border pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <Keyboard className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-text-main">Chuyển tiền qua địa chỉ ví</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManualModal(false)}
+                className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-base"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleManualSubmit} className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">
+                  Địa chỉ ví người nhận (0x...)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+                  value={manualAddress}
+                  onChange={(e) => setManualAddress(e.target.value)}
+                  className="w-full bg-surface-base text-text-main font-mono text-xs px-3 py-2.5 rounded-xl border border-surface-border focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">
+                  Số lượng USDC
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={manualAmount}
+                  onChange={(e) => setManualAmount(e.target.value)}
+                  className="w-full bg-surface-base text-text-main font-mono text-lg font-bold px-3 py-2 rounded-xl border border-surface-border focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">
+                  Mạng người nhận (Destination Chain)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualChainId(421614)}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                      manualChainId === 421614
+                        ? "bg-blue-600/20 border-blue-500 text-blue-400"
+                        : "bg-surface-base border-surface-border text-text-muted"
+                    }`}
+                  >
+                    🔵 Arbitrum
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualChainId(84532)}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                      manualChainId === 84532
+                        ? "bg-blue-500/20 border-blue-400 text-blue-300"
+                        : "bg-surface-base border-surface-border text-text-muted"
+                    }`}
+                  >
+                    🔷 Base
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md shadow-primary/20 flex items-center justify-center gap-1.5 transition-all mt-2"
+              >
+                <span>Tiếp tục thanh toán</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Route Selector Bottom Sheet Modal */}
       {scannedRequest && (
@@ -679,6 +858,7 @@ export function PayerClient() {
           isSubmitting={isSubmitting}
           onConfirmPayment={handleConfirmPayment}
           onCancel={handleReset}
+          onRefreshQuote={handleRefreshQuote}
         />
       )}
     </div>
