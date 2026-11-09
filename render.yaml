@@ -11,7 +11,7 @@ services:
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_VERSION
-        value: 20.18.0
+        value: 22.14.0
       - key: RELAYER_PRIVATE_KEY
         sync: false # Nhập Private Key ví Relayer của bạn trên Render Dashboard
       - key: PRIVATE_KEY
@@ -56,7 +56,7 @@ services:
     startCommand: npm --workspace=web start
     envVars:
       - key: NODE_VERSION
-        value: 20.18.0
+        value: 22.14.0
       - key: NEXT_PUBLIC_RELAYER_API_URL
         sync: false # Nhập URL của pact-relayer (ví dụ: https://pact-relayer.onrender.com)
       - key: NEXT_PUBLIC_PACT_ESCROW_FUJI

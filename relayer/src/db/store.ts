@@ -27,9 +27,19 @@ interface SqliteDatabase {
   close(): void;
 }
 
-const { DatabaseSync } = require("node:sqlite") as {
-  DatabaseSync: new (filename: string) => SqliteDatabase;
-};
+let SqliteDbClass: new (filename: string) => SqliteDatabase;
+
+try {
+  // 1. Built-in SQLite on Node >= 22.5.0
+  const { DatabaseSync } = require("node:sqlite") as {
+    DatabaseSync: new (filename: string) => SqliteDatabase;
+  };
+  SqliteDbClass = DatabaseSync;
+} catch {
+  // 2. Fallback to better-sqlite3 for Node 20 or runtimes without node:sqlite
+  const BetterSqlite3 = require("better-sqlite3");
+  SqliteDbClass = BetterSqlite3 as new (filename: string) => SqliteDatabase;
+}
 
 export class RelayerStore {
   private db: SqliteDatabase;
@@ -39,7 +49,7 @@ export class RelayerStore {
       dbFilePath ||
       process.env.RELAYER_DB_PATH ||
       path.resolve(process.cwd(), "pact_relayer.db");
-    this.db = new DatabaseSync(resolvedPath);
+    this.db = new SqliteDbClass(resolvedPath);
     this.initSchema();
   }
 
