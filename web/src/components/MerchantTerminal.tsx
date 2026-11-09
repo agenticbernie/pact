@@ -64,7 +64,7 @@ export function MerchantTerminal() {
         merchant: merchantAddress,
         targetChainId,
         targetToken: "USDC",
-        amount: (Number(amount) || 0).toFixed(2),
+        amount: Number(amount) > 0 ? Number(amount).toFixed(2) : "1.00",
         timestamp: qrIssuedAt,
       }),
     [currentOrderId, merchantAddress, targetChainId, amount, qrIssuedAt]

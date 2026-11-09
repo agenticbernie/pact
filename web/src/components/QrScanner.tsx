@@ -46,6 +46,7 @@ export function QrScanner({ onScanSuccess, onError, active = true }: QrScannerPr
     }
 
     let isMounted = true;
+    isScanningRef.current = false;
     const reader = new BrowserMultiFormatReader();
     readerRef.current = reader;
 
@@ -87,10 +88,13 @@ export function QrScanner({ onScanSuccess, onError, active = true }: QrScannerPr
             const text = result.getText();
             try {
               const payload = parsePactQrPayload(text);
-              isScanningRef.current = true;
+              isScanningRef.current = true; // DỪNG SCAN NGAY KHI ĐÃ ĐỌC TRÚNG
+              if (typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate(50); // Rung nhẹ báo hiệu đã đọc được
+              }
               onScanSuccess(payload, text);
             } catch (err) {
-              // Not a valid pact payload yet, keep scanning
+              // Bỏ qua frame chưa đọc trúng mã
             }
           });
         }
