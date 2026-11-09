@@ -22,7 +22,7 @@ dotenv.config();
 
 interface DeploymentsJson {
   networks: {
-    avalancheFuji: { contracts: { PactEscrow: Address; MockUSDC: Address } };
+    avalancheFuji: { contracts: { PactEscrow: Address; MockUSDC: Address; PactBatchDispatcher?: Address } };
     arbitrumSepolia: { contracts: { MockUSDC: Address; PactBatchDispatcher?: Address } };
     baseSepolia: { contracts: { MockUSDC: Address; PactBatchDispatcher?: Address } };
   };
@@ -55,6 +55,10 @@ export const CONTRACTS = {
     mockUsdc: pickAddress(
       process.env.MOCK_USDC_FUJI,
       deployments.networks.avalancheFuji.contracts.MockUSDC
+    ),
+    batchDispatcher: pickAddress(
+      process.env.PACT_BATCH_DISPATCHER_FUJI,
+      deployments.networks.avalancheFuji.contracts.PactBatchDispatcher ?? ZERO_ADDRESS
     ),
   },
   arbitrumSepolia: {
@@ -181,6 +185,15 @@ export function getDestinationClients(targetChainId: number) {
       walletClient: baseSepoliaWalletClient,
       mockUsdcAddress: CONTRACTS.baseSepolia.mockUsdc,
       batchDispatcherAddress: CONTRACTS.baseSepolia.batchDispatcher,
+    };
+  }
+  if (targetChainId === 43113) {
+    return {
+      chainName: "Avalanche Fuji",
+      publicClient: fujiPublicClient,
+      walletClient: fujiWalletClient,
+      mockUsdcAddress: CONTRACTS.avalancheFuji.mockUsdc,
+      batchDispatcherAddress: CONTRACTS.avalancheFuji.batchDispatcher,
     };
   }
   throw new Error(`Unsupported targetChainId: ${targetChainId}`);

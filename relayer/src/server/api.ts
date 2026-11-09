@@ -213,9 +213,9 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           reqUrl.searchParams.get("orderId") ??
           null) as string | null;
 
-        if (targetChainId !== 421614 && targetChainId !== 84532) {
+        if (targetChainId !== 421614 && targetChainId !== 84532 && targetChainId !== 43113) {
           sendJson(res, 400, {
-            error: "Unsupported targetChainId. Must be 421614 (Arbitrum Sepolia) or 84532 (Base Sepolia).",
+            error: "Unsupported targetChainId. Must be 421614 (Arbitrum Sepolia), 84532 (Base Sepolia), or 43113 (Avalanche Fuji).",
           });
           return;
         }

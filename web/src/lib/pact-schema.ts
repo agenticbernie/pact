@@ -3,7 +3,7 @@
  * Schema MIME: application/vnd.pact.payment+json
  */
 
-export type SupportedTargetChainId = 421614 | 84532;
+export type SupportedTargetChainId = 421614 | 84532 | 43113;
 
 export interface PactPaymentRequest {
   protocol: "pact";
@@ -34,6 +34,8 @@ export function parsePactQrPayload(raw: string): PactPaymentRequest {
     rawAddress = parts[0];
     if (cleanUri.includes("@84532")) {
       targetChainId = 84532; // Base Sepolia
+    } else if (cleanUri.includes("@43113")) {
+      targetChainId = 43113; // Avalanche Fuji
     }
   }
 
@@ -80,7 +82,9 @@ export function parsePactQrPayload(raw: string): PactPaymentRequest {
     version: parsed.version ?? "1.0",
     orderId: parsed.orderId || `ORD-${Date.now().toString().slice(-6)}`,
     merchant: parsed.merchant as `0x${string}`,
-    targetChainId: (parsed.targetChainId === 84532 ? 84532 : 421614) as SupportedTargetChainId,
+    targetChainId: (
+      parsed.targetChainId === 84532 ? 84532 : parsed.targetChainId === 43113 ? 43113 : 421614
+    ) as SupportedTargetChainId,
     targetToken: "USDC",
     amount: validAmount,
     timestamp: typeof parsed.timestamp === "number" ? parsed.timestamp : Date.now(),

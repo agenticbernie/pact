@@ -19,6 +19,7 @@ contract PactEscrow is IPactEscrow, ReentrancyGuard {
 
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
     uint256 public constant BASE_SEPOLIA_CHAIN_ID = 84532;
+    uint256 public constant AVALANCHE_FUJI_CHAIN_ID = 43113;
 
     /// @dev $15.00 in 6-decimal USDC units.
     uint256 public constant LIGHTNING_THRESHOLD = 15_000_000;
@@ -106,7 +107,11 @@ contract PactEscrow is IPactEscrow, ReentrancyGuard {
         bytes32 hashLock,
         uint256 deadline
     ) external payable nonReentrant returns (bytes32 intentId) {
-        if (targetChainId != ARBITRUM_SEPOLIA_CHAIN_ID && targetChainId != BASE_SEPOLIA_CHAIN_ID) {
+        if (
+            targetChainId != ARBITRUM_SEPOLIA_CHAIN_ID &&
+            targetChainId != BASE_SEPOLIA_CHAIN_ID &&
+            targetChainId != AVALANCHE_FUJI_CHAIN_ID
+        ) {
             revert UnsupportedTargetChain(targetChainId);
         }
         if (amountIn == 0) revert ZeroAmount();

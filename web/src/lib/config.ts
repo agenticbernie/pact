@@ -7,9 +7,10 @@ export const PACT_CONFIG = {
     name: "Avalanche Fuji",
     rpc: "https://avalanche-fuji-c-chain-rpc.publicnode.com",
     pactEscrow: (process.env.NEXT_PUBLIC_PACT_ESCROW_FUJI ||
-      "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708") as Address,
+      "0xAeC6Ee71648dAe7469Ae591709D9b023147e2ba5") as Address,
     mockUsdc: (process.env.NEXT_PUBLIC_MOCK_USDC_FUJI ||
       "0x937408C5194bb6885fB51ab4607575c52524933E") as Address,
+    batchDispatcher: "0x708351ff8967b47470c53af7CF593923c9B1E350" as Address,
   },
   arbitrumSepolia: {
     chainId: 421614,

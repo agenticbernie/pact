@@ -17,7 +17,7 @@ export type IntentLifecycleState =
   | "CLAIMED"
   | "REFUNDED";
 
-export type SupportedTargetChainId = 421614 | 84532; // Arbitrum Sepolia | Base Sepolia
+export type SupportedTargetChainId = 421614 | 84532 | 43113; // Arbitrum Sepolia | Base Sepolia | Avalanche Fuji
 
 /**
  * Dynamic QR JSON Schema (§3.2.3: application/vnd.pact.payment+json)

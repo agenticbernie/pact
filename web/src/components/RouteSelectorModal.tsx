@@ -156,36 +156,49 @@ export function RouteSelectorModal({
           </div>
         </div>
 
-        {/* 1. MẠNG ĐÍCH NGƯỜI NHẬN (Arbitrum vs Base) */}
+        {/* 1. MẠNG ĐÍCH NGƯỜI NHẬN (Arbitrum vs Base vs Fuji) */}
         <div>
           <label className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1.5 block">
             Mạng người nhận (Destination Chain)
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={() => handleSelectChain(421614)}
-              className={`p-2.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+              className={`p-2 rounded-xl border text-xs font-semibold transition-all flex flex-col sm:flex-row items-center justify-center gap-1.5 ${
                 selectedTargetChainId === 421614
                   ? "bg-blue-600/20 border-blue-500 text-blue-400 shadow-md shadow-blue-500/10"
                   : "bg-surface-base border-surface-border text-text-muted hover:border-surface-border/80"
               }`}
             >
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-              <span>🔵 Arbitrum Sepolia</span>
+              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+              <span className="truncate">Arbitrum</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleSelectChain(84532)}
-              className={`p-2.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+              className={`p-2 rounded-xl border text-xs font-semibold transition-all flex flex-col sm:flex-row items-center justify-center gap-1.5 ${
                 selectedTargetChainId === 84532
                   ? "bg-blue-500/20 border-blue-400 text-blue-300 shadow-md shadow-blue-400/10"
                   : "bg-surface-base border-surface-border text-text-muted hover:border-surface-border/80"
               }`}
             >
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-400" />
-              <span>🔷 Base Sepolia</span>
+              <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
+              <span className="truncate">Base</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectChain(43113)}
+              className={`p-2 rounded-xl border text-xs font-semibold transition-all flex flex-col sm:flex-row items-center justify-center gap-1.5 ${
+                selectedTargetChainId === 43113
+                  ? "bg-red-600/20 border-red-500 text-red-400 shadow-md shadow-red-500/10"
+                  : "bg-surface-base border-surface-border text-text-muted hover:border-surface-border/80"
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+              <span className="truncate">Avax Fuji</span>
             </button>
           </div>
         </div>
@@ -326,7 +339,7 @@ export function RouteSelectorModal({
           ) : (
             <>
               <span>
-                Xác nhận gửi ${activeRoute?.totalPayableDisplayUsd || Number(amountInput).toFixed(2)} USDC ➔ {selectedTargetChainId === 421614 ? "Arbitrum" : "Base"}
+                Xác nhận gửi ${activeRoute?.totalPayableDisplayUsd || Number(amountInput).toFixed(2)} USDC ➔ {selectedTargetChainId === 421614 ? "Arbitrum" : selectedTargetChainId === 84532 ? "Base" : "Fuji"}
               </span>
               <ArrowRight className="w-4 h-4" />
             </>

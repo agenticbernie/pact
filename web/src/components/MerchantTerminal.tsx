@@ -167,24 +167,35 @@ export function MerchantTerminal() {
           <button
             type="button"
             onClick={() => setTargetChainId(421614)}
-            className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+            className={`px-2 py-1 rounded-lg font-medium transition-all ${
               targetChainId === 421614
                 ? "bg-primary text-white shadow-sm"
                 : "text-text-muted hover:text-text-main"
             }`}
           >
-            Arbitrum
+            Arb
           </button>
           <button
             type="button"
             onClick={() => setTargetChainId(84532)}
-            className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+            className={`px-2 py-1 rounded-lg font-medium transition-all ${
               targetChainId === 84532
                 ? "bg-primary text-white shadow-sm"
                 : "text-text-muted hover:text-text-main"
             }`}
           >
             Base
+          </button>
+          <button
+            type="button"
+            onClick={() => setTargetChainId(43113)}
+            className={`px-2 py-1 rounded-lg font-medium transition-all ${
+              targetChainId === 43113
+                ? "bg-primary text-white shadow-sm"
+                : "text-text-muted hover:text-text-main"
+            }`}
+          >
+            Fuji
           </button>
         </div>
       </div>

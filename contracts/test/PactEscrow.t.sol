@@ -115,6 +115,13 @@ contract PactEscrowTest is Test {
         escrow.createIntent(address(usdc), 1e6, BASE, merchant, address(1), IPactEscrow.Priority.COST, hashLock, block.timestamp + 900);
     }
 
+    function test_CreateIntent_avalancheFujiSupported() public {
+        bytes32 fujiLock = keccak256("fuji_lock");
+        vm.prank(payer);
+        bytes32 id = escrow.createIntent(address(usdc), 1e6, 43113, merchant, address(1), IPactEscrow.Priority.SPEED, fujiLock, block.timestamp + 900);
+        assertTrue(id != bytes32(0));
+    }
+
     function test_CreateIntent_revertsUnsupportedChain() public {
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(PactEscrow.UnsupportedTargetChain.selector, 1));

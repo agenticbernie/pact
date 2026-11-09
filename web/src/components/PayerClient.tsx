@@ -271,7 +271,9 @@ export function PayerClient() {
       const tokenOut =
         targetChainId === 421614
           ? PACT_CONFIG.arbitrumSepolia.mockUsdc
-          : PACT_CONFIG.baseSepolia.mockUsdc;
+          : targetChainId === 84532
+            ? PACT_CONFIG.baseSepolia.mockUsdc
+            : PACT_CONFIG.fuji.mockUsdc;
 
       // Auto-mint faucet if Smart Account balance is insufficient for demo convenience
       const currentBal = await getSmartAccountUsdcBalance(activeSession.smartAccountAddress);
@@ -811,28 +813,39 @@ export function PayerClient() {
                 <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">
                   Mạng người nhận (Destination Chain)
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
                     onClick={() => setManualChainId(421614)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                    className={`py-2 px-1 rounded-xl border text-xs font-semibold transition-all flex flex-col items-center justify-center ${
                       manualChainId === 421614
                         ? "bg-blue-600/20 border-blue-500 text-blue-400"
                         : "bg-surface-base border-surface-border text-text-muted"
                     }`}
                   >
-                    🔵 Arbitrum
+                    <span>🔵 Arb</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setManualChainId(84532)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                    className={`py-2 px-1 rounded-xl border text-xs font-semibold transition-all flex flex-col items-center justify-center ${
                       manualChainId === 84532
                         ? "bg-blue-500/20 border-blue-400 text-blue-300"
                         : "bg-surface-base border-surface-border text-text-muted"
                     }`}
                   >
-                    🔷 Base
+                    <span>🔷 Base</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualChainId(43113)}
+                    className={`py-2 px-1 rounded-xl border text-xs font-semibold transition-all flex flex-col items-center justify-center ${
+                      manualChainId === 43113
+                        ? "bg-red-600/20 border-red-500 text-red-400"
+                        : "bg-surface-base border-surface-border text-text-muted"
+                    }`}
+                  >
+                    <span>🔺 Fuji</span>
                   </button>
                 </div>
               </div>
