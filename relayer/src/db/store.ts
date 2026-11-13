@@ -41,6 +41,21 @@ try {
   SqliteDbClass = BetterSqlite3 as new (filename: string) => SqliteDatabase;
 }
 
+export interface MerchantSettlementSummary {
+  rows: StoredIntentRecord[];
+  totalVolumeAtomic: string;
+  totalFeeAtomic: string;
+  count: number;
+  breakdown: Record<
+    number,
+    {
+      count: number;
+      volumeAtomic: string;
+      feeAtomic: string;
+    }
+  >;
+}
+
 export class RelayerStore {
   private db: SqliteDatabase;
 
@@ -101,6 +116,7 @@ export class RelayerStore {
       CREATE INDEX IF NOT EXISTS idx_intents_state ON intents(state);
       CREATE INDEX IF NOT EXISTS idx_intents_order_id ON intents(order_id);
       CREATE INDEX IF NOT EXISTS idx_intents_hash_lock ON intents(hash_lock);
+      CREATE INDEX IF NOT EXISTS idx_intents_receiver ON intents(receiver);
 
       CREATE TABLE IF NOT EXISTS sync_state (
         key TEXT PRIMARY KEY,
@@ -312,6 +328,62 @@ export class RelayerStore {
       .prepare(`SELECT * FROM intents WHERE order_id = ? ORDER BY created_at DESC LIMIT 1`)
       .get(orderId) as StoredIntentRecord | undefined;
     return row ?? null;
+  }
+
+  public getMerchantSettlements(
+    receiver: string,
+    fromTs?: number,
+    toTs?: number
+  ): MerchantSettlementSummary {
+    const normalizedFrom = fromTs !== undefined ? (fromTs < 10_000_000_000 ? fromTs * 1000 : fromTs) : undefined;
+    const normalizedTo = toTs !== undefined ? (toTs < 10_000_000_000 ? toTs * 1000 : toTs) : undefined;
+
+    let sql = `SELECT * FROM intents WHERE LOWER(receiver) = LOWER(?) AND state IN ('SETTLED', 'CLAIMED')`;
+    const params: unknown[] = [receiver];
+
+    if (normalizedFrom !== undefined) {
+      sql += ` AND created_at >= ?`;
+      params.push(normalizedFrom);
+    }
+    if (normalizedTo !== undefined) {
+      sql += ` AND created_at <= ?`;
+      params.push(normalizedTo);
+    }
+
+    sql += ` ORDER BY created_at DESC`;
+
+    const rows = this.db.prepare(sql).all(...params) as StoredIntentRecord[];
+
+    let totalVolume = 0n;
+    let totalFee = 0n;
+    const breakdown: Record<number, { count: number; volumeAtomic: string; feeAtomic: string }> = {};
+
+    for (const row of rows) {
+      const vol = BigInt(row.amount_in || "0");
+      const fee = BigInt(row.fee_paid || "0");
+      totalVolume += vol;
+      totalFee += fee;
+
+      const chainId = Number(row.target_chain_id);
+      if (!breakdown[chainId]) {
+        breakdown[chainId] = {
+          count: 0,
+          volumeAtomic: "0",
+          feeAtomic: "0",
+        };
+      }
+      breakdown[chainId].count += 1;
+      breakdown[chainId].volumeAtomic = (BigInt(breakdown[chainId].volumeAtomic) + vol).toString();
+      breakdown[chainId].feeAtomic = (BigInt(breakdown[chainId].feeAtomic) + fee).toString();
+    }
+
+    return {
+      rows,
+      totalVolumeAtomic: totalVolume.toString(),
+      totalFeeAtomic: totalFee.toString(),
+      count: rows.length,
+      breakdown,
+    };
   }
 
   public getRecoverableIntents(): StoredIntentRecord[] {

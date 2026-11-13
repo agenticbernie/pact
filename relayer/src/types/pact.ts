@@ -80,11 +80,20 @@ export const LIGHTNING_THRESHOLD_USDC = 15_000_000n; // $15.00
 export const LIGHTNING_FLAT_FEE_USDC = 50_000n;      // $0.05
 export const LIGHTNING_BPS = 30n;                    // 0.30% (30 / 10_000)
 export const ECONOMY_FLAT_FEE_USDC = 5_000n;         // $0.005
+export const MIN_ECONOMY_INVOICE_USDC = 1_000_000n;  // $1.00 (1 USDC)
 export const DEFAULT_DEADLINE_SECONDS = 900;         // 15 minutes (§1.4)
 export const FALLBACK_DEMO_SECRET = "pact-demo-secret";
 
-export function calculateFeeAtomic(amountAtomic: bigint, priority: Priority): bigint {
+export function calculateFeeAtomic(
+  amountAtomic: bigint,
+  priority: Priority,
+  estimatedGasUsdAtomic?: bigint
+): bigint {
   if (priority === Priority.COST) {
+    if (estimatedGasUsdAtomic !== undefined) {
+      const dynamicFee = (estimatedGasUsdAtomic * 120n) / 100n;
+      return dynamicFee > ECONOMY_FLAT_FEE_USDC ? dynamicFee : ECONOMY_FLAT_FEE_USDC;
+    }
     return ECONOMY_FLAT_FEE_USDC;
   }
   if (amountAtomic >= LIGHTNING_THRESHOLD_USDC) {

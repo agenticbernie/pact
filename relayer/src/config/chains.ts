@@ -119,15 +119,75 @@ export const RPC_ENDPOINTS = {
   ],
 } as const;
 
+/**
+ * Circuit Breaker Configuration:
+ * Track consecutive failures per RPC URL; trip open for 30_000ms after 3 errors and skip slow/dead RPCs.
+ */
+export const CIRCUIT_BREAKER_MAX_FAILURES = 3;
+export const CIRCUIT_BREAKER_TRIP_MS = 30_000;
+
+interface CircuitBreakerEntry {
+  failures: number;
+  trippedUntil: number;
+}
+
+const circuitBreakerMap = new Map<string, CircuitBreakerEntry>();
+
+function getCircuitBreakerEntry(url: string): CircuitBreakerEntry {
+  let entry = circuitBreakerMap.get(url);
+  if (!entry) {
+    entry = { failures: 0, trippedUntil: 0 };
+    circuitBreakerMap.set(url, entry);
+  }
+  return entry;
+}
+
+export function createCircuitBreakerTransport(url: string) {
+  const baseTransport = http(url, {
+    timeout: 10_000,
+    retryCount: 1,
+    retryDelay: 250,
+  });
+
+  return (params: any) => {
+    const initialized = baseTransport(params);
+    return {
+      ...initialized,
+      request: async (args: { method: string; params?: unknown[] }) => {
+        const entry = getCircuitBreakerEntry(url);
+        const now = Date.now();
+        if (entry.trippedUntil > now) {
+          const remainingSec = Math.ceil((entry.trippedUntil - now) / 1000);
+          throw new Error(
+            `[CircuitBreaker] RPC ${url} is TRIPPED open (${remainingSec}s remaining). Skipping.`
+          );
+        }
+
+        try {
+          const res = await (initialized as any).request(args);
+          if (entry.failures > 0) {
+            entry.failures = 0;
+            entry.trippedUntil = 0;
+          }
+          return res;
+        } catch (err) {
+          entry.failures += 1;
+          if (entry.failures >= CIRCUIT_BREAKER_MAX_FAILURES) {
+            entry.trippedUntil = Date.now() + CIRCUIT_BREAKER_TRIP_MS;
+            console.warn(
+              `[CircuitBreaker] RPC ${url} tripped OPEN for ${CIRCUIT_BREAKER_TRIP_MS}ms after ${entry.failures} consecutive failures.`
+            );
+          }
+          throw err;
+        }
+      },
+    } as any;
+  };
+}
+
 function buildFallbackTransport(urls: readonly string[]) {
   return fallback(
-    urls.map((url) =>
-      http(url, {
-        timeout: 10_000,
-        retryCount: 2,
-        retryDelay: 250,
-      })
-    ),
+    urls.map((url) => createCircuitBreakerTransport(url)),
     { rank: false, retryCount: 2 }
   );
 }

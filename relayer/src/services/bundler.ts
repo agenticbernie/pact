@@ -7,6 +7,7 @@
  */
 import {
   concatHex,
+  decodeFunctionData,
   numberToHex,
   pad,
   parseEther,
@@ -21,6 +22,7 @@ import {
   toPackedUserOperation,
   type UserOperation,
 } from "viem/account-abstraction";
+import { PACT_ESCROW_ABI } from "../abi/contracts.js";
 import {
   CONTRACTS,
   fujiPublicClient,
@@ -28,6 +30,81 @@ import {
   relayerAccount,
   withChainLock,
 } from "../config/chains.js";
+
+export const MAX_FREE_USEROPS_PER_DAY = Number(process.env.MAX_FREE_USEROPS_PER_DAY || 10);
+export const MIN_SPONSORED_USDC = BigInt(process.env.MIN_SPONSORED_USDC || 1_000_000n); // $1.00 USDC
+
+const sponsorshipUsage = new Map<string, { date: string; count: number }>();
+
+function getTodayString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function getSponsorshipCount(sender: string): number {
+  const normalized = sender.toLowerCase();
+  const today = getTodayString();
+  const record = sponsorshipUsage.get(normalized);
+  if (!record || record.date !== today) return 0;
+  return record.count;
+}
+
+export function incrementSponsorshipCount(sender: string): number {
+  const normalized = sender.toLowerCase();
+  const today = getTodayString();
+  const record = sponsorshipUsage.get(normalized);
+  if (!record || record.date !== today) {
+    sponsorshipUsage.set(normalized, { date: today, count: 1 });
+    return 1;
+  }
+  record.count += 1;
+  return record.count;
+}
+
+export function extractCreateIntentAmountIn(callData: Hex | string): bigint | null {
+  if (!callData || typeof callData !== "string") return null;
+  const hex = (callData.startsWith("0x") ? callData.slice(2) : callData).toLowerCase();
+  const selector = "e92bb3e0"; // createIntent(address,uint256,uint256,address,address,uint8,bytes32,uint256)
+  let searchIdx = 0;
+  while (searchIdx < hex.length) {
+    const foundIdx = hex.indexOf(selector, searchIdx);
+    if (foundIdx === -1) break;
+    if (foundIdx % 2 === 0) {
+      try {
+        const slice = ("0x" + hex.slice(foundIdx)) as Hex;
+        const decoded = decodeFunctionData({
+          abi: PACT_ESCROW_ABI,
+          data: slice,
+        });
+        if (decoded.functionName === "createIntent" && decoded.args) {
+          const args = decoded.args as [Address, bigint, bigint, Address, Address, number, Hex, bigint];
+          return args[1]; // amountIn
+        }
+      } catch {
+        // Not a matching createIntent at this offset
+      }
+    }
+    searchIdx = foundIdx + 2;
+  }
+  return null;
+}
+
+export function validateSponsorshipQuotaAndAmount(sender: string, callData?: string): void {
+  const count = getSponsorshipCount(sender);
+  if (count >= MAX_FREE_USEROPS_PER_DAY) {
+    throw new Error(
+      `Gas sponsorship rejected: Sender ${sender} exceeded daily quota (${MAX_FREE_USEROPS_PER_DAY} free UserOperations per day).`
+    );
+  }
+
+  if (callData) {
+    const amountIn = extractCreateIntentAmountIn(callData);
+    if (amountIn !== null && amountIn < MIN_SPONSORED_USDC) {
+      throw new Error(
+        `Gas sponsorship rejected: createIntent amountIn (${amountIn}) is below minimum sponsored amount (${MIN_SPONSORED_USDC} atomic units = $1.00 USDC).`
+      );
+    }
+  }
+}
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -155,6 +232,16 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
       case "pm_getPaymasterData":
       case "pm_sponsorUserOperation":
       case "zd_sponsorUserOperation": {
+        const rawOp = (params[0] && typeof params[0] === "object" && "userOperation" in params[0]
+          ? (params[0] as any).userOperation
+          : params[0]) as Record<string, unknown> | undefined;
+        if (rawOp?.sender) {
+          validateSponsorshipQuotaAndAmount(
+            String(rawOp.sender),
+            rawOp.callData ? String(rawOp.callData) : undefined
+          );
+        }
+
         // We sponsor gas by prefunding the Smart Account's EntryPoint v0.7 deposit directly!
         return {
           jsonrpc: "2.0",
@@ -175,6 +262,8 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
         const rawUserOp = params[0] as Record<string, unknown>;
         const epAddr = ((params[1] as Address) || entryPoint07Address) as Address;
         const userOp = normalizeUserOperation07(rawUserOp);
+
+        validateSponsorshipQuotaAndAmount(userOp.sender, userOp.callData);
 
         const userOpHash = getUserOperationHash({
           userOperation: userOp,
@@ -216,6 +305,8 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
               pollingInterval: 250,
             });
           }
+
+          incrementSponsorshipCount(userOp.sender);
 
           // 2. Simulate on-chain validation (EntryPoint + Kernel v3 + CallPolicy) before broadcasting
           await fujiPublicClient.simulateContract({

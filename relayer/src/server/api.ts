@@ -17,6 +17,7 @@ import {
   arbSepoliaPublicClient,
   baseSepoliaPublicClient,
   fujiPublicClient,
+  getDestinationClients,
   relayerAccount,
 } from "../config/chains.js";
 import { RelayerStore } from "../db/store.js";
@@ -250,10 +251,25 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           deadline,
         });
 
-        const tokenOut =
-          targetChainId === 421614
-            ? CONTRACTS.arbitrumSepolia.mockUsdc
-            : CONTRACTS.baseSepolia.mockUsdc;
+        const dest = getDestinationClients(targetChainId);
+        let destUsdcBalance = 0n;
+        try {
+          destUsdcBalance = await dest.publicClient.readContract({
+            address: dest.mockUsdcAddress,
+            abi: MOCK_USDC_ABI,
+            functionName: "balanceOf",
+            args: [relayerAccount.address],
+          });
+        } catch (balErr) {
+          console.warn(`[Quote] Balance check warning on ${targetChainId}:`, (balErr as Error).message);
+        }
+
+        const lightningAvailable = destUsdcBalance >= amountAtomic;
+        const lightningUnavailableReason = lightningAvailable
+          ? null
+          : `Insufficient instant liquidity on ${dest.chainName} (Hot wallet balance: $${formatUsdcAmount(destUsdcBalance)} USDC < requested: $${formatUsdcAmount(amountAtomic)} USDC)`;
+
+        const tokenOut = dest.mockUsdcAddress;
 
         const quoteLatencyMs = Number((performance.now() - startHr).toFixed(2));
 
@@ -272,10 +288,14 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           hashLock,
           deadline,
           quoteLatencyMs,
+          lightningAvailable,
+          lightningUnavailableReason,
           routes: {
             lightning: {
               priority: Priority.SPEED,
               name: "Lightning Route",
+              available: lightningAvailable,
+              unavailableReason: lightningUnavailableReason,
               estimatedSeconds: "1.0 - 3.0",
               fee: formatUsdcAmount(lightningFeeAtomic),
               feeDisplayUsd: Number(formatUsdcAmount(lightningFeeAtomic)).toFixed(2),
@@ -287,6 +307,7 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
             economy: {
               priority: Priority.COST,
               name: "Economy Route",
+              available: true,
               estimatedSeconds: "15 - 45",
               fee: formatUsdcAmount(economyFeeAtomic),
               feeDisplayUsd: "0.005",
@@ -411,6 +432,64 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           isSettled: intent.state === "SETTLED" || intent.state === "CLAIMED",
           intent,
         });
+        return;
+      }
+
+      // -----------------------------------------------------------------
+      // 5. GET /api/v1/merchants/:address/settlements
+      // -----------------------------------------------------------------
+      const merchantMatch = pathname.match(/^\/api\/v1\/merchants\/([^/]+)\/settlements\/?$/);
+      if (merchantMatch && req.method === "GET") {
+        const merchantAddr = decodeURIComponent(merchantMatch[1].trim());
+        const fromParam = reqUrl.searchParams.get("from");
+        const toParam = reqUrl.searchParams.get("to");
+        const format = (reqUrl.searchParams.get("format") || "json").toLowerCase();
+
+        const fromTs = fromParam ? Number(fromParam) : undefined;
+        const toTs = toParam ? Number(toParam) : undefined;
+
+        const summary = store.getMerchantSettlements(merchantAddr, fromTs, toTs);
+
+        if (format === "csv") {
+          const headers = [
+            "intent_id",
+            "order_id",
+            "sender",
+            "target_chain_id",
+            "amount_in",
+            "fee_paid",
+            "state",
+            "dest_tx_hash",
+            "created_at",
+          ];
+          const lines = [headers.join(",")];
+          for (const row of summary.rows) {
+            const csvRow = [
+              row.intent_id,
+              row.order_id ? `"${row.order_id.replace(/"/g, '""')}"` : "",
+              row.sender,
+              row.target_chain_id,
+              row.amount_in,
+              row.fee_paid,
+              row.state,
+              row.dest_tx_hash || "",
+              row.created_at,
+            ];
+            lines.push(csvRow.join(","));
+          }
+          const csvBody = lines.join("\n");
+          res.writeHead(200, {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="pact-settlements.csv"',
+            "Access-Control-Allow-Origin": originHeader || "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Cache-Control": "no-store",
+          });
+          res.end(csvBody);
+          return;
+        }
+
+        sendJson(res, 200, summary, originHeader);
         return;
       }
 

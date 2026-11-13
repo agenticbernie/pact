@@ -15,10 +15,14 @@ export interface QuoteData {
   hashLock: `0x${string}`;
   deadline: number;
   quoteLatencyMs: number;
+  lightningAvailable?: boolean;
+  lightningUnavailableReason?: string | null;
   routes: {
     lightning: {
       priority: number;
       name: string;
+      available?: boolean;
+      unavailableReason?: string | null;
       estimatedSeconds: string;
       fee: string;
       feeDisplayUsd: string;
@@ -30,6 +34,7 @@ export interface QuoteData {
     economy: {
       priority: number;
       name: string;
+      available?: boolean;
       estimatedSeconds: string;
       fee: string;
       feeDisplayUsd: string;
@@ -66,6 +71,15 @@ export function RouteSelectorModal({
   );
   const [amountInput, setAmountInput] = useState<string>(paymentReq.amount || "1.00");
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const isLightningDisabled = quote?.lightningAvailable === false;
+
+  // Respect quote.lightningAvailable === false: auto-select Economy
+  useEffect(() => {
+    if (isLightningDisabled && selectedRoute === "lightning") {
+      setSelectedRoute("economy");
+    }
+  }, [isLightningDisabled, selectedRoute]);
 
   const [sliderPosition, setSliderPosition] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -259,27 +273,40 @@ export function RouteSelectorModal({
             {/* Card A: Lightning Route */}
             <button
               type="button"
-              onClick={() => setSelectedRoute("lightning")}
+              disabled={isLightningDisabled}
+              onClick={() => {
+                if (!isLightningDisabled) {
+                  setSelectedRoute("lightning");
+                }
+              }}
               className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
-                selectedRoute === "lightning"
-                  ? "border-primary bg-primary/10 shadow-lg shadow-primary/10"
-                  : "border-surface-border bg-surface-base/60 opacity-70 hover:opacity-100"
+                isLightningDisabled
+                  ? "border-surface-border bg-surface-base/40 opacity-50 cursor-not-allowed"
+                  : selectedRoute === "lightning"
+                    ? "border-primary bg-primary/10 shadow-lg shadow-primary/10"
+                    : "border-surface-border bg-surface-base/60 opacity-70 hover:opacity-100"
               }`}
             >
               <div className="flex items-center justify-between w-full mb-1">
                 <span className="flex items-center gap-1 text-xs sm:text-sm font-bold text-text-main">
-                  <Zap className={`w-3.5 h-3.5 ${selectedRoute === "lightning" ? "text-primary fill-primary" : "text-text-muted"}`} />
+                  <Zap className={`w-3.5 h-3.5 ${!isLightningDisabled && selectedRoute === "lightning" ? "text-primary fill-primary" : "text-text-muted"}`} />
                   Lightning
                 </span>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary text-white">
-                  ~1-2s
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${isLightningDisabled ? "bg-surface-border text-text-muted" : "bg-primary text-white"}`}>
+                  {isLightningDisabled ? "UNAVAILABLE" : "~1-2s"}
                 </span>
               </div>
               <div className="text-[11px] text-text-muted space-y-0.5">
-                <div>Nhận tức thì</div>
-                <div className="font-semibold text-text-main">
-                  Phí: ${quote?.routes.lightning.feeDisplayUsd || "0.01"}
-                </div>
+                {isLightningDisabled ? (
+                  <div className="text-amber-400 font-medium">Insufficient instant liquidity — use Economy</div>
+                ) : (
+                  <>
+                    <div>Nhận tức thì</div>
+                    <div className="font-semibold text-text-main">
+                      Phí: ${quote?.routes.lightning.feeDisplayUsd || "0.01"}
+                    </div>
+                  </>
+                )}
               </div>
             </button>
 

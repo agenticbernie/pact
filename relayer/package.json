@@ -11,6 +11,7 @@
     "verify:p3": "tsx src/scripts/verify-phase3.ts",
     "verify:p5": "tsx src/scripts/verify-phase5.ts",
     "verify:p6": "tsx src/scripts/verify-phase6.ts",
+    "verify:upgrades": "tsx src/scripts/verify-upgrades.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },

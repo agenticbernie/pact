@@ -5,11 +5,14 @@
  *   CREATED ──► DISPATCHED ──► SETTLED ──► CLAIMED
  *                                    └──► (Timeout) ──► REFUNDED
  */
-import { type Hex } from "viem";
+import { createPublicClient, webSocket, type Hex } from "viem";
+import { avalancheFuji } from "viem/chains";
 import { MOCK_USDC_ABI, PACT_BATCH_DISPATCHER_ABI, PACT_ESCROW_ABI } from "../abi/contracts.js";
 import {
   CONTRACTS,
   fujiPublicClient,
+  arbSepoliaPublicClient,
+  baseSepoliaPublicClient,
   fujiWalletClient,
   getDestinationClients,
   relayerAccount,
@@ -23,11 +26,13 @@ export class PactSolver {
   private inFlightIntents = new Map<string, Promise<StoredIntentRecord | null>>();
   private chainQueues = new Map<number, Promise<unknown>>();
   private unwatchCreated?: () => void;
+  private unwatchWsCreated?: () => void;
   private unwatchSettled?: () => void;
   private unwatchRefunded?: () => void;
   private recoveryTimer?: NodeJS.Timeout;
   private pollCatchupTimer?: NodeJS.Timeout;
   private batchTimer?: NodeJS.Timeout;
+  private liquidityMonitorTimer?: NodeJS.Timeout;
   private batchingChains = new Set<number>();
   private isStopping = false;
 
@@ -36,6 +41,9 @@ export class PactSolver {
   /** Flush early when an intent is this close to its on-chain deadline (claims revert after it). */
   private readonly batchDeadlineSafetySec = 90;
   private readonly maxBatchSize = 50;
+
+  /** Periodic liquidity monitor check interval (default 60_000ms) */
+  private readonly liquidityCheckIntervalMs = Number(process.env.LIQUIDITY_CHECK_INTERVAL_MS || 60_000);
 
   constructor(store: RelayerStore) {
     this.store = store;
@@ -76,6 +84,39 @@ export class PactSolver {
         console.warn(`[Solver] watchContractEvent(PaymentIntentCreated) warning:`, err.message);
       },
     });
+
+    // 3B. Optional WebSocket watchContractEvent listener alongside 400ms polling
+    // Deduped via existing inFlightIntents / SQLite state
+    const wsUrl =
+      process.env.AVALANCHE_FUJI_WS_RPC ||
+      process.env.FUJI_WS_RPC ||
+      process.env.AVALANCHE_FUJI_WS_URL ||
+      process.env.FUJI_WS_URL;
+
+    if (wsUrl) {
+      try {
+        const wsClient = createPublicClient({
+          chain: avalancheFuji,
+          transport: webSocket(wsUrl),
+        });
+        this.unwatchWsCreated = wsClient.watchContractEvent({
+          address: CONTRACTS.avalancheFuji.pactEscrow,
+          abi: PACT_ESCROW_ABI,
+          eventName: "PaymentIntentCreated",
+          onLogs: (logs) => {
+            for (const log of logs) {
+              void this.handleIntentCreatedLog(log);
+            }
+          },
+          onError: (err) => {
+            console.warn(`[Solver WS] watchContractEvent warning:`, (err as Error).message);
+          },
+        });
+        console.log(`[Solver] WebSocket event listener attached to ${wsUrl}`);
+      } catch (err) {
+        console.warn(`[Solver] Failed to initialize WebSocket listener:`, (err as Error).message);
+      }
+    }
 
     this.unwatchSettled = fujiPublicClient.watchContractEvent({
       address: CONTRACTS.avalancheFuji.pactEscrow,
@@ -135,16 +176,79 @@ export class PactSolver {
         void this.flushEconomyBatches();
       }
     }, 1_000);
+
+    // 6. Periodic liquidity monitor (LIQUIDITY_CHECK_INTERVAL_MS, default 60_000ms)
+    // Warn whenever destination chain USDC balance < 20% of total Solver USDC across chains
+    void this.checkSolverLiquidityBalance();
+    this.liquidityMonitorTimer = setInterval(() => {
+      if (!this.isStopping) {
+        void this.checkSolverLiquidityBalance();
+      }
+    }, this.liquidityCheckIntervalMs);
   }
 
   public stop(): void {
     this.isStopping = true;
     this.unwatchCreated?.();
+    this.unwatchWsCreated?.();
     this.unwatchSettled?.();
     this.unwatchRefunded?.();
     if (this.recoveryTimer) clearInterval(this.recoveryTimer);
     if (this.pollCatchupTimer) clearInterval(this.pollCatchupTimer);
     if (this.batchTimer) clearInterval(this.batchTimer);
+    if (this.liquidityMonitorTimer) clearInterval(this.liquidityMonitorTimer);
+  }
+
+  /**
+   * Checks Solver USDC balances across all chains.
+   * Logs [Rebalancer Alert] warning whenever destination chain USDC balance < 20% of total Solver USDC.
+   */
+  public async checkSolverLiquidityBalance(): Promise<void> {
+    try {
+      const [fujiUsdc, arbUsdc, baseUsdc] = await Promise.all([
+        fujiPublicClient.readContract({
+          address: CONTRACTS.avalancheFuji.mockUsdc,
+          abi: MOCK_USDC_ABI,
+          functionName: "balanceOf",
+          args: [relayerAccount.address],
+        }),
+        arbSepoliaPublicClient.readContract({
+          address: CONTRACTS.arbitrumSepolia.mockUsdc,
+          abi: MOCK_USDC_ABI,
+          functionName: "balanceOf",
+          args: [relayerAccount.address],
+        }),
+        baseSepoliaPublicClient.readContract({
+          address: CONTRACTS.baseSepolia.mockUsdc,
+          abi: MOCK_USDC_ABI,
+          functionName: "balanceOf",
+          args: [relayerAccount.address],
+        }),
+      ]);
+
+      const totalSolverUsdc = fujiUsdc + arbUsdc + baseUsdc;
+      if (totalSolverUsdc === 0n) return;
+
+      const destinationChains = [
+        { chainId: 421614, name: "Arbitrum Sepolia", balance: arbUsdc },
+        { chainId: 84532, name: "Base Sepolia", balance: baseUsdc },
+      ];
+
+      for (const dest of destinationChains) {
+        // Check if destination balance < 20% of total Solver USDC
+        // dest.balance * 100n / totalSolverUsdc < 20n
+        if ((dest.balance * 100n) / totalSolverUsdc < 20n) {
+          const pct = Number((dest.balance * 10000n) / totalSolverUsdc) / 100;
+          console.warn(
+            `[Rebalancer Alert] Low liquidity on destination chain ${dest.name} (${dest.chainId})! ` +
+              `Hot wallet balance: $${formatUsdcAmount(dest.balance)} USDC (${pct.toFixed(1)}% of total $${formatUsdcAmount(totalSolverUsdc)} USDC). ` +
+              `Balance is below 20% threshold. Automated cross-chain rebalance recommended.`
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(`[Solver] Liquidity monitor error:`, (err as Error).message);
+    }
   }
 
   public async syncHistoricalEvents(): Promise<void> {

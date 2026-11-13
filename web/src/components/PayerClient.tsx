@@ -43,6 +43,8 @@ const PENDING_UI_TIMEOUT_MS = 45_000; // Economy batch window upper bound (§1.3
 export function PayerClient() {
   const [isScanning, setIsScanning] = useState(true);
   const [scannedRequest, setScannedRequest] = useState<PactPaymentRequest | null>(null);
+  const [staticPromptReq, setStaticPromptReq] = useState<PactPaymentRequest | null>(null);
+  const [staticInputAmount, setStaticInputAmount] = useState<string>("3.50");
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -209,13 +211,24 @@ export function PayerClient() {
 
   // Handle successful QR detection
   const handleScanSuccess = async (data: PactPaymentRequest) => {
+    // Only enforce expiry on dynamic QRs with fixed amounts
+    const isStaticQr = !data.amount || data.amount === "0" || Number(data.amount) === 0;
+
     // §4.3 Screen 2: merchant QR codes auto-refresh; reject stale ones so a payer never pays an expired invoice
-    if (data.timestamp && Math.floor(Date.now() / 1000) - data.timestamp > QR_MAX_AGE_SECONDS) {
+    if (!isStaticQr && data.timestamp && Math.floor(Date.now() / 1000) - data.timestamp > QR_MAX_AGE_SECONDS) {
       setErrorMessage("This code has expired. Ask the merchant for a fresh one.");
       return;
     }
     setIsScanning(false);
     setShowManualModal(false);
+
+    // If Static Standee QR (!amount || amount === "0"): show numeric amount input before quote/slide-to-pay
+    if (isStaticQr) {
+      setStaticPromptReq(data);
+      setStaticInputAmount("3.50");
+      return;
+    }
+
     setScannedRequest(data);
     await fetchQuote(data.amount, data.targetChainId, data.merchant, data.orderId);
   };
@@ -245,6 +258,27 @@ export function PayerClient() {
   // FR-02, FR-03, FR-06: Confirm payment execution via ZeroDev Kernel v3 Scoped Session Key
   const handleConfirmPayment = async (priority: number, quoteData: QuoteData) => {
     if (!scannedRequest) return;
+    const orderId = quoteData.orderId || scannedRequest.orderId;
+    const lockKey = `pact_pending_order_${orderId}`;
+
+    // Lock slide-to-pay per orderId using localStorage to prevent duplicate createIntent UserOps
+    if (orderId && typeof window !== "undefined") {
+      const activeLock = localStorage.getItem(lockKey);
+      if (activeLock) {
+        try {
+          const parsed = JSON.parse(activeLock);
+          if (Date.now() - (parsed.timestamp || 0) < 300_000) {
+            console.warn(`[Payer] Order ${orderId} already locked against duplicate submission.`);
+            setErrorMessage(`Lệnh thanh toán ${orderId} đang được xử lý, vui lòng chờ trong giây lát.`);
+            return;
+          }
+        } catch {
+          // ignore corrupted lock
+        }
+      }
+      localStorage.setItem(lockKey, JSON.stringify({ orderId, timestamp: Date.now() }));
+    }
+
     setIsSubmitting(true);
     setErrorMessage(null);
 
@@ -311,6 +345,9 @@ export function PayerClient() {
       });
     } catch (err: any) {
       console.error("[ZeroDev] Payment execution error:", err);
+      if (typeof window !== "undefined" && orderId) {
+        localStorage.removeItem(lockKey);
+      }
       setErrorMessage(err.message || "Gasless payment UserOperation failed");
       setIsSubmitting(false);
     }
@@ -333,6 +370,9 @@ export function PayerClient() {
           setPendingOrder((p) => (p ? { ...p, intentId: intent.intent_id } : p));
         }
         if (data.isSettled) {
+          if (typeof window !== "undefined" && pendingOrder.orderId) {
+            localStorage.removeItem(`pact_pending_order_${pendingOrder.orderId}`);
+          }
           setSettlementLatencyMs(Date.now() - pendingOrder.startedAt);
           setSettledPayment(intent);
           setPendingOrder(null);
@@ -342,6 +382,9 @@ export function PayerClient() {
           playTingTingSound();
           triggerHapticFeedback();
         } else if (data.status === "REFUNDED") {
+          if (typeof window !== "undefined" && pendingOrder.orderId) {
+            localStorage.removeItem(`pact_pending_order_${pendingOrder.orderId}`);
+          }
           setPendingOrder(null);
           setIsStalled(false);
           setIsSubmitting(false);
@@ -384,7 +427,14 @@ export function PayerClient() {
   };
 
   const handleReset = () => {
+    if (typeof window !== "undefined") {
+      const id = pendingOrder?.orderId || scannedRequest?.orderId || staticPromptReq?.orderId;
+      if (id) {
+        localStorage.removeItem(`pact_pending_order_${id}`);
+      }
+    }
     setScannedRequest(null);
+    setStaticPromptReq(null);
     setQuote(null);
     setSettledPayment(null);
     setSettlementLatencyMs(null);
@@ -858,6 +908,107 @@ export function PayerClient() {
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Static Standee QR Amount Input Dialog (Customer inputs amount upon scan) */}
+      {staticPromptReq && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-surface-card border border-surface-border rounded-3xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-surface-border pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  Static Standee QR
+                </span>
+                <h3 className="text-sm font-bold text-text-main">Nhập số tiền thanh toán</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setStaticPromptReq(null);
+                  setIsScanning(true);
+                }}
+                className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-base"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div className="p-2.5 rounded-xl bg-surface-base border border-surface-border text-xs">
+                <span className="text-text-muted text-[10px] uppercase font-bold block">Người nhận</span>
+                <span className="font-mono text-text-main truncate block">{staticPromptReq.merchant}</span>
+                <span className="text-primary text-[10px] font-semibold mt-1 block">
+                  Mạng: {getChainName(staticPromptReq.targetChainId)}
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">
+                  Số lượng USDC thanh toán
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={staticInputAmount}
+                    onChange={(e) => setStaticInputAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-surface-base text-text-main font-mono text-2xl font-bold px-3 py-2 rounded-xl border border-surface-border focus:outline-none focus:border-primary"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted font-bold text-sm">
+                    USDC
+                  </span>
+                </div>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="flex items-center gap-1.5">
+                {["1.00", "3.50", "5.00", "10.00"].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setStaticInputAmount(preset)}
+                    className={`flex-1 text-[11px] font-mono py-1 rounded-lg border transition-all ${
+                      staticInputAmount === preset
+                        ? "bg-primary/20 border-primary text-primary font-bold"
+                        : "bg-surface-base border-surface-border text-text-muted hover:text-text-main"
+                    }`}
+                  >
+                    ${preset}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const val = Number(staticInputAmount);
+                  if (isNaN(val) || val <= 0) {
+                    setErrorMessage("Vui lòng nhập số tiền hợp lệ (> 0)");
+                    return;
+                  }
+                  const reqWithAmount: PactPaymentRequest = {
+                    ...staticPromptReq,
+                    amount: val.toFixed(2),
+                  };
+                  setStaticPromptReq(null);
+                  setScannedRequest(reqWithAmount);
+                  await fetchQuote(
+                    reqWithAmount.amount,
+                    reqWithAmount.targetChainId,
+                    reqWithAmount.merchant,
+                    reqWithAmount.orderId
+                  );
+                }}
+                className="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md shadow-primary/20 flex items-center justify-center gap-1.5 transition-all mt-2"
+              >
+                <span>Nhận báo giá & Thanh toán</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       )}
