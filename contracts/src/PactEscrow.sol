@@ -53,12 +53,23 @@ contract PactEscrow is IPactEscrow, ReentrancyGuard {
     error IntentExpired(bytes32 intentId);
     error IntentNotExpired(bytes32 intentId);
     error InvalidSecret();
+    error NotSolver();
+    error InvalidHashLock();
     error NotSender();
     error NativeTransferFailed();
 
     // ---------------------------------------------------------------------
     // Storage
     // ---------------------------------------------------------------------
+
+    /// @notice Only the deploying solver can claim escrow. Knowing a public
+    ///         mempool preimage must never let another account steal its payout.
+    address public immutable solver;
+
+    constructor(address solver_) {
+        if (solver_ == address(0)) revert ZeroAddress();
+        solver = solver_;
+    }
 
     mapping(bytes32 => PaymentIntent) private _intents;
     /// @dev Tracked separately from `isFulfilled` so a refund is never reported as a settlement.
@@ -119,6 +130,7 @@ contract PactEscrow is IPactEscrow, ReentrancyGuard {
         if (deadline <= block.timestamp || deadline > block.timestamp + DEFAULT_DEADLINE_SECONDS + DEADLINE_SKEW_TOLERANCE) {
             revert InvalidDeadline(deadline);
         }
+        if (hashLock == bytes32(0)) revert InvalidHashLock();
         if (_hashLockUsed[hashLock]) revert HashLockAlreadyUsed(hashLock);
         _hashLockUsed[hashLock] = true;
 
@@ -192,6 +204,7 @@ contract PactEscrow is IPactEscrow, ReentrancyGuard {
         if (intent.sender == address(0)) revert IntentNotFound(intentId);
         if (intent.isFulfilled || _refunded[intentId]) revert IntentAlreadyClosed(intentId);
         if (block.timestamp > intent.deadline) revert IntentExpired(intentId);
+        if (msg.sender != solver) revert NotSolver();
         if (keccak256(abi.encodePacked(secret)) != intent.hashLock) revert InvalidSecret();
 
         intent.isFulfilled = true;

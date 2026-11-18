@@ -15,6 +15,7 @@ export type IntentLifecycleState =
   | "DISPATCHED"
   | "SETTLED"
   | "CLAIMED"
+  | "EXPIRED"
   | "REFUNDED";
 
 export type SupportedTargetChainId = 421614 | 84532 | 43113; // Arbitrum Sepolia | Base Sepolia | Avalanche Fuji
@@ -119,6 +120,7 @@ export function generateSecretAndHashLock(): { secret: string; hashLock: `0x${st
 }
 
 export function parseUsdcAmount(amountStr: string): bigint {
+  if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,6})?$/.test(amountStr)) throw new Error("Use a plain USDC decimal with at most 6 fractional digits.");
   return parseUnits(amountStr, USDC_DECIMALS);
 }
 

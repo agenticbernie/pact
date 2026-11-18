@@ -8,6 +8,7 @@
     "web"
   ],
   "scripts": {
+    "test": "node --import tsx --test scripts/*.test.mts",
     "contracts:build": "cd contracts && forge build",
     "contracts:test": "cd contracts && forge test -vvv",
     "relayer:dev": "npm --workspace=relayer run dev",

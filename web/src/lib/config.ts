@@ -1,4 +1,5 @@
 import { type Address } from "viem";
+import deployments from "../../../shared/deployments.json";
 
 export const PACT_CONFIG = {
   relayerApiUrl: process.env.NEXT_PUBLIC_RELAYER_API_URL || "http://localhost:4000",
@@ -7,26 +8,26 @@ export const PACT_CONFIG = {
     name: "Avalanche Fuji",
     rpc: "https://avalanche-fuji-c-chain-rpc.publicnode.com",
     pactEscrow: (process.env.NEXT_PUBLIC_PACT_ESCROW_FUJI ||
-      "0xAeC6Ee71648dAe7469Ae591709D9b023147e2ba5") as Address,
+      deployments.networks.avalancheFuji.contracts.PactEscrow) as Address,
     mockUsdc: (process.env.NEXT_PUBLIC_MOCK_USDC_FUJI ||
-      "0x937408C5194bb6885fB51ab4607575c52524933E") as Address,
-    batchDispatcher: "0x708351ff8967b47470c53af7CF593923c9B1E350" as Address,
+      deployments.networks.avalancheFuji.contracts.MockUSDC) as Address,
+    batchDispatcher: deployments.networks.avalancheFuji.contracts.PactBatchDispatcher as Address,
   },
   arbitrumSepolia: {
     chainId: 421614,
     name: "Arbitrum Sepolia",
     rpc: "https://sepolia-rollup.arbitrum.io/rpc",
     mockUsdc: (process.env.NEXT_PUBLIC_MOCK_USDC_ARB_SEPOLIA ||
-      "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708") as Address,
-    batchDispatcher: "0x2d29dAc762d43B036eDe889d3D18fF1fBA553878" as Address,
+      deployments.networks.arbitrumSepolia.contracts.MockUSDC) as Address,
+    batchDispatcher: deployments.networks.arbitrumSepolia.contracts.PactBatchDispatcher as Address,
   },
   baseSepolia: {
     chainId: 84532,
     name: "Base Sepolia",
     rpc: "https://sepolia.base.org",
     mockUsdc: (process.env.NEXT_PUBLIC_MOCK_USDC_BASE_SEPOLIA ||
-      "0xEFf5284031D5bA06AA2E5b77e27F97934dC12708") as Address,
-    batchDispatcher: "0x937408C5194bb6885fB51ab4607575c52524933E" as Address,
+      deployments.networks.baseSepolia.contracts.MockUSDC) as Address,
+    batchDispatcher: deployments.networks.baseSepolia.contracts.PactBatchDispatcher as Address,
   },
 } as const;
 

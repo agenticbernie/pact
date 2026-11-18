@@ -10,6 +10,7 @@ import {
   formatUnits,
   http,
   keccak256,
+  parseEventLogs,
   toHex,
   type Address,
   type Hex,
@@ -42,6 +43,8 @@ import {
 import { toECDSASigner } from "@zerodev/permissions/signers";
 import { PACT_CONFIG } from "./config";
 import { MOCK_USDC_ABI, PACT_ESCROW_ABI } from "./contracts";
+import { isPaymentAddress, isSupportedChain } from "./pact-schema";
+import { readStored, writeStored, removeStored } from "./storage";
 
 export const SESSION_STORAGE_KEY = "pact_zerodev_kernel_v3_session_v1";
 export const DAILY_SPEND_LIMIT_ATOMIC = BigInt(50_000_000); // $50.00 in 6-decimal USDC (FR-02)
@@ -259,16 +262,23 @@ async function createOrRestorePasskeyWebAuthnKey(options: {
       return {
         webAuthnKey,
         passkeyMode: "webauthn-biometric" as const,
+        privateKeyJwk: undefined,
+        authenticatorId: webAuthnKey.authenticatorId,
+        authenticatorIdHash: webAuthnKey.authenticatorIdHash,
+        rpID: webAuthnKey.rpID,
+        pubX: webAuthnKey.pubX.toString(),
+        pubY: webAuthnKey.pubY.toString(),
       };
     } catch (err) {
-      console.warn(
-        "[ZeroDev Passkey] Hardware WebAuthn prompt declined/unavailable; using WebCrypto P-256 Passkey:",
-        (err as Error).message
-      );
+      throw new Error(`Passkey connection was cancelled or failed. No replacement account was created. ${(err as Error).message || "Please retry."}`);
     }
   }
+  if (options.preferHardwareModal !== false) {
+    throw new Error("Passkeys require HTTPS (or localhost) and a WebAuthn-compatible browser. No software wallet was created.");
+  }
+  if (options.mode === "login") throw new Error("Software demo keys cannot be recovered through passkey sign-in.");
 
-  // Generate P-256 WebAuthn keypair via WebCrypto SubtleCrypto
+  // Explicit development-only fallback; never used after a cancelled passkey prompt.
   const keyPair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
@@ -384,6 +394,7 @@ export async function onboardPasskeySmartAccount(options?: {
   username?: string;
   mode?: "register" | "login";
   preferHardwareModal?: boolean;
+  expectedAddress?: Address;
 }): Promise<PactSmartAccountSession> {
   const username = options?.username || `PactUser-${Date.now().toString().slice(-4)}`;
   const passkeyResult = await createOrRestorePasskeyWebAuthnKey({
@@ -423,6 +434,10 @@ export async function onboardPasskeySmartAccount(options?: {
     },
   });
 
+  if (options?.expectedAddress && kernelAccount.address.toLowerCase() !== options.expectedAddress.toLowerCase()) {
+    throw new Error("This passkey belongs to a different account. Sign in with the original passkey to recover your funds.");
+  }
+
   // Serialize permission account (note: for custom WebCrypto P-256 signMessageCallback we also store JWK)
   let serializedPermissionAccount = "";
   try {
@@ -451,23 +466,20 @@ export async function onboardPasskeySmartAccount(options?: {
     pubY: passkeyResult.pubY,
   };
 
-  if (typeof window !== "undefined") {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  if (!writeStored(SESSION_STORAGE_KEY, JSON.stringify(session))) {
+    throw new Error("Allow site storage before creating a signing session. Your existing account data was not replaced.");
   }
 
   return session;
 }
 
 export function loadSavedSmartAccountSession(): PactSmartAccountSession | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+  const raw = readStored(SESSION_STORAGE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as PactSmartAccountSession;
-    if (parsed.expiresAt * 1000 < Date.now()) {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      return null;
-    }
+    if (!isPaymentAddress(parsed.smartAccountAddress) || !/^0x[0-9a-f]{64}$/i.test(parsed.sessionPrivateKey) || !Number.isFinite(parsed.expiresAt)) return null;
+    // Keep expired account identity so a returning user can renew, not lose access.
     return parsed;
   } catch {
     return null;
@@ -475,15 +487,14 @@ export function loadSavedSmartAccountSession(): PactSmartAccountSession | null {
 }
 
 export function clearSmartAccountSession(): void {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
-  }
+  removeStored(SESSION_STORAGE_KEY);
 }
 
 /**
  * Reconstructs the ZeroDev KernelAccountClient for gasless UserOperations on Avalanche Fuji (FR-03).
  */
 export async function getSessionKernelClient(session: PactSmartAccountSession) {
+  if (session.expiresAt <= Math.floor(Date.now() / 1000)) throw new Error("Your signing session expired. Sign in again with the original passkey.");
   let kernelAccount;
 
   if (session.serializedPermissionAccount) {
@@ -493,7 +504,7 @@ export async function getSessionKernelClient(session: PactSmartAccountSession) {
       kernelVersion,
       session.serializedPermissionAccount
     );
-  } else if (session.webCryptoJwk && session.pubX && session.pubY && session.authenticatorId) {
+  } else if (session.pubX && session.pubY && session.authenticatorId) {
     const authenticatorIdHash =
       session.authenticatorIdHash || keccak256(toHex(session.authenticatorId));
     const webAuthnKey = {
@@ -502,8 +513,9 @@ export async function getSessionKernelClient(session: PactSmartAccountSession) {
       authenticatorId: session.authenticatorId,
       authenticatorIdHash,
       rpID: session.rpID || "localhost",
-      signMessageCallback: async (msg: unknown) =>
-        signWithWebCryptoP256Passkey(session.webCryptoJwk!, msg),
+      signMessageCallback: session.webCryptoJwk
+        ? async (msg: unknown) => signWithWebCryptoP256Passkey(session.webCryptoJwk!, msg)
+        : undefined,
     };
 
     const passkeyValidator = await toPasskeyValidator(fujiPublicClient, {
@@ -603,6 +615,7 @@ export async function claimGaslessFaucet(session: PactSmartAccountSession): Prom
     hash: userOpHash,
   });
 
+  if (!receipt.success || receipt.receipt.status !== "success") throw new Error("The operation reverted. Please check the transaction receipt and retry.");
   return {
     userOpHash,
     txHash: receipt.receipt.transactionHash,
@@ -623,15 +636,18 @@ export async function executeGaslessPaymentIntent(params: {
   priority: number;
   hashLock: Hex;
   deadline: number;
+  onSubmissionStarted?: () => void;
+  onSubmitted?: (hash: Hex) => void;
 }): Promise<{
   userOpHash: Hex;
   txHash: Hex;
+  intentId: Hex;
 }> {
-  if (params.amountAtomic > DAILY_SPEND_LIMIT_ATOMIC) {
-    throw new Error(
-      `Session Key Policy Violation: Payment exceeds $50.00/24h scoped limit (FR-02).`
-    );
-  }
+  if (!isPaymentAddress(params.receiver) || !isSupportedChain(params.targetChainId) || (params.priority !== 0 && params.priority !== 1)) throw new Error("Invalid payment recipient, network, or route.");
+  if (params.amountAtomic < 1_000_000n || params.amountAtomic > DAILY_SPEND_LIMIT_ATOMIC) throw new Error("Gas-sponsored payments must be between 1 and 50 USDC.");
+  const fee = params.priority === 1 ? 5000n : params.amountAtomic >= 15_000_000n ? 50_000n : params.amountAtomic * 30n / 10_000n;
+  if (params.totalPayableAtomic !== params.amountAtomic + fee) throw new Error("The quoted total does not match the escrow fee. Refresh your quote.");
+  if (params.deadline <= Date.now() / 1000 + 15) throw new Error("Quote expired. Refresh it before paying.");
 
   const { kernelAccount, kernelClient } = await getSessionKernelClient(params.session);
 
@@ -665,18 +681,15 @@ export async function executeGaslessPaymentIntent(params: {
     },
   ]);
 
-  const userOpHash = await kernelClient.sendUserOperation({
-    callData,
-  });
-
-  const receipt = await kernelClient.waitForUserOperationReceipt({
-    hash: userOpHash,
-  });
-
-  return {
-    userOpHash,
-    txHash: receipt.receipt.transactionHash,
-  };
+  params.onSubmissionStarted?.();
+  const userOpHash = await kernelClient.sendUserOperation({ callData });
+  params.onSubmitted?.(userOpHash);
+  const receipt = await kernelClient.waitForUserOperationReceipt({ hash: userOpHash });
+  if (!receipt.success || receipt.receipt.status !== "success") { const error = new Error("The payment operation reverted on-chain. No payment was completed."); error.name = "PaymentRevertedError"; throw error; }
+  const events = parseEventLogs({ abi: PACT_ESCROW_ABI, eventName: "PaymentIntentCreated", logs: receipt.receipt.logs });
+  const created = events.find((event) => event.address.toLowerCase() === PACT_CONFIG.fuji.pactEscrow.toLowerCase() && event.args.hashLock?.toLowerCase() === params.hashLock.toLowerCase());
+  if (!created?.args.intentId) throw new Error("The escrow event is not available yet. Payment tracking will continue.");
+  return { userOpHash, txHash: receipt.receipt.transactionHash, intentId: created.args.intentId };
 }
 
 /**
@@ -711,6 +724,7 @@ export async function executeGaslessRefund(params: {
     hash: userOpHash,
   });
 
+  if (!receipt.success || receipt.receipt.status !== "success") throw new Error("The operation reverted. Please check the transaction receipt and retry.");
   return {
     userOpHash,
     txHash: receipt.receipt.transactionHash,

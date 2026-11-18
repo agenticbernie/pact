@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Pact Protocol — MoMo for Stablecoins",
-  description: "Sub-2-second cross-chain QR stablecoin payments powered by Avalanche Intent Routing",
+  description: "Testnet USDC QR payments with cross-chain routing and trackable escrow settlement",
   manifest: "/manifest.json",
   icons: {
     icon: "/icon.svg",
@@ -14,8 +14,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   themeColor: "#E84142",
 };
 

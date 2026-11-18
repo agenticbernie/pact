@@ -8,9 +8,9 @@
  *   GET      /api/v1/orders/:orderId
  */
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { PasskeyService } from "../services/passkeys.js";
 import { URL } from "node:url";
-import { formatEther } from "viem";
+import { formatEther, isAddress } from "viem";
 import { MOCK_USDC_ABI } from "../abi/contracts.js";
 import {
   CONTRACTS,
@@ -31,6 +31,13 @@ import {
   parseUsdcAmount,
 } from "../types/pact.js";
 
+// Escrow preimages must never leave the solver before an on-chain claim.
+function publicIntent<T extends { secret?: unknown; error_message?: unknown }>(intent: T): Omit<T, "secret" | "error_message"> {
+  // RPC diagnostic messages can include claim arguments, including the preimage.
+  const { secret: _secret, error_message: _diagnostics, ...record } = intent;
+  return record;
+}
+
 function sendJson(
   res: http.ServerResponse,
   statusCode: number,
@@ -41,7 +48,6 @@ function sendJson(
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": originHeader || "*",
-    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Cache-Control": "no-store",
@@ -49,27 +55,36 @@ function sendJson(
   res.end(body);
 }
 
+class HttpError extends Error {
+  constructor(public statusCode: number, message: string) { super(message); }
+}
+
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let size = 0;
+    let rejected = false;
+    req.on("data", (chunk: Buffer) => {
+      if (rejected) return;
+      size += chunk.length;
+      if (size > 65_536) { rejected = true; reject(new HttpError(413, "Request body exceeds 64 KiB.")); return; }
+      chunks.push(chunk);
+    });
     req.on("end", () => {
-      if (chunks.length === 0) {
-        resolve({});
-        return;
-      }
+      if (rejected) return;
       try {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        resolve(JSON.parse(raw) as Record<string, unknown>);
-      } catch (err) {
-        reject(err);
-      }
+        const value = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+        if (!value || typeof value !== "object") throw new Error("Expected a JSON object.");
+        resolve(value);
+      } catch { reject(new HttpError(400, "Request body must contain valid JSON.")); }
     });
     req.on("error", reject);
+    req.on("aborted", () => reject(new HttpError(400, "Request was aborted.")));
   });
 }
 
 export function createRelayerHttpServer(store: RelayerStore): http.Server {
+  const passkeys = new PasskeyService(store);
   return http.createServer(async (req, res) => {
     const startHr = performance.now();
     const originHeader = req.headers.origin;
@@ -77,18 +92,17 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": originHeader || "*",
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
       });
       res.end();
       return;
     }
 
-    const reqUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    const pathname = reqUrl.pathname;
-
+    let pathname = "/";
     try {
+      const reqUrl = new URL(req.url || "/", "http://localhost");
+      pathname = reqUrl.pathname;
       // -----------------------------------------------------------------
       // 0A. POST /api/v1/bundler & /api/v1/paymaster (ERC-4337 JSON-RPC)
       // -----------------------------------------------------------------
@@ -105,95 +119,16 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
       // -----------------------------------------------------------------
       // 0B. ZeroDev Passkey Server Endpoints (/api/v1/passkeys/...)
       // -----------------------------------------------------------------
-      if (pathname === "/api/v1/passkeys/register/options" && req.method === "POST") {
+      const passkeyRoute = /^\/api\/v1\/passkeys\/(register|login)\/(options|verify)$/.exec(pathname);
+      if (passkeyRoute && req.method === "POST") {
+        const flow = passkeyRoute[1] as "register" | "login";
         const body = await readJsonBody(req);
-        const username = String(body.username || "Pact User");
-        const rpID = String(body.rpID || "localhost");
-        const userId = randomBytes(16).toString("base64url");
-        const challenge = randomBytes(32).toString("base64url");
-
-        sendJson(
-          res,
-          200,
-          {
-            userId,
-            options: {
-              challenge,
-              rp: { name: "Pact Protocol", id: rpID },
-              user: { id: userId, name: username, displayName: username },
-              pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-              timeout: 60000,
-              attestation: "none",
-              authenticatorSelection: {
-                residentKey: "preferred",
-                requireResidentKey: false,
-                userVerification: "preferred",
-              },
-            },
-          },
-          originHeader
-        );
-        return;
-      }
-
-      if (pathname === "/api/v1/passkeys/register/verify" && req.method === "POST") {
-        const body = await readJsonBody(req);
-        const cred = body.cred as { id?: string; response?: { publicKey?: string } } | undefined;
-        const authenticatorId = String(cred?.id || "");
-        const pubkey = String(cred?.response?.publicKey || "");
-        const userId = String(body.userId || "");
-        const username = String(body.username || "Pact User");
-        const rpId = String(body.rpID || "localhost");
-
-        if (authenticatorId && pubkey) {
-          store.savePasskey({
-            authenticatorId,
-            userId,
-            username,
-            rpId,
-            pubkey,
-          });
+        try {
+          const result = passkeyRoute[2] === "options" ? passkeys.options(flow, body, originHeader) : passkeys.verify(flow, body, originHeader);
+          sendJson(res, 200, result, originHeader);
+        } catch (error) {
+          sendJson(res, 400, { verified: false, verification: { verified: false }, error: (error as Error).message }, originHeader);
         }
-        sendJson(res, 200, { verified: true }, originHeader);
-        return;
-      }
-
-      if (pathname === "/api/v1/passkeys/login/options" && req.method === "POST") {
-        const body = await readJsonBody(req);
-        const rpID = String(body.rpID || "localhost");
-        const challenge = randomBytes(32).toString("base64url");
-        sendJson(
-          res,
-          200,
-          {
-            challenge,
-            rpId: rpID,
-            timeout: 60000,
-            userVerification: "preferred",
-          },
-          originHeader
-        );
-        return;
-      }
-
-      if (pathname === "/api/v1/passkeys/login/verify" && req.method === "POST") {
-        const body = await readJsonBody(req);
-        const cred = body.cred as { id?: string } | undefined;
-        const authenticatorId = String(cred?.id || "");
-        const saved = store.getPasskeyByAuthenticatorId(authenticatorId);
-        if (!saved) {
-          sendJson(res, 404, { verification: { verified: false }, error: "Passkey not found" }, originHeader);
-          return;
-        }
-        sendJson(
-          res,
-          200,
-          {
-            verification: { verified: true },
-            pubkey: saved.pubkey,
-          },
-          originHeader
-        );
         return;
       }
       // -----------------------------------------------------------------
@@ -213,6 +148,9 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
         const orderId = (body.orderId ??
           reqUrl.searchParams.get("orderId") ??
           null) as string | null;
+
+        if (merchant !== null && (typeof merchant !== "string" || !isAddress(merchant, { strict: false }) || /^0x0{40}$/i.test(merchant))) throw new HttpError(400, "Invalid merchant wallet address.");
+        if (orderId !== null && (typeof orderId !== "string" || !orderId.trim() || orderId.length > 200 || /[\x00-\x1f]/.test(orderId))) throw new HttpError(400, "Invalid order ID.");
 
         if (targetChainId !== 421614 && targetChainId !== 84532 && targetChainId !== 43113) {
           sendJson(res, 400, {
@@ -269,6 +207,8 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           ? null
           : `Insufficient instant liquidity on ${dest.chainName} (Hot wallet balance: $${formatUsdcAmount(destUsdcBalance)} USDC < requested: $${formatUsdcAmount(amountAtomic)} USDC)`;
 
+        const economyAvailable = lightningAvailable && dest.batchDispatcherAddress !== "0x0000000000000000000000000000000000000000";
+        const economyUnavailableReason = !lightningAvailable ? "Destination liquidity is unavailable. Try again later." : !economyAvailable ? "Economy batching is not configured on this network." : null;
         const tokenOut = dest.mockUsdcAddress;
 
         const quoteLatencyMs = Number((performance.now() - startHr).toFixed(2));
@@ -298,22 +238,23 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
               unavailableReason: lightningUnavailableReason,
               estimatedSeconds: "1.0 - 3.0",
               fee: formatUsdcAmount(lightningFeeAtomic),
-              feeDisplayUsd: Number(formatUsdcAmount(lightningFeeAtomic)).toFixed(2),
+              feeDisplayUsd: formatUsdcAmount(lightningFeeAtomic),
               feeAtomic: lightningFeeAtomic.toString(),
               totalPayable: formatUsdcAmount(lightningTotalAtomic),
-              totalPayableDisplayUsd: Number(formatUsdcAmount(lightningTotalAtomic)).toFixed(2),
+              totalPayableDisplayUsd: formatUsdcAmount(lightningTotalAtomic),
               totalPayableAtomic: lightningTotalAtomic.toString(),
             },
             economy: {
               priority: Priority.COST,
               name: "Economy Route",
-              available: true,
+              available: economyAvailable,
+              unavailableReason: economyUnavailableReason,
               estimatedSeconds: "15 - 45",
               fee: formatUsdcAmount(economyFeeAtomic),
               feeDisplayUsd: "0.005",
               feeAtomic: economyFeeAtomic.toString(),
               totalPayable: formatUsdcAmount(economyTotalAtomic),
-              totalPayableDisplayUsd: Number(formatUsdcAmount(economyTotalAtomic)).toFixed(3),
+              totalPayableDisplayUsd: formatUsdcAmount(economyTotalAtomic),
               totalPayableAtomic: economyTotalAtomic.toString(),
             },
           },
@@ -401,7 +342,8 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
       // -----------------------------------------------------------------
       if (pathname === "/api/v1/intents" && req.method === "GET") {
         const limit = Number(reqUrl.searchParams.get("limit") ?? 25);
-        sendJson(res, 200, { intents: store.listRecentIntents(limit) });
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new HttpError(400, "limit must be an integer from 1 to 100.");
+        sendJson(res, 200, { intents: store.listRecentIntents(limit).map(publicIntent) }, originHeader);
         return;
       }
 
@@ -412,7 +354,7 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           sendJson(res, 404, { error: `Intent ${intentId} not found` });
           return;
         }
-        sendJson(res, 200, { intent });
+        sendJson(res, 200, { intent: publicIntent(intent) }, originHeader);
         return;
       }
 
@@ -421,7 +363,15 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
       // -----------------------------------------------------------------
       if (pathname.startsWith("/api/v1/orders/") && req.method === "GET") {
         const orderId = decodeURIComponent(pathname.replace("/api/v1/orders/", "").trim());
-        const intent = store.getIntentByOrderId(orderId);
+        const hashLock = reqUrl.searchParams.get("hashLock");
+        const merchant = reqUrl.searchParams.get("merchant");
+        const prefix = reqUrl.searchParams.get("prefix") === "1";
+        const after = reqUrl.searchParams.has("after") ? Number(reqUrl.searchParams.get("after")) : undefined;
+        if (hashLock && !/^0x[a-f0-9]{64}$/i.test(hashLock)) throw new HttpError(400, "Invalid payment hash lock.");
+        if (merchant && !isAddress(merchant, { strict: false })) throw new HttpError(400, "Invalid merchant address.");
+        if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) throw new HttpError(400, "Invalid start timestamp.");
+        if (prefix && (!orderId.startsWith("STATIC-") || !merchant || after === undefined)) throw new HttpError(400, "Reusable QR lookup requires a merchant and a start timestamp.");
+        const intent = store.getIntentByOrderId(orderId, { hashLock, merchant, prefix, after });
         if (!intent) {
           sendJson(res, 404, { orderId, status: "PENDING", intent: null });
           return;
@@ -430,7 +380,7 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           orderId,
           status: intent.state,
           isSettled: intent.state === "SETTLED" || intent.state === "CLAIMED",
-          intent,
+          intent: publicIntent(intent),
         });
         return;
       }
@@ -448,6 +398,10 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
         const fromTs = fromParam ? Number(fromParam) : undefined;
         const toTs = toParam ? Number(toParam) : undefined;
 
+        if (!isAddress(merchantAddr, { strict: false }) || /^0x0{40}$/i.test(merchantAddr)) throw new HttpError(400, "Invalid merchant address.");
+        if (format !== "json" && format !== "csv") throw new HttpError(400, "format must be json or csv.");
+        if ([fromTs, toTs].some((value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) throw new HttpError(400, "Invalid settlement date range.");
+        if (fromTs !== undefined && toTs !== undefined && fromTs > toTs) throw new HttpError(400, "Start date must be before end date.");
         const summary = store.getMerchantSettlements(merchantAddr, fromTs, toTs);
 
         if (format === "csv") {
@@ -466,7 +420,7 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
           for (const row of summary.rows) {
             const csvRow = [
               row.intent_id,
-              row.order_id ? `"${row.order_id.replace(/"/g, '""')}"` : "",
+              row.order_id ? `"${row.order_id.replace(/^[=+@\-\t\r]/, "'$&").replace(/"/g, '""')}"` : "",
               row.sender,
               row.target_chain_id,
               row.amount_in,
@@ -482,21 +436,20 @@ export function createRelayerHttpServer(store: RelayerStore): http.Server {
             "Content-Type": "text/csv; charset=utf-8",
             "Content-Disposition": 'attachment; filename="pact-settlements.csv"',
             "Access-Control-Allow-Origin": originHeader || "*",
-            "Access-Control-Allow-Credentials": "true",
-            "Cache-Control": "no-store",
+                    "Cache-Control": "no-store",
           });
           res.end(csvBody);
           return;
         }
 
-        sendJson(res, 200, summary, originHeader);
+        sendJson(res, 200, { ...summary, rows: summary.rows.map(publicIntent) }, originHeader);
         return;
       }
 
       sendJson(res, 404, { error: `Route not found: ${req.method} ${pathname}` });
     } catch (err) {
       console.error(`[API] Error handling ${req.method} ${pathname}:`, err);
-      sendJson(res, 500, { error: (err as Error).message || "Internal server error" });
+      sendJson(res, err instanceof HttpError ? err.statusCode : err instanceof URIError ? 400 : 500, { error: err instanceof HttpError ? err.message : err instanceof URIError ? "Malformed URL encoding." : "Internal server error." }, originHeader);
     }
   });
 }

@@ -118,6 +118,13 @@ export class RelayerStore {
       CREATE INDEX IF NOT EXISTS idx_intents_hash_lock ON intents(hash_lock);
       CREATE INDEX IF NOT EXISTS idx_intents_receiver ON intents(receiver);
 
+      CREATE TABLE IF NOT EXISTS destination_outbox (
+        tx_hash TEXT PRIMARY KEY,
+        chain_id INTEGER NOT NULL,
+        raw_tx TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS sync_state (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -323,11 +330,15 @@ export class RelayerStore {
     return row ?? null;
   }
 
-  public getIntentByOrderId(orderId: string): StoredIntentRecord | null {
-    const row = this.db
-      .prepare(`SELECT * FROM intents WHERE order_id = ? ORDER BY created_at DESC LIMIT 1`)
-      .get(orderId) as StoredIntentRecord | undefined;
-    return row ?? null;
+  public getIntentByOrderId(orderId: string, options: { hashLock?: string | null; merchant?: string | null; prefix?: boolean; after?: number } = {}): StoredIntentRecord | null {
+    let sql = options.prefix ? `SELECT * FROM intents WHERE substr(order_id, 1, ?) = ? AND state IN ('SETTLED', 'CLAIMED')` : `SELECT * FROM intents WHERE order_id = ?`;
+    const prefix = `${orderId}-`;
+    const params: unknown[] = options.prefix ? [prefix.length, prefix] : [orderId];
+    if (options.hashLock) { sql += ` AND hash_lock = ?`; params.push(options.hashLock.toLowerCase()); }
+    if (options.merchant) { sql += ` AND LOWER(receiver) = LOWER(?)`; params.push(options.merchant); }
+    if (options.after !== undefined) { sql += ` AND created_at >= ?`; params.push(options.after); }
+    sql += ` ORDER BY created_at DESC LIMIT 1`;
+    return this.db.prepare(sql).get(...params) as StoredIntentRecord | undefined ?? null;
   }
 
   public getMerchantSettlements(
@@ -390,7 +401,7 @@ export class RelayerStore {
     return this.db
       .prepare(
         `SELECT * FROM intents
-         WHERE state IN ('CREATED', 'DISPATCHED', 'SETTLED')
+         WHERE state IN ('CREATED', 'DISPATCHED', 'SETTLED', 'EXPIRED')
          ORDER BY created_at ASC`
       )
       .all() as StoredIntentRecord[];
@@ -423,6 +434,7 @@ export class RelayerStore {
       DISPATCHED: 0,
       SETTLED: 0,
       CLAIMED: 0,
+      EXPIRED: 0,
       REFUNDED: 0,
     };
     for (const r of rows) {
@@ -431,6 +443,22 @@ export class RelayerStore {
       }
     }
     return counts;
+  }
+
+  public saveDestinationTransaction(txHash: string, chainId: number, rawTransaction: string): void {
+    this.db.prepare(`INSERT OR IGNORE INTO destination_outbox (tx_hash, chain_id, raw_tx, created_at) VALUES (?, ?, ?, ?)`).run(txHash.toLowerCase(), chainId, rawTransaction, Date.now());
+  }
+
+  public getDestinationTransaction(txHash: string): { chain_id: number; raw_tx: string } | null {
+    return this.db.prepare(`SELECT chain_id, raw_tx FROM destination_outbox WHERE tx_hash = ?`).get(txHash.toLowerCase()) as { chain_id: number; raw_tx: string } | undefined ?? null;
+  }
+
+  public deleteDestinationTransaction(txHash: string): void {
+    this.db.prepare(`DELETE FROM destination_outbox WHERE tx_hash = ?`).run(txHash.toLowerCase());
+  }
+
+  public getUnresolvedDestinationTransactions(): Array<{ tx_hash: string; chain_id: number; raw_tx: string }> {
+    return this.db.prepare(`SELECT tx_hash, chain_id, raw_tx FROM destination_outbox ORDER BY created_at`).all() as Array<{ tx_hash: string; chain_id: number; raw_tx: string }>;
   }
 
   public getLastIndexedBlock(): bigint | null {
@@ -455,7 +483,7 @@ export class RelayerStore {
   }): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO passkeys (
+        `INSERT INTO passkeys (
           authenticator_id, user_id, username, rp_id, pubkey, created_at
         ) VALUES (?, ?, ?, ?, ?, ?)`
       )

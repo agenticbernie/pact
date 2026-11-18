@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Activity,
   ShieldCheck,
@@ -34,6 +34,7 @@ interface HealthData {
     DISPATCHED: number;
     SETTLED: number;
     CLAIMED: number;
+    EXPIRED: number;
     REFUNDED: number;
   };
   chains: {
@@ -75,7 +76,7 @@ interface StoredIntent {
   priority: number;
   hash_lock: string;
   deadline: number;
-  state: "CREATED" | "DISPATCHED" | "SETTLED" | "CLAIMED" | "REFUNDED";
+  state: "CREATED" | "DISPATCHED" | "SETTLED" | "CLAIMED" | "EXPIRED" | "REFUNDED";
   source_tx_hash: string | null;
   source_block_number: number | null;
   dest_tx_hash: string | null;
@@ -85,48 +86,52 @@ interface StoredIntent {
   updated_at: number;
 }
 
-export function TelemetryDashboard() {
+export function TelemetryDashboard({ active = true }: { active?: boolean }) {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [intents, setIntents] = useState<StoredIntent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [livePingMs, setLivePingMs] = useState<number | null>(null);
   const [selectedIntent, setSelectedIntent] = useState<StoredIntent | null>(null);
   const [isSecurityExpanded, setIsSecurityExpanded] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<number>(Date.now());
+  const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
 
   const fetchTelemetry = useCallback(async () => {
+    if (controllerRef.current) return;
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     setIsLoading(true);
     const start = performance.now();
     try {
       const [healthRes, intentsRes] = await Promise.all([
-        fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/health`),
-        fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/intents?limit=15`),
+        fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/health`, { signal: controller.signal }),
+        fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/intents?limit=15`, { signal: controller.signal }),
       ]);
-
-      const ping = Math.round(performance.now() - start);
-      setLivePingMs(ping);
-
-      if (healthRes.ok) {
-        const data = await healthRes.json();
-        setHealth(data);
-      }
-      if (intentsRes.ok) {
-        const data = await intentsRes.json();
-        setIntents(data.intents || []);
-      }
+      if (!healthRes.ok || !intentsRes.ok) throw new Error("Relayer or network health is unavailable. Previously loaded data may be stale.");
+      const [healthData, intentData] = await Promise.all([healthRes.json(), intentsRes.json()]);
+      if (!healthData.chains || !Array.isArray(intentData.intents)) throw new Error("The relayer returned invalid telemetry.");
+      if (controller.signal.aborted) return;
+      setHealth(healthData);
+      setIntents(intentData.intents);
+      setLivePingMs(Math.round(performance.now() - start));
       setLastRefreshed(Date.now());
+      setError(null);
     } catch (err) {
-      console.error("[Telemetry] Failed to fetch data:", err);
+      if (controllerRef.current === controller) { setError((err as Error).name === "AbortError" ? "Telemetry timed out. Retrying automatically." : (err as Error).message); setLivePingMs(null); }
     } finally {
-      setIsLoading(false);
+      clearTimeout(timeout);
+      if (controllerRef.current === controller) { controllerRef.current = null; setIsLoading(false); }
     }
   }, []);
 
   useEffect(() => {
-    fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 3000);
-    return () => clearInterval(interval);
-  }, [fetchTelemetry]);
+    if (!active) return;
+    void fetchTelemetry();
+    const interval = setInterval(() => void fetchTelemetry(), 5000);
+    return () => { clearInterval(interval); const controller = controllerRef.current; controllerRef.current = null; controller?.abort(); };
+  }, [active, fetchTelemetry]);
 
   return (
     <div className="w-full max-w-4xl mx-auto min-h-screen p-4 sm:p-6 pb-24 space-y-6 pt-16">
@@ -134,12 +139,12 @@ export function TelemetryDashboard() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-surface-card border border-surface-border rounded-3xl p-5 shadow-xl">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-success animate-pulse" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-success">
-              Live Mesh Active • Relayer v2.0.0
+            <span className={`w-2.5 h-2.5 rounded-full ${error ? "bg-red-400" : health ? "bg-success" : "bg-text-muted"}`} />
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${error ? "text-red-300" : "text-text-muted"}`}>
+              {error ? "Connection unavailable" : health ? `Relayer ${health.status} · v${health.version}` : "Connecting to relayer…"}
             </span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-text-main tracking-tight flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-black text-text-main tracking-tight flex flex-wrap items-center gap-2">
             <span>Pact Protocol Telemetry</span>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/40 font-mono">
               Avalanche Fuji Anchor
@@ -159,7 +164,7 @@ export function TelemetryDashboard() {
           )}
           <button
             type="button"
-            onClick={fetchTelemetry}
+            onClick={() => void fetchTelemetry()}
             disabled={isLoading}
             className="p-2 rounded-xl bg-surface-base border border-surface-border text-text-muted hover:text-text-main transition-colors disabled:opacity-50"
             title="Refresh Telemetry"
@@ -169,10 +174,13 @@ export function TelemetryDashboard() {
         </div>
       </div>
 
-      {/* SLA & Performance Benchmarks Card (NFR-01) */}
+      {error && <p role="alert" className="p-3 rounded-xl border border-red-500/30 text-sm text-red-300">{error}</p>}
+      <p className="text-xs text-text-muted">{lastRefreshed ? `Last successful update: ${new Date(lastRefreshed).toLocaleTimeString()}` : "No live data received yet."} Testnet data only.</p>
+
+      {/* Performance targets are not live measurements. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 rounded-2xl bg-surface-card border border-surface-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-text-muted text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-text-muted text-xs">
             <span>Quote SLA</span>
             <Zap className="w-3.5 h-3.5 text-primary" />
           </div>
@@ -180,12 +188,12 @@ export function TelemetryDashboard() {
             &lt; 300ms
           </div>
           <div className="text-[10px] text-success font-semibold mt-1">
-            ✓ NFR-01 Verified (Avg ~14ms)
+            Performance target, not measured here
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-surface-card border border-surface-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-text-muted text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-text-muted text-xs">
             <span>⚡ Lightning Route</span>
             <Zap className="w-3.5 h-3.5 text-primary fill-primary" />
           </div>
@@ -193,12 +201,12 @@ export function TelemetryDashboard() {
             &lt; 3.0s
           </div>
           <div className="text-[10px] text-success font-semibold mt-1">
-            ✓ Sub-2.2s Instant Fill
+            Estimated destination fill time
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-surface-card border border-surface-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-text-muted text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-text-muted text-xs">
             <span>🐢 Economy Route</span>
             <Clock className="w-3.5 h-3.5 text-success" />
           </div>
@@ -206,17 +214,17 @@ export function TelemetryDashboard() {
             &lt; 45s
           </div>
           <div className="text-[10px] text-success font-semibold mt-1">
-            ✓ Multi-Intent Batching
+            Estimated batching window
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-surface-card border border-surface-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-text-muted text-xs">
-            <span>HTLC Guarantee</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-text-muted text-xs">
+            <span>Escrow refund</span>
             <ShieldCheck className="w-3.5 h-3.5 text-success" />
           </div>
           <div className="mt-2 text-2xl font-black text-text-main tracking-tight font-mono">
-            100% Refund
+            Unclaimed only
           </div>
           <div className="text-[10px] text-text-muted mt-1">
             15-min deterministic timeout
@@ -226,20 +234,20 @@ export function TelemetryDashboard() {
 
       {/* Multi-Chain Liquidity & Node Health Grid */}
       <div className="space-y-2.5">
-        <div className="flex items-center justify-between px-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
           <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
             <Server className="w-3.5 h-3.5" />
             <span>Multi-Chain Solver Nodes & Liquidity</span>
           </h2>
           <span className="text-[10px] text-text-muted">
-            Auto-syncing every 3s
+            Auto-syncing every 5s
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* Node 1: Avalanche Fuji */}
           <div className="p-4 rounded-2xl bg-surface-card border border-surface-border space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-primary" />
                 <span className="text-sm font-bold text-text-main">Avalanche Fuji</span>
@@ -263,7 +271,7 @@ export function TelemetryDashboard() {
                 </span>
               </div>
               <div className="flex justify-between text-text-muted">
-                <span>Escrow USDC Pool:</span>
+                <span>Solver wallet USDC:</span>
                 <span className="text-success font-bold">
                   ${Number(health?.chains.avalancheFuji.usdcBalance || 0).toLocaleString()} USDC
                 </span>
@@ -288,7 +296,7 @@ export function TelemetryDashboard() {
 
           {/* Node 2: Arbitrum Sepolia */}
           <div className="p-4 rounded-2xl bg-surface-card border border-surface-border space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-blue-500" />
                 <span className="text-sm font-bold text-text-main">Arbitrum Sepolia</span>
@@ -337,7 +345,7 @@ export function TelemetryDashboard() {
 
           {/* Node 3: Base Sepolia */}
           <div className="p-4 rounded-2xl bg-surface-card border border-surface-border space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-indigo-500" />
                 <span className="text-sm font-bold text-text-main">Base Sepolia</span>
@@ -391,12 +399,12 @@ export function TelemetryDashboard() {
         <button
           type="button"
           onClick={() => setIsSecurityExpanded(!isSecurityExpanded)}
-          className="w-full flex items-center justify-between text-left"
+          className="w-full flex flex-wrap items-center justify-between gap-2 text-left"
         >
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-primary" />
             <span className="text-sm font-bold text-text-main">
-              Security Architecture: EIP-7702 Post-Mortem Defense & Isolation
+              Security architecture & trust assumptions
             </span>
           </div>
           {isSecurityExpanded ? (
@@ -411,12 +419,11 @@ export function TelemetryDashboard() {
             <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-300 space-y-1">
               <div className="font-bold flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                <span>The Attack Vector (October 2026 Binance Exploit)</span>
+                <span>Testnet trust model</span>
               </div>
               <p>
-                In late October 2026, malicious actors exploited EIP-7702 authorization batching to execute
-                50 pre-signed delegations in a single transaction, overwriting standard accounts into sweeper
-                contracts and draining over $6.3B.
+                The solver controls destination liquidity and the escrow preimage. This escrow does not
+                verify destination-chain settlement. Do not use this demo for real-value payments.
               </p>
             </div>
 
@@ -426,16 +433,16 @@ export function TelemetryDashboard() {
                 <span>Pact Protocol Countermeasure: Isolated ERC-4337 Kernel v3.1</span>
               </div>
               <p className="text-text-muted">
-                Pact rejects EIP-7702 EOA delegation. Pact strictly mandates **ERC-4337 Modular Smart Contract
-                Accounts (Kernel v3.1)** on canonical EntryPoint v0.7. Code logic is immutable post-deployment,
-                and Scoped Session Keys hold ephemeral signing keys restricted exclusively to:
+                Pact uses ERC-4337 Kernel smart accounts with EntryPoint v0.7. Session keys can call the
+                testnet faucet, approve the configured escrow, create payment intents, and request refunds.
+                The on-chain call policy limits each payment to 50 USDC; the signing session expires after 24 hours.
               </p>
               <div className="font-mono text-[11px] bg-surface-base p-2 rounded-lg text-text-main my-1">
-                Target == address(PactEscrow) &amp;&amp; Value &lt;= $50.00 / 24h
+                Payment ≤ 50 USDC · Session validity: 24h · Not a cumulative daily spending cap
               </div>
               <p className="text-text-muted">
-                Any arbitrary sweeping or unauthorized contract call is cryptographically rejected at the smart account
-                kernel level by on-chain CallPolicy V0_0_4.
+                Session credentials are stored in this browser. Keep the device secure. Unclaimed escrow can
+                be refunded by the original sender after the deadline; an active signing session is required.
               </p>
             </div>
           </div>
@@ -444,7 +451,7 @@ export function TelemetryDashboard() {
 
       {/* Live Intent Settlement Stream & Audit Trail */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
           <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5" />
             <span>Live Intent Settlement Stream ({intents.length} Recent)</span>
@@ -460,6 +467,12 @@ export function TelemetryDashboard() {
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-surface-card border border-surface-border text-text-muted">
                   {health.intentStateCounts.CREATED || 0} Pending
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300">
+                  {health.intentStateCounts.EXPIRED || 0} Expired · refund pending
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-surface-card border border-surface-border text-text-muted">
+                  {health.intentStateCounts.REFUNDED || 0} Refunded
                 </span>
               </>
             )}
@@ -486,7 +499,7 @@ export function TelemetryDashboard() {
                   key={item.intent_id}
                   className="p-4 rounded-2xl bg-surface-card border border-surface-border hover:border-surface-border/80 transition-all space-y-3"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span
                         className={`text-xs px-2 py-0.5 rounded font-bold flex items-center gap-1 ${
@@ -527,7 +540,7 @@ export function TelemetryDashboard() {
                             ? "bg-success/20 text-success"
                             : item.state === "SETTLED"
                             ? "bg-blue-500/20 text-blue-400"
-                            : item.state === "DISPATCHED"
+                            : item.state === "DISPATCHED" || item.state === "EXPIRED"
                             ? "bg-amber-500/20 text-amber-400"
                             : "bg-surface-base text-text-muted"
                         }`}
@@ -538,7 +551,7 @@ export function TelemetryDashboard() {
                   </div>
 
                   {/* Cross-Chain Path */}
-                  <div className="flex items-center justify-between text-xs font-mono bg-surface-base/60 p-2.5 rounded-xl border border-surface-border/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono bg-surface-base/60 p-2.5 rounded-xl border border-surface-border/40">
                     <div className="flex items-center gap-1.5 text-text-muted">
                       <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                       <span>Fuji Escrow</span>

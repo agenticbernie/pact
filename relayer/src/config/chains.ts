@@ -16,9 +16,11 @@ import dotenv from "dotenv";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "../../..");
 
-dotenv.config({ path: path.join(rootDir, ".env") });
-dotenv.config({ path: path.join(rootDir, "contracts/.env") });
-dotenv.config();
+if (process.env.PACT_LOAD_ENV !== "0") {
+  dotenv.config({ path: path.join(rootDir, ".env") });
+  dotenv.config({ path: path.join(rootDir, "contracts/.env") });
+  dotenv.config();
+}
 
 interface DeploymentsJson {
   networks: {

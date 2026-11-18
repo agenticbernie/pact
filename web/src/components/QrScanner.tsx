@@ -1,176 +1,143 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
-import { Flashlight, FlashlightOff, Camera, AlertCircle } from "lucide-react";
+import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
+import { Flashlight, FlashlightOff, AlertCircle, Loader2 } from "lucide-react";
 import { parsePactQrPayload, type PactPaymentRequest } from "@/lib/pact-schema";
 
 interface QrScannerProps {
-  onScanSuccess: (data: PactPaymentRequest, rawText: string) => void;
+  onScanSuccess: (data: PactPaymentRequest, rawText: string) => boolean | void | Promise<boolean | void>;
   onError?: (error: string) => void;
   active?: boolean;
 }
 
 export function QrScanner({ onScanSuccess, onError, active = true }: QrScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const callbacks = useRef({ onScanSuccess, onError });
+  callbacks.current = { onScanSuccess, onError };
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const isScanningRef = useRef(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   const toggleTorch = useCallback(async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
+    const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
     try {
-      const nextState = !torchOn;
-      await (track as any).applyConstraints({
-        advanced: [{ torch: nextState }],
-      });
-      setTorchOn(nextState);
-    } catch (e) {
-      console.warn("Failed to toggle flashlight", e);
+      const next = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorchOn(next);
+    } catch {
+      callbacks.current.onError?.("The flashlight could not be enabled on this camera.");
     }
   }, [torchOn]);
 
   useEffect(() => {
-    if (!active) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      return;
-    }
-
-    let isMounted = true;
-    isScanningRef.current = false;
+    if (!active) return;
+    let disposed = false;
+    let detecting = false;
+    let stream: MediaStream | null = null;
+    let controls: IScannerControls | undefined;
+    let lastInvalid = "";
+    let lastInvalidAt = 0;
     const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
+    setIsStarting(true);
+    setCameraError(null);
+    setTorchAvailable(false);
+    setTorchOn(false);
 
-    async function startScanner() {
+    async function start() {
       try {
-        setCameraError(null);
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Camera access requires HTTPS and a supported browser. You can still enter a wallet address manually.");
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
         });
-
-        if (!isMounted) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
+        if (disposed) { stream.getTracks().forEach((track) => track.stop()); return; }
         streamRef.current = stream;
-        setHasPermission(true);
-
         const track = stream.getVideoTracks()[0];
-        if (track) {
-          const capabilities = (track as any).getCapabilities?.() || {};
-          if (capabilities.torch) {
-            setTorchAvailable(true);
-          }
-        }
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute("playsinline", "true");
-          await videoRef.current.play();
-
-          reader.decodeFromVideoElement(videoRef.current, (result, error) => {
-            if (!isMounted || !result || isScanningRef.current) return;
-            const text = result.getText();
-            try {
-              const payload = parsePactQrPayload(text);
-              isScanningRef.current = true; // DỪNG SCAN NGAY KHI ĐÃ ĐỌC TRÚNG
-              if (typeof navigator !== "undefined" && navigator.vibrate) {
-                navigator.vibrate(50); // Rung nhẹ báo hiệu đã đọc được
-              }
-              onScanSuccess(payload, text);
-            } catch (err) {
-              // Bỏ qua frame chưa đọc trúng mã
+        const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { torch?: boolean }) | undefined;
+        setTorchAvailable(Boolean(capabilities?.torch));
+        if (!videoRef.current) return;
+        controls = await reader.decodeFromStream(stream, videoRef.current, async (result) => {
+          if (disposed || detecting || !result) return;
+          const raw = result.getText();
+          let payload: PactPaymentRequest;
+          try { payload = parsePactQrPayload(raw); }
+          catch (error) {
+            if (raw !== lastInvalid || Date.now() - lastInvalidAt > 5000) {
+              lastInvalid = raw;
+              lastInvalidAt = Date.now();
+              callbacks.current.onError?.((error as Error).message);
             }
-          });
-        }
-      } catch (err: any) {
-        if (!isMounted) return;
-        console.error("Camera access error:", err);
-        setHasPermission(false);
-        const msg = err.name === "NotAllowedError"
-          ? "Camera permission denied. Please allow camera access."
-          : "Unable to access camera device.";
-        setCameraError(msg);
-        onError?.(msg);
+            return;
+          }
+          detecting = true;
+          try {
+            const accepted = await callbacks.current.onScanSuccess(payload, raw);
+            if (accepted === false) detecting = false;
+            else navigator.vibrate?.(50);
+          } catch (error) {
+            detecting = false;
+            callbacks.current.onError?.((error as Error).message || "Could not open this payment request.");
+          }
+        });
+        if (disposed) controls.stop();
+      } catch (error) {
+        if (disposed) return;
+        const err = error as Error;
+        const message = err.name === "NotAllowedError"
+          ? "Camera permission was denied. Allow access in your browser settings, then retry, or enter a wallet address below."
+          : err.name === "NotFoundError" ? "No camera was found. Enter a recipient wallet address below."
+          : err.message || "Unable to start the camera. You can enter a wallet address below.";
+        setCameraError(message);
+        stream?.getTracks().forEach((track) => track.stop());
+      } finally {
+        if (!disposed) setIsStarting(false);
       }
     }
-
-    startScanner();
-
+    void start();
     return () => {
-      isMounted = false;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
+      disposed = true;
+      controls?.stop();
+      stream?.getTracks().forEach((track) => track.stop());
+      if (streamRef.current === stream) streamRef.current = null;
     };
-  }, [active, onScanSuccess, onError]);
+  }, [active, retry]);
 
   return (
-    <div className="relative w-full h-full bg-black overflow-hidden flex flex-col items-center justify-center">
-      {/* Video Viewport */}
-      <video
-        ref={videoRef}
-        className="absolute inset-0 w-full h-full object-cover"
-        muted
-        playsInline
-      />
-
-      {/* Dark overlay with viewport cutout reticle */}
-      <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-        {/* Reticle Scanner Area */}
-        <div className="relative w-64 h-64 sm:w-72 sm:h-72 border-2 border-transparent">
-          {/* Pulsing Corner Indicators (Avalanche Flame Red) */}
-          <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg animate-pulse" />
-          <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg animate-pulse" />
-          <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg animate-pulse" />
-          <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg animate-pulse" />
-
-          {/* Center scan line animation */}
-          <div className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent animate-bounce opacity-75 top-1/2" />
-        </div>
-        <p className="text-xs text-white/80 font-medium mt-4 tracking-wide bg-black/40 px-3 py-1 rounded-full backdrop-blur-md">
-          Align merchant Pact QR inside the frame
-        </p>
-      </div>
-
-      {/* Torch Toggle Button */}
-      {torchAvailable && (
-        <button
-          onClick={toggleTorch}
-          type="button"
-          aria-label="Toggle Flashlight"
-          className="absolute top-4 right-4 z-20 p-3 rounded-full bg-surface-card/80 backdrop-blur-md border border-surface-border text-text-main hover:bg-surface-card active:scale-95 transition-all shadow-lg"
-        >
-          {torchOn ? (
-            <Flashlight className="w-5 h-5 text-primary fill-primary" />
-          ) : (
-            <FlashlightOff className="w-5 h-5 text-text-muted" />
+    <div className="relative w-full h-full min-h-[360px] bg-black overflow-hidden flex flex-col items-center justify-center">
+      <video ref={videoRef} aria-label="Payment QR camera preview" className="absolute inset-0 w-full h-full object-cover" muted playsInline />
+      {active && !cameraError && (
+        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center pt-24 pb-16">
+          {isStarting ? <Loader2 className="w-10 h-10 text-white animate-spin" aria-label="Starting camera" /> : (
+            <>
+              <div className="relative w-56 h-56 sm:w-64 sm:h-64 border-2 border-transparent">
+                <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
+                <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
+                <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg" />
+              </div>
+              <p className="text-xs text-white/90 font-medium mt-4 bg-black/60 px-3 py-2 rounded-full">Scan a Pact QR or recipient wallet address</p>
+            </>
           )}
+        </div>
+      )}
+      {active && torchAvailable && !cameraError && (
+        <button onClick={toggleTorch} type="button" aria-label={torchOn ? "Turn flashlight off" : "Turn flashlight on"} aria-pressed={torchOn}
+          className="absolute bottom-24 right-4 z-20 p-3 rounded-full bg-surface-card/90 border border-surface-border text-text-main">
+          {torchOn ? <Flashlight className="w-5 h-5 text-primary" /> : <FlashlightOff className="w-5 h-5" />}
         </button>
       )}
-
-      {/* Camera permission / error fallback */}
-      {cameraError && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-surface-base/95 text-center">
-          <AlertCircle className="w-12 h-12 text-primary mb-3" />
-          <h3 className="text-lg font-bold text-text-main mb-1">Camera Inactive</h3>
+      {active && cameraError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 pt-28 pb-24 bg-surface-base/95 text-center" role="status">
+          <AlertCircle className="w-10 h-10 text-primary mb-3" />
+          <h2 className="text-lg font-bold mb-2">Camera unavailable</h2>
           <p className="text-sm text-text-muted max-w-xs mb-4">{cameraError}</p>
+          <button type="button" onClick={() => setRetry((value) => value + 1)} className="px-4 py-2 rounded-xl border border-surface-border text-sm">Retry camera</button>
         </div>
       )}
     </div>

@@ -36,7 +36,8 @@ contract PactEscrowTest is Test {
     event PaymentRefunded(bytes32 indexed intentId, address indexed sender);
 
     function setUp() public {
-        escrow = new PactEscrow();
+        vm.prank(relayer);
+        escrow = new PactEscrow(relayer);
         usdc = new MockUSDC();
         vm.startPrank(payer);
         usdc.faucet();
@@ -48,6 +49,17 @@ contract PactEscrowTest is Test {
     function _create(uint256 amount, IPactEscrow.Priority p, bytes32 lock) internal returns (bytes32) {
         vm.prank(payer);
         return escrow.createIntent(address(usdc), amount, ARB, merchant, address(0xA11CE), p, lock, block.timestamp + 900);
+    }
+
+    // ---- Solver authorization ----
+
+    function test_SolverIsExplicitlyConfigured() public view {
+        assertEq(escrow.solver(), relayer);
+    }
+
+    function test_ConstructorRejectsZeroSolver() public {
+        vm.expectRevert(PactEscrow.ZeroAddress.selector);
+        new PactEscrow(address(0));
     }
 
     // ---- MockUSDC ----
@@ -192,6 +204,23 @@ contract PactEscrowTest is Test {
         assertEq(usdc.balanceOf(address(escrow)), 0);
         assertTrue(escrow.getIntent(id).isFulfilled);
         assertFalse(escrow.isRefunded(id));
+    }
+
+    function test_Claim_rejectsCopiedMempoolSecret() public {
+        bytes32 id = _create(3_500_000, IPactEscrow.Priority.SPEED, hashLock);
+        vm.prank(stranger);
+        vm.expectRevert(PactEscrow.NotSolver.selector);
+        escrow.claimEscrow(id, SECRET);
+        assertFalse(escrow.getIntent(id).isFulfilled);
+        assertEq(usdc.balanceOf(stranger), 0);
+        vm.prank(relayer);
+        escrow.claimEscrow(id, SECRET);
+        assertEq(usdc.balanceOf(relayer), 3_510_500);
+    }
+
+    function test_CreateIntent_rejectsZeroHashLock() public {
+        vm.expectRevert(PactEscrow.InvalidHashLock.selector);
+        _create(1e6, IPactEscrow.Priority.SPEED, bytes32(0));
     }
 
     function test_Claim_revertsWrongSecret() public {

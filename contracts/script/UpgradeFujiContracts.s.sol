@@ -10,8 +10,9 @@ contract UpgradeFujiContracts is Script {
     function run() external returns (PactEscrow escrow, PactBatchDispatcher dispatcher) {
         require(block.chainid == 43113, "UpgradeFujiContracts: wrong chain (expected 43113)");
         uint256 pk = vm.envUint("PRIVATE_KEY");
+        address solverAddress = vm.envOr("RELAYER_ADDRESS", vm.addr(pk));
         vm.startBroadcast(pk);
-        escrow = new PactEscrow();
+        escrow = new PactEscrow(solverAddress);
         dispatcher = new PactBatchDispatcher();
         vm.stopBroadcast();
         console2.log("Upgraded PactEscrow (Fuji)        :", address(escrow));

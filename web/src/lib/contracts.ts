@@ -1,5 +1,20 @@
 export const PACT_ESCROW_ABI = [
   {
+    type: "event", name: "PaymentIntentCreated",
+    inputs: [
+      { name: "intentId", type: "bytes32", indexed: true },
+      { name: "sender", type: "address", indexed: true },
+      { name: "targetChainId", type: "uint256", indexed: true },
+      { name: "receiver", type: "address", indexed: false },
+      { name: "tokenIn", type: "address", indexed: false },
+      { name: "amountIn", type: "uint256", indexed: false },
+      { name: "feePaid", type: "uint256", indexed: false },
+      { name: "priority", type: "uint8", indexed: false },
+      { name: "hashLock", type: "bytes32", indexed: false },
+      { name: "deadline", type: "uint256", indexed: false },
+    ],
+  },
+  {
     type: "function",
     name: "calculateFee",
     stateMutability: "pure",

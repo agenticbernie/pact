@@ -1,664 +1,194 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import {
-  CheckCircle2,
-  RefreshCw,
-  Copy,
-  Check,
-  ArrowRight,
-  Layers,
-  ExternalLink,
-  Zap,
-  Clock,
-  Tag,
-  Download,
-  Calendar,
-  DollarSign,
-  FileSpreadsheet,
-  Store,
-} from "lucide-react";
+import { CheckCircle2, RefreshCw, ArrowRight, ExternalLink, Download, Store, Loader2 } from "lucide-react";
 import { PACT_CONFIG, getChainName, getExplorerTxUrl } from "@/lib/config";
 import { playTingTingSound, triggerHapticFeedback } from "@/lib/feedback";
-import { type SupportedTargetChainId } from "@/lib/pact-schema";
+import { createOrderId, isPaymentAddress, paymentAmountError, type SupportedTargetChainId } from "@/lib/pact-schema";
+import { readStored, writeStored } from "@/lib/storage";
 
-const QR_TTL_SECONDS = 300; // dynamic QR validity window
-const MERCHANT_STORAGE_KEY = "pact_merchant_address_v1";
-const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+const TTL = 300;
+const STORAGE_KEY = "pact_merchant_address_v1";
+interface Settlement {
+  intent_id: string;
+  order_id: string | null;
+  sender: string;
+  receiver: string;
+  target_chain_id: number;
+  amount_in: string;
+  priority: number;
+  dest_tx_hash: string | null;
+  source_tx_hash: string | null;
+  created_at: number;
+}
+interface SettlementSummary {
+  rows: Settlement[];
+  totalVolumeAtomic: string;
+  count: number;
+  breakdown: Record<number, { count: number; volumeAtomic: string }>;
+}
+const localDate = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
+const usd = (atomic: string) => (Number(atomic) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 
-export function MerchantTerminal() {
-  const [activeTab, setActiveTab] = useState<"terminal" | "eod">("terminal");
-  const [qrMode, setQrMode] = useState<"dynamic" | "static">("dynamic");
-  const [amount, setAmount] = useState<string>("3.50");
-  const [orderNote, setOrderNote] = useState<string>("");
-  const [targetChainId, setTargetChainId] = useState<SupportedTargetChainId>(421614); // Arbitrum Sepolia default
-
-  const [merchantAddress, setMerchantAddress] = useState<string>(
-    process.env.NEXT_PUBLIC_MERCHANT_ADDRESS || "0x1111111111111111111111111111111111111111"
-  );
-  const [merchantDraft, setMerchantDraft] = useState<string>("");
-  const [showSettings, setShowSettings] = useState(false);
-  const [qrIssuedAt, setQrIssuedAt] = useState<number>(() => Math.floor(Date.now() / 1000));
-  const [qrSecondsLeft, setQrSecondsLeft] = useState<number>(QR_TTL_SECONDS);
-  const [baseOrderId, setBaseOrderId] = useState<string>(() => `ORD-${Date.now().toString().slice(-6)}`);
-  const [settledIntent, setSettledIntent] = useState<any | null>(null);
-
-  // Settlements data for End-of-Day Close (Chốt sổ)
-  const [settlements, setSettlements] = useState<any | null>(null);
-  const [isLoadingSettlements, setIsLoadingSettlements] = useState(false);
-  const [settlementError, setSettlementError] = useState<string | null>(null);
-
-  // Compute full orderId with optional note/tag appended
-  const currentOrderId = useMemo(() => {
-    const trimmed = orderNote.trim().replace(/\s+/g, "-");
-    return trimmed ? `${baseOrderId}_${trimmed}` : baseOrderId;
-  }, [baseOrderId, orderNote]);
-
-  // Keypad press handler
-  const handleKeypadPress = (val: string) => {
-    if (settledIntent) {
-      setSettledIntent(null);
-      setBaseOrderId(`ORD-${Date.now().toString().slice(-6)}`);
-    }
-
-    if (val === "C") {
-      setAmount("0");
-    } else if (val === "⌫") {
-      setAmount((prev) => (prev.length > 1 ? prev.slice(0, -1) : "0"));
-    } else if (val === ".") {
-      if (!amount.includes(".")) {
-        setAmount((prev) => prev + ".");
-      }
-    } else {
-      setAmount((prev) => {
-        if (prev === "0") return val;
-        // Limit to 2 decimals for POS UI
-        if (prev.includes(".") && prev.split(".")[1].length >= 2) return prev;
-        if (prev.length >= 7) return prev;
-        return prev + val;
-      });
-    }
-  };
-
-  // Generate standardized Pact QR JSON Payload (§3.2.3)
-  // For Static Standee QR: amount is "0" or omitted, with no expiry timestamp
-  const qrPayload = useMemo(() => {
-    if (qrMode === "static") {
-      return JSON.stringify({
-        protocol: "pact",
-        version: "1.0",
-        orderId: currentOrderId,
-        merchant: merchantAddress,
-        targetChainId,
-        targetToken: "USDC",
-        amount: "0",
-      });
-    }
-    return JSON.stringify({
-      protocol: "pact",
-      version: "1.0",
-      orderId: currentOrderId,
-      merchant: merchantAddress,
-      targetChainId,
-      targetToken: "USDC",
-      amount: Number(amount) > 0 ? Number(amount).toFixed(2) : "1.00",
-      timestamp: qrIssuedAt,
-    });
-  }, [qrMode, currentOrderId, merchantAddress, targetChainId, amount, qrIssuedAt]);
-
-  // Auto-refresh dynamic QR (fresh orderId + timestamp) once it expires (dynamic only)
-  useEffect(() => {
-    if (settledIntent || qrMode === "static") return;
-    const tick = setInterval(() => {
-      const remaining = qrIssuedAt + QR_TTL_SECONDS - Math.floor(Date.now() / 1000);
-      if (remaining <= 0) {
-        setBaseOrderId(`ORD-${Date.now().toString().slice(-6)}`);
-        setQrIssuedAt(Math.floor(Date.now() / 1000));
-        setQrSecondsLeft(QR_TTL_SECONDS);
-      } else {
-        setQrSecondsLeft(remaining);
-      }
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [qrIssuedAt, settledIntent, qrMode]);
-
-  // Poll for settlement status of currentOrderId via Relayer API
-  useEffect(() => {
-    if (!currentOrderId || settledIntent) return;
-
-    let isMounted = true;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/orders/${encodeURIComponent(currentOrderId)}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.isSettled && isMounted) {
-          setSettledIntent(data.intent);
-          playTingTingSound();
-          triggerHapticFeedback();
-        }
-      } catch {
-        // Relayer unreachable or polling error
-      }
-    }, 800);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [currentOrderId, settledIntent]);
+export function MerchantTerminal({ active = true }: { active?: boolean }) {
+  const [tab, setTab] = useState<"terminal" | "settlements">("terminal");
+  const [mode, setMode] = useState<"dynamic" | "static">("dynamic");
+  const [amount, setAmount] = useState("0");
+  const [note, setNote] = useState("");
+  const [chainId, setChainId] = useState<SupportedTargetChainId>(421614);
+  const [merchant, setMerchant] = useState("");
+  const [draft, setDraft] = useState("");
+  const [settings, setSettings] = useState(false);
+  const [issuedAt, setIssuedAt] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState(TTL);
+  const [baseId, setBaseId] = useState("");
+  const [ready, setReady] = useState(false);
+  const [settled, setSettled] = useState<Settlement | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<SettlementSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [date, setDate] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const observedSince = useRef(Date.now());
+  const validWallet = isPaymentAddress(merchant);
+  const amountError = paymentAmountError(amount);
+  const orderId = mode === "static" ? `STATIC-${chainId}-${merchant.toLowerCase()}` : `${baseId}${note.trim() ? `_${note.trim().replace(/\s+/g, "-")}` : ""}`;
+  const validInvoice = ready && validWallet && (mode === "static" || !amountError);
 
   const refreshQr = () => {
-    setBaseOrderId(`ORD-${Date.now().toString().slice(-6)}`);
-    setQrIssuedAt(Math.floor(Date.now() / 1000));
-    setQrSecondsLeft(QR_TTL_SECONDS);
+    setBaseId(createOrderId()); setIssuedAt(Math.floor(Date.now() / 1000)); setSecondsLeft(TTL); setSettled(null); setPollError(null);
   };
+  const editInvoice = () => { refreshQr(); observedSince.current = Date.now(); };
 
-  const handleNewOrder = () => {
-    setSettledIntent(null);
-    refreshQr();
-    setAmount("3.50");
-  };
-
-  // Restore merchant's saved settlement wallet
   useEffect(() => {
-    const saved = localStorage.getItem(MERCHANT_STORAGE_KEY);
-    if (saved && ADDRESS_REGEX.test(saved)) setMerchantAddress(saved);
+    const saved = readStored(STORAGE_KEY);
+    const address = saved || process.env.NEXT_PUBLIC_MERCHANT_ADDRESS || "";
+    if (isPaymentAddress(address)) { setMerchant(address); setDraft(address); }
+    else setSettings(true);
+    setBaseId(createOrderId()); setIssuedAt(Math.floor(Date.now() / 1000)); setDate(localDate()); setReady(true);
   }, []);
 
-  const handleSaveMerchant = () => {
-    if (!ADDRESS_REGEX.test(merchantDraft.trim())) return;
-    const next = merchantDraft.trim();
-    localStorage.setItem(MERCHANT_STORAGE_KEY, next);
-    setMerchantAddress(next);
-    setShowSettings(false);
-    refreshQr();
-  };
-
-  // Fetch settlements report for End-of-Day Close
-  const fetchSettlements = useCallback(async () => {
-    setIsLoadingSettlements(true);
-    setSettlementError(null);
-    try {
-      const res = await fetch(
-        `${PACT_CONFIG.relayerApiUrl}/api/v1/merchants/${merchantAddress}/settlements`
-      );
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const data = await res.json();
-      setSettlements(data);
-    } catch (err: any) {
-      console.error("Failed to load settlements:", err);
-      setSettlementError(err.message || "Failed to load settlements");
-    } finally {
-      setIsLoadingSettlements(false);
-    }
-  }, [merchantAddress]);
+  const qrPayload = useMemo(() => JSON.stringify({ protocol: "pact", version: "1.0", orderId, merchant, targetChainId: chainId, targetToken: "USDC", amount: mode === "static" ? "0" : amount, ...(mode === "dynamic" ? { timestamp: issuedAt } : {}) }), [orderId, merchant, chainId, mode, amount, issuedAt]);
 
   useEffect(() => {
-    if (activeTab === "eod") {
-      fetchSettlements();
-    }
-  }, [activeTab, fetchSettlements]);
+    if (!validInvoice || mode === "static" || settled) return;
+    const timer = setInterval(() => {
+      const remaining = issuedAt + TTL - Math.floor(Date.now() / 1000);
+      if (remaining <= 0) { setBaseId(createOrderId()); setIssuedAt(Math.floor(Date.now() / 1000)); setSecondsLeft(TTL); }
+      else setSecondsLeft(remaining);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [issuedAt, mode, settled, validInvoice]);
 
-  const handleExportCsv = () => {
-    const url = `${PACT_CONFIG.relayerApiUrl}/api/v1/merchants/${merchantAddress}/settlements?format=csv`;
-    window.open(url, "_blank");
+  useEffect(() => {
+    if (!active || !validInvoice || settled) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let controller: AbortController;
+    const poll = async () => {
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const query = new URLSearchParams({ merchant });
+        if (mode === "static") { query.set("prefix", "1"); query.set("after", String(observedSince.current)); }
+        const response = await fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/orders/${encodeURIComponent(orderId)}?${query}`, { signal: controller.signal });
+        if (disposed) return;
+        if (response.status === 404) { setPollError(null); return; }
+        if (!response.ok) throw new Error("Payment status is unavailable. Retrying automatically.");
+        const data = await response.json();
+        if (disposed) return;
+        setPollError(null);
+        if (data.isSettled && data.intent) {
+          const intent = data.intent as Settlement;
+          if (intent.receiver.toLowerCase() !== merchant.toLowerCase() || intent.target_chain_id !== chainId || (mode === "dynamic" && Number(intent.amount_in) !== Math.round(Number(amount) * 1e6))) {
+            setPollError("A payment does not match this invoice's recipient, network, or amount. Check the settlement report before accepting it."); return;
+          }
+          setSettled(intent); playTingTingSound(); triggerHapticFeedback();
+        }
+      } catch (err) { if (!disposed) setPollError((err as Error).message || "Relayer offline. Retrying automatically."); }
+      finally { clearTimeout(timeout); if (!disposed) timer = setTimeout(poll, 1500); }
+    };
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); controller?.abort(); };
+  }, [active, validInvoice, settled, orderId, merchant, chainId, amount, mode]);
+
+  const reportQuery = useMemo(() => {
+    if (!date) return "";
+    const from = new Date(`${date}T00:00:00`);
+    const to = new Date(from); to.setDate(to.getDate() + 1);
+    return new URLSearchParams({ from: String(from.getTime()), to: String(to.getTime() - 1) }).toString();
+  }, [date]);
+
+  useEffect(() => {
+    if (!active || tab !== "settlements" || !validWallet || !reportQuery) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let disposed = false;
+    setLoading(true); setReportError(null); setSummary(null);
+    void fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/merchants/${merchant}/settlements?${reportQuery}`, { signal: controller.signal })
+      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || "Unable to load settlements."); if (!Array.isArray(data.rows)) throw new Error("Invalid settlement response."); if (!disposed) setSummary(data); })
+      .catch(() => { if (!disposed) setReportError("Could not load the settlement report. Check the connection and retry."); })
+      .finally(() => { clearTimeout(timeout); if (!disposed) setLoading(false); });
+    return () => { disposed = true; clearTimeout(timeout); controller.abort(); };
+  }, [active, tab, merchant, validWallet, reportQuery, revision]);
+
+  const exportCsv = async () => {
+    setExporting(true); setReportError(null);
+    try {
+      const response = await fetch(`${PACT_CONFIG.relayerApiUrl}/api/v1/merchants/${merchant}/settlements?${reportQuery}&format=csv`, { signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) throw new Error("CSV export failed.");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a"); link.href = url; link.download = `pact-settlements-${date}.csv`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { setReportError("Could not export the CSV. Please retry."); }
+    finally { setExporting(false); }
+  };
+
+  const keypad = (key: string) => {
+    setAmount((previous) => {
+      if (key === "C") return "0";
+      if (key === "backspace") return previous.length > 1 ? previous.slice(0, -1) : "0";
+      if (key === ".") return previous.includes(".") ? previous : `${previous}.`;
+      if (previous.includes(".") && previous.split(".")[1].length >= 2) return previous;
+      return previous === "0" ? key : previous.length < 8 ? previous + key : previous;
+    });
+    editInvoice();
   };
 
   return (
-    <div className="w-full max-w-md mx-auto min-h-screen flex flex-col justify-between p-4 sm:p-6 bg-surface-base">
-      {/* Top Header & Tab Navigation */}
-      <div>
-        <div className="flex items-center justify-between border-b border-surface-border pb-3">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-primary">
-              Merchant Point of Sale
-            </span>
-            <h1 className="text-lg font-bold text-text-main flex items-center gap-1.5">
-              The Coffee Shop
-              <button
-                type="button"
-                onClick={() => {
-                  setMerchantDraft(merchantAddress);
-                  setShowSettings((v) => !v);
-                }}
-                className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-surface-border text-text-muted hover:text-text-main"
-              >
-                Payout wallet
-              </button>
-            </h1>
-          </div>
-
-          {/* Tab Selector: POS Terminal vs End-of-Day Close */}
-          <div className="flex items-center gap-1 bg-surface-card p-1 rounded-xl border border-surface-border text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveTab("terminal")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                activeTab === "terminal"
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-main"
-              }`}
-            >
-              POS
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("eod")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all flex items-center gap-1 ${
-                activeTab === "eod"
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-main"
-              }`}
-            >
-              <FileSpreadsheet className="w-3 h-3" />
-              <span>Chốt sổ</span>
-            </button>
-          </div>
+    <div className="w-full max-w-md mx-auto min-h-[calc(100dvh-5rem)] flex flex-col p-4 sm:p-6 bg-surface-base gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-border pb-3">
+        <div><p className="text-[10px] font-bold uppercase tracking-widest text-primary">Testnet merchant terminal</p><h1 className="text-lg font-bold">Pact point of sale</h1><button type="button" onClick={() => { setDraft(merchant); setSettings((value) => !value); }} aria-expanded={settings} className="text-xs text-text-muted underline py-2">Set payout wallet</button></div>
+        <nav aria-label="Merchant views" className="flex gap-1 bg-surface-card p-1 rounded-xl border border-surface-border">{(["terminal", "settlements"] as const).map((name) => <button type="button" key={name} aria-pressed={tab === name} onClick={() => setTab(name)} className={`px-3 py-2 rounded-lg text-xs font-bold ${tab === name ? "bg-primary text-white" : "text-text-muted"}`}>{name === "terminal" ? "POS" : "Daily close"}</button>)}</nav>
+      </header>
+      {settings && <form onSubmit={(event) => { event.preventDefault(); const address = draft.trim(); if (!isPaymentAddress(address)) { setSettingsError("Enter a valid, nonzero EVM wallet address."); return; } const saved = writeStored(STORAGE_KEY, address); setMerchant(address); setSettings(false); setSettingsError(saved ? null : "Wallet updated for this visit only; browser storage is unavailable."); editInvoice(); setSummary(null); }} className="p-3 rounded-2xl bg-surface-card border border-surface-border space-y-2"><label htmlFor="payout-wallet" className="text-xs text-text-muted">Payout wallet — receives test USDC</label><input id="payout-wallet" required value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="0x…" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="w-full p-3 rounded-xl bg-surface-base border border-surface-border text-xs font-mono" /><button type="submit" disabled={!isPaymentAddress(draft.trim())} className="w-full py-2 bg-primary rounded-xl text-xs font-bold disabled:opacity-40">Save payout wallet</button></form>}
+      {settingsError && <p role="status" className="text-xs text-amber-300">{settingsError}</p>}
+      {validWallet && <p className="text-[10px] text-text-muted break-all font-mono">Payout: {merchant}</p>}
+      {tab === "settlements" ? <div className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><label htmlFor="settlement-date" className="block text-xs text-text-muted mb-1">Daily settlement report (local time)</label><input id="settlement-date" type="date" value={date} onChange={(event) => setDate(event.target.value)} className="p-2 rounded-xl bg-surface-card border border-surface-border text-sm" /></div><div className="flex gap-2"><button type="button" disabled={loading || !validWallet} onClick={() => setRevision((value) => value + 1)} aria-label="Refresh settlement report" className="p-3 border border-surface-border rounded-xl"><RefreshCw className="w-4 h-4" /></button><button type="button" disabled={exporting || !validWallet || !reportQuery} onClick={() => void exportCsv()} className="flex items-center gap-1 px-3 py-2 bg-success/20 text-success rounded-xl text-xs font-bold disabled:opacity-40">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}CSV</button></div></div>
+        {!validWallet && <p className="text-sm text-amber-300">Set your payout wallet to view settlements.</p>}
+        {loading && <p role="status" className="text-sm text-text-muted">Loading settlements…</p>}
+        {reportError && <p role="alert" className="p-3 border border-red-500/30 rounded-xl text-sm text-red-300">{reportError}</p>}
+        {summary && <><div className="grid grid-cols-2 gap-3"><div className="p-4 bg-surface-card border border-surface-border rounded-2xl"><p className="text-xs text-text-muted">Received USDC</p><p className="text-2xl font-bold text-success break-words">${usd(summary.totalVolumeAtomic)}</p></div><div className="p-4 bg-surface-card border border-surface-border rounded-2xl"><p className="text-xs text-text-muted">Completed payments</p><p className="text-2xl font-bold">{summary.count}</p></div></div>
+          <div className="grid grid-cols-3 gap-2">{[421614, 84532, 43113].map((id) => <div key={id} className="p-2 rounded-xl border border-surface-border text-center"><p className="text-[10px] text-text-muted">{getChainName(id)}</p><p className="text-xs font-bold break-words">${usd(summary.breakdown[id]?.volumeAtomic || "0")}</p><p className="text-[10px] text-text-muted">{summary.breakdown[id]?.count || 0} payments</p></div>)}</div>
+          <h2 className="font-bold text-sm">Settled payments</h2>{summary.rows.length === 0 ? <p className="text-sm text-text-muted py-6 text-center">No settled payments on this date.</p> : <ul className="space-y-2">{summary.rows.map((row) => <li key={row.intent_id} className="p-3 bg-surface-card border border-surface-border rounded-xl flex justify-between gap-3 text-xs"><div className="min-w-0"><p className="font-mono break-all">{row.order_id || row.intent_id}</p><p className="text-text-muted mt-1">{getChainName(row.target_chain_id)} · {new Date(row.created_at).toLocaleTimeString()}</p></div><div className="shrink-0 text-right"><p className="font-bold text-success">+{usd(row.amount_in)}</p>{row.dest_tx_hash && <a href={getExplorerTxUrl(row.target_chain_id, row.dest_tx_hash)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary mt-1">Receipt<ExternalLink className="w-3 h-3" /></a>}</div></li>)}</ul>}
+        </>}
+      </div> : <>
+        <fieldset className="grid grid-cols-2 gap-2" disabled={Boolean(settled)}><legend className="sr-only">QR type</legend>{(["dynamic", "static"] as const).map((name) => <button key={name} type="button" aria-pressed={mode === name} onClick={() => { setMode(name); editInvoice(); }} className={`py-3 rounded-xl border text-xs font-bold ${mode === name ? "bg-primary border-primary text-white" : "border-surface-border text-text-muted"}`}>{name === "dynamic" ? "Invoice QR" : "Reusable QR"}</button>)}</fieldset>
+        <label htmlFor="merchant-chain" className="text-xs text-text-muted">Receive on</label><select id="merchant-chain" disabled={Boolean(settled)} value={chainId} onChange={(event) => { setChainId(Number(event.target.value) as SupportedTargetChainId); editInvoice(); }} className="w-full px-3 py-2 rounded-xl bg-surface-card border border-surface-border text-sm">{[421614, 84532, 43113].map((id) => <option key={id} value={id}>{getChainName(id)}</option>)}</select>
+        {mode === "dynamic" && !settled && <><label htmlFor="order-note" className="sr-only">Order note</label><input id="order-note" value={note} maxLength={48} onChange={(event) => { setNote(event.target.value); editInvoice(); }} placeholder="Order note (optional)" className="w-full px-3 py-2 rounded-xl bg-surface-card border border-surface-border text-xs" /></>}
+        {pollError && <p role="status" className="text-xs text-amber-300">{pollError}</p>}
+        <div className="flex-1 flex flex-col items-center justify-center py-2 gap-3">
+          {settled ? <div className="w-full bg-surface-card border-2 border-success rounded-3xl p-5 text-center space-y-4"><CheckCircle2 className="w-14 h-14 text-success mx-auto" /><h2 className="text-2xl font-bold">Received {usd(settled.amount_in)} USDC</h2><p className="text-sm text-text-muted">Confirmed on {getChainName(settled.target_chain_id)}</p><p className="text-xs font-mono break-all">{settled.order_id}</p>{settled.dest_tx_hash && <a href={getExplorerTxUrl(settled.target_chain_id, settled.dest_tx_hash)} target="_blank" rel="noreferrer" className="block text-sm text-primary underline">View settlement receipt</a>}<button type="button" onClick={() => { observedSince.current = Date.now(); refreshQr(); if (mode === "dynamic") { setAmount("0"); setNote(""); } }} className="w-full py-3 bg-primary rounded-xl font-bold text-sm flex items-center justify-center gap-2">Next customer<ArrowRight className="w-4 h-4" /></button></div> : <>
+            {validInvoice ? <div className="p-5 bg-white rounded-3xl text-center max-w-full"><QRCodeSVG value={qrPayload} size={210} level="M" marginSize={4} className="max-w-full h-auto" /><p className="text-[10px] text-slate-600 mt-2 break-all max-w-[230px]">{orderId}</p></div> : <div className="w-full p-6 bg-surface-card border border-surface-border rounded-3xl text-center"><Store className="w-10 h-10 text-primary mx-auto mb-3" /><p className="text-sm text-text-muted">{!validWallet ? "Set your own payout wallet before accepting payments." : "Enter an amount from 1 to 50 USDC to create an invoice."}</p></div>}
+            {mode === "static" ? <><p className="text-sm font-bold text-success">Reusable QR — no expiry</p><p className="text-xs text-text-muted text-center">Customers enter the amount. Each payment gets its own tracking ID.</p></> : <><label htmlFor="invoice-amount" className="text-xs text-text-muted">Invoice amount (USDC)</label><input id="invoice-amount" value={amount} inputMode="decimal" onChange={(event) => { if (/^\d{0,6}(?:\.\d{0,2})?$/.test(event.target.value)) { setAmount(event.target.value); editInvoice(); } }} aria-invalid={Boolean(amountError)} className="w-full text-center text-3xl font-bold p-2 bg-transparent rounded-xl border border-surface-border" />{amountError && <p className="text-xs text-amber-300 text-center">{amountError}</p>}{validInvoice && <p className="text-xs text-text-muted">QR refreshes in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}</p>}</>}
+          </>}
         </div>
-
-        {/* Payout wallet settings dropdown */}
-        {showSettings && (
-          <div className="mt-3 p-3 rounded-2xl bg-surface-card border border-surface-border space-y-2">
-            <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
-              Payout wallet (receives USDC on {getChainName(targetChainId)})
-            </label>
-            <input
-              value={merchantDraft}
-              onChange={(e) => setMerchantDraft(e.target.value)}
-              placeholder="0x…"
-              className="w-full px-3 py-2 rounded-xl bg-surface-base border border-surface-border text-xs font-mono text-text-main"
-            />
-            <button
-              type="button"
-              onClick={handleSaveMerchant}
-              disabled={!ADDRESS_REGEX.test(merchantDraft.trim())}
-              className="w-full py-2 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-white text-xs font-bold"
-            >
-              Save payout wallet
-            </button>
-          </div>
-        )}
-      </div>
-
-      {activeTab === "eod" ? (
-        /* ============================================================ */
-        /* TAB 2: End-of-Day Close (Chốt sổ) & CSV Export               */
-        /* ============================================================ */
-        <div className="flex-1 py-4 flex flex-col space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-text-main flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-primary" />
-                <span>Chốt sổ cuối ngày</span>
-              </h2>
-              <p className="text-xs text-text-muted">Tổng kết doanh thu và lệnh thanh toán</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 active:scale-95 transition-all"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
-            </button>
-          </div>
-
-          {isLoadingSettlements ? (
-            <div className="p-8 text-center text-xs text-text-muted animate-pulse">
-              Đang tải danh sách thanh toán...
-            </div>
-          ) : settlementError ? (
-            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
-              {settlementError}
-            </div>
-          ) : settlements ? (
-            <div className="space-y-3 flex-1 flex flex-col">
-              {/* Daily Aggregated KPI Summary */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-3.5 rounded-2xl bg-surface-card border border-surface-border">
-                  <span className="text-[10px] uppercase font-bold text-text-muted">Tổng Doanh Thu</span>
-                  <div className="text-2xl font-black text-emerald-400 mt-0.5">
-                    ${(Number(settlements.totalVolumeAtomic || 0) / 1e6).toFixed(2)}
-                  </div>
-                  <span className="text-[10px] text-text-muted">USDC đã thanh toán</span>
-                </div>
-                <div className="p-3.5 rounded-2xl bg-surface-card border border-surface-border">
-                  <span className="text-[10px] uppercase font-bold text-text-muted">Số Giao Dịch</span>
-                  <div className="text-2xl font-black text-text-main mt-0.5">
-                    {settlements.count || 0}
-                  </div>
-                  <span className="text-[10px] text-text-muted">đơn hoàn tất</span>
-                </div>
-              </div>
-
-              {/* Totals by Chain Breakdown */}
-              <div className="p-3 rounded-2xl bg-surface-card border border-surface-border space-y-2">
-                <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">
-                  Doanh Thu Theo Mạng (By Chain)
-                </span>
-                <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
-                  {[
-                    { chainId: 421614, name: "Arbitrum" },
-                    { chainId: 84532, name: "Base" },
-                    { chainId: 43113, name: "Fuji" },
-                  ].map((c) => {
-                    const data = settlements.breakdown?.[c.chainId];
-                    const vol = data ? (Number(data.volumeAtomic) / 1e6).toFixed(2) : "0.00";
-                    const cnt = data ? data.count : 0;
-                    return (
-                      <div key={c.chainId} className="p-2 rounded-xl bg-surface-base border border-surface-border/40">
-                        <div className="font-semibold text-text-muted text-[11px]">{c.name}</div>
-                        <div className="font-bold text-text-main">${vol}</div>
-                        <div className="text-[10px] text-text-muted font-mono">{cnt} tx</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Transactions List */}
-              <div className="flex-1 rounded-2xl bg-surface-card border border-surface-border p-3 overflow-hidden flex flex-col">
-                <span className="text-[11px] font-bold text-text-muted mb-2">Lịch Sử Lệnh Đã Khớp</span>
-                <div className="flex-1 overflow-y-auto space-y-2 max-h-[220px] pr-1">
-                  {settlements.rows?.length === 0 ? (
-                    <div className="text-xs text-text-muted text-center py-6">
-                      Chưa có giao dịch thanh toán nào hôm nay.
-                    </div>
-                  ) : (
-                    settlements.rows?.map((row: any) => (
-                      <div
-                        key={row.intent_id}
-                        className="p-2.5 rounded-xl bg-surface-base border border-surface-border/50 flex items-center justify-between text-xs"
-                      >
-                        <div className="space-y-0.5">
-                          <div className="font-bold text-text-main flex items-center gap-1.5 font-mono">
-                            <span>{row.order_id || row.intent_id.slice(0, 10)}</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-card border border-surface-border text-primary font-sans">
-                              {getChainName(row.target_chain_id)}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-text-muted font-mono">
-                            {new Date(row.created_at).toLocaleTimeString()} • {row.sender.slice(0, 6)}...{row.sender.slice(-4)}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-black text-emerald-400">
-                            +${(Number(row.amount_in) / 1e6).toFixed(2)}
-                          </div>
-                          {row.dest_tx_hash && (
-                            <a
-                              href={getExplorerTxUrl(row.target_chain_id, row.dest_tx_hash)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[10px] text-primary hover:underline flex items-center gap-0.5 justify-end"
-                            >
-                              <span>tx</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        /* ============================================================ */
-        /* TAB 1: POS Merchant Terminal & QR Display                    */
-        /* ============================================================ */
-        <>
-          {/* Mode Controls: Dynamic vs Static Standee QR + Destination Chain Selector */}
-          <div className="pt-3 space-y-2">
-            {/* Toggle: Dynamic QR vs Static Standee QR */}
-            <div className="grid grid-cols-2 gap-1.5 bg-surface-card p-1 rounded-2xl border border-surface-border text-xs">
-              <button
-                type="button"
-                onClick={() => setQrMode("dynamic")}
-                className={`py-1.5 rounded-xl font-bold transition-all ${
-                  qrMode === "dynamic"
-                    ? "bg-primary text-white shadow-sm"
-                    : "text-text-muted hover:text-text-main"
-                }`}
-              >
-                Dynamic QR (POS)
-              </button>
-              <button
-                type="button"
-                onClick={() => setQrMode("static")}
-                className={`py-1.5 rounded-xl font-bold transition-all ${
-                  qrMode === "static"
-                    ? "bg-primary text-white shadow-sm"
-                    : "text-text-muted hover:text-text-main"
-                }`}
-              >
-                Static Standee (Sticker)
-              </button>
-            </div>
-
-            {/* Destination Chain Selector */}
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-text-muted">Nhận tiền qua:</span>
-              <div className="flex items-center gap-1 bg-surface-card p-1 rounded-xl border border-surface-border text-xs">
-                <button
-                  type="button"
-                  onClick={() => setTargetChainId(421614)}
-                  className={`px-2 py-0.5 rounded-lg font-medium transition-all ${
-                    targetChainId === 421614
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "text-text-muted hover:text-text-main"
-                  }`}
-                >
-                  Arb
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetChainId(84532)}
-                  className={`px-2 py-0.5 rounded-lg font-medium transition-all ${
-                    targetChainId === 84532
-                      ? "bg-blue-500 text-white shadow-sm"
-                      : "text-text-muted hover:text-text-main"
-                  }`}
-                >
-                  Base
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetChainId(43113)}
-                  className={`px-2 py-0.5 rounded-lg font-medium transition-all ${
-                    targetChainId === 43113
-                      ? "bg-red-500 text-white shadow-sm"
-                      : "text-text-muted hover:text-text-main"
-                  }`}
-                >
-                  Fuji
-                </button>
-              </div>
-            </div>
-
-            {/* Optional Order Note / Tag Input (Appended into orderId) */}
-            <div className="flex items-center gap-2 bg-surface-card border border-surface-border rounded-xl px-3 py-1.5">
-              <Tag className="w-3.5 h-3.5 text-text-muted shrink-0" />
-              <input
-                type="text"
-                value={orderNote}
-                onChange={(e) => setOrderNote(e.target.value)}
-                placeholder="Order Note / Tag (e.g. Table 2, VIP)"
-                className="bg-transparent text-xs text-text-main focus:outline-none w-full placeholder:text-text-muted/60"
-              />
-              {orderNote && (
-                <button
-                  type="button"
-                  onClick={() => setOrderNote("")}
-                  className="text-[10px] text-text-muted hover:text-text-main"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Main Center Area: QR Screen or Success State */}
-          <div className="flex-1 flex flex-col items-center justify-center py-4">
-            {settledIntent ? (
-              /* Settlement State Transition: Green full-screen flash */
-              <div className="w-full bg-surface-card border-2 border-success rounded-3xl p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95 duration-300">
-                <div className="w-20 h-20 bg-success/20 text-success rounded-full flex items-center justify-center mx-auto shadow-inner">
-                  <CheckCircle2 className="w-12 h-12 stroke-[2.5]" />
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-xs uppercase font-extrabold tracking-wider text-success">
-                    Payment Received
-                  </span>
-                  <h2 className="text-3xl font-black text-text-main">
-                    Received {(Number(settledIntent.amount_in) / 1e6).toFixed(2)} USDC from Avalanche
-                  </h2>
-                  <p className="text-xs text-text-muted">
-                    Settled instantly on {getChainName(settledIntent.target_chain_id)}
-                  </p>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-surface-base/80 border border-surface-border text-left text-xs space-y-2 font-mono">
-                  <div className="flex justify-between text-text-muted">
-                    <span>Order ID:</span>
-                    <span className="text-text-main font-bold">{currentOrderId}</span>
-                  </div>
-                  <div className="flex justify-between text-text-muted">
-                    <span>Route:</span>
-                    <span className="text-primary font-bold">
-                      {settledIntent.priority === 0 ? "⚡ Lightning (<3.0s)" : "🐢 Economy"}
-                    </span>
-                  </div>
-                  {settledIntent.dest_tx_hash && (
-                    <div className="flex justify-between items-center text-text-muted pt-1 border-t border-surface-border/40">
-                      <span>Dest Settlement Tx:</span>
-                      <a
-                        href={getExplorerTxUrl(
-                          settledIntent.target_chain_id || targetChainId,
-                          settledIntent.dest_tx_hash
-                        )}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary hover:underline flex items-center gap-1 font-semibold"
-                      >
-                        <span>{settledIntent.dest_tx_hash.slice(0, 10)}...</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                  )}
-                  {settledIntent.source_tx_hash && (
-                    <div className="flex justify-between items-center text-text-muted">
-                      <span>Fuji Escrow Tx:</span>
-                      <a
-                        href={getExplorerTxUrl(43113, settledIntent.source_tx_hash)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-text-main hover:underline flex items-center gap-1"
-                      >
-                        <span>{settledIntent.source_tx_hash.slice(0, 10)}...</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleNewOrder}
-                  className="w-full py-3.5 px-4 rounded-2xl bg-primary hover:bg-primary-hover active:scale-98 text-white font-bold text-sm transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
-                >
-                  <span>Next Customer</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              /* Active Order QR Display */
-              <div className="w-full flex flex-col items-center space-y-3">
-                <div className="relative p-5 bg-white rounded-3xl shadow-2xl border-4 border-surface-border flex flex-col items-center">
-                  <QRCodeSVG
-                    value={qrPayload}
-                    size={210}
-                    level="M"
-                    includeMargin={false}
-                  />
-                  <div className="mt-3 text-[11px] font-mono text-slate-600 font-semibold flex items-center gap-1.5">
-                    <span className="truncate max-w-[140px]">{currentOrderId}</span>
-                    <span>•</span>
-                    <span className="text-primary">{getChainName(targetChainId)}</span>
-                  </div>
-                </div>
-
-                <div className="text-center space-y-1">
-                  {qrMode === "static" ? (
-                    <>
-                      <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-center gap-1">
-                        <Store className="w-3.5 h-3.5" />
-                        <span>Static Standee QR (No Expiry)</span>
-                      </div>
-                      <div className="text-sm text-text-muted">
-                        Counter sticker: Customer enters amount upon scan
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-xs text-text-muted font-medium">Customer Scan Total</div>
-                      <div className="text-4xl font-black text-text-main tracking-tight">
-                        ${Number(amount || 0).toFixed(2)}{" "}
-                        <span className="text-sm font-semibold text-text-muted">USDC</span>
-                      </div>
-                      <div className="text-[11px] text-text-muted font-mono">
-                        QR refreshes in {Math.floor(qrSecondsLeft / 60)}:
-                        {String(qrSecondsLeft % 60).padStart(2, "0")}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Numeric Keypad for Dynamic Invoicing */}
-          {!settledIntent && qrMode === "dynamic" && (
-            <div className="w-full bg-surface-card border border-surface-border rounded-3xl p-3 shadow-xl">
-              <div className="grid grid-cols-3 gap-2 text-lg font-bold">
-                {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"].map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => handleKeypadPress(key)}
-                    className="h-11 rounded-xl bg-surface-base hover:bg-surface-border/40 active:scale-95 text-text-main transition-all flex items-center justify-center border border-surface-border/40"
-                  >
-                    {key}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-2.5 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleKeypadPress("C")}
-                  className="flex-1 py-1.5 rounded-xl bg-surface-base border border-surface-border text-xs font-semibold text-text-muted hover:text-text-main"
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={handleNewOrder}
-                  className="flex-1 py-1.5 rounded-xl bg-surface-base border border-surface-border text-xs font-semibold text-text-muted hover:text-text-main flex items-center justify-center gap-1"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>New ID</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+        {!settled && mode === "dynamic" && <div className="bg-surface-card border border-surface-border rounded-3xl p-3"><div className="grid grid-cols-3 gap-2">{["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "backspace"].map((key) => <button key={key} type="button" onClick={() => keypad(key)} aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key} className="h-11 rounded-xl bg-surface-base border border-surface-border text-lg font-bold hover:bg-surface-border">{key === "backspace" ? "⌫" : key}</button>)}</div><div className="flex gap-2 mt-3"><button type="button" onClick={() => keypad("C")} className="flex-1 py-2 text-xs border border-surface-border rounded-xl">Clear</button><button type="button" onClick={refreshQr} className="flex-1 py-2 text-xs border border-surface-border rounded-xl">Refresh invoice ID</button></div></div>}
+      </>}
     </div>
   );
 }

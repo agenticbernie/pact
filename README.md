@@ -5,7 +5,7 @@
 > Authored by **HackOn Team** • Built on **Avalanche**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](./LICENSE)
-[![Avalanche Fuji](https://img.shields.io/badge/Source_Anchor-Avalanche_Fuji_(43113)-E84142)](https://testnet.snowtrace.io/address/0xEFf5284031D5bA06AA2E5b77e27F97934dC12708)
+[![Avalanche Fuji](https://img.shields.io/badge/Source_Anchor-Avalanche_Fuji_(43113)-E84142)](https://testnet.snowtrace.io/address/0xCB6f177544712fd744b156Ab61E6eC73170cB7BA)
 [![ERC-4337](https://img.shields.io/badge/Account_Abstraction-ZeroDev_Kernel_v3.1-3B82F6)](./docs/phase5_account_abstraction.md)
 
 ---
@@ -23,10 +23,9 @@ A payer holding stablecoins on **Avalanche C-Chain (Fuji `43113`)** scans a merc
   - **🐢 Economy Route (Cost Priority):** Multi-intent L2 batch settlement (`PactBatchDispatcher`) within a **15–45s** window for a flat **`$0.005`** fee.
 - **ZeroDev Kernel v3.1 Account Abstraction (EIP-7702 Defense):**
   - **WebAuthn Passkey Onboarding:** Biometric smart accounts on canonical ERC-4337 `EntryPoint v0.7`—no seed phrases and no invasive EIP-7702 EOA code delegation.
-  - **Scoped Session Keys:** On-chain `CallPolicy V0_0_4` + `TimestampPolicy` strictly caps spending at **`$50.00 / 24h`** exclusively on `PactEscrow.createIntent()`, enabling 1-tap payments with zero confirmation dialogs.
+  - **Scoped Session Keys:** On-chain `CallPolicy V0_0_4` restricts payment calls to **up to `$50.00` per payment**; the signing session expires after **24 hours** (this is not a cumulative daily spend cap).
   - **Paymaster Gas Sponsorship & 1-Click Faucet:** Users transact with `0 AVAX` and can mint `+500.00 USDC` gaslessly from the client UI.
-- **Cryptographic HTLC Escrow & 100% Refund Guarantee:**
-  - Funds locked in `PactEscrow.sol` can only be claimed by the solver upon revealing the hashlock preimage (`keccak256(secret) == hashLock`), or 100% refunded to the payer after the 15-minute deterministic deadline (`refund(intentId)`).
+- **Deadline-Based Escrow Refund:** Unclaimed funds can be refunded by the sender after the 15-minute deadline. Destination-chain settlement is performed by the off-chain solver and is not independently proven by the source escrow contract.
 
 ---
 
@@ -54,12 +53,13 @@ A payer holding stablecoins on **Avalanche C-Chain (Fuji `43113`)** scans a merc
 
 ---
 
-## Deployed & Verified Contracts (Testnet)
+## Deployed Contracts (Testnet)
 
 | Network | Chain ID | Contract | Address | Explorer |
 | :--- | :--- | :--- | :--- | :--- |
-| **Avalanche Fuji** | `43113` | `PactEscrow` | `0xEFf5284031D5bA06AA2E5b77e27F97934dC12708` | [Snowtrace](https://testnet.snowtrace.io/address/0xEFf5284031D5bA06AA2E5b77e27F97934dC12708) |
+| **Avalanche Fuji** | `43113` | `PactEscrow` | `0xCB6f177544712fd744b156Ab61E6eC73170cB7BA` | [Snowtrace](https://testnet.snowtrace.io/address/0xCB6f177544712fd744b156Ab61E6eC73170cB7BA) |
 | **Avalanche Fuji** | `43113` | `MockUSDC` (6 dec) | `0x937408C5194bb6885fB51ab4607575c52524933E` | [Snowtrace](https://testnet.snowtrace.io/address/0x937408C5194bb6885fB51ab4607575c52524933E) |
+| **Avalanche Fuji** | `43113` | `PactBatchDispatcher` | `0x5c5066F98fda0f3897aDdC13363004acD7eC8EC0` | [Snowtrace](https://testnet.snowtrace.io/address/0x5c5066F98fda0f3897aDdC13363004acD7eC8EC0) |
 | **Arbitrum Sepolia** | `421614` | `MockUSDC` (6 dec) | `0xEFf5284031D5bA06AA2E5b77e27F97934dC12708` | [Arbiscan](https://sepolia.arbiscan.io/address/0xEFf5284031D5bA06AA2E5b77e27F97934dC12708) |
 | **Arbitrum Sepolia** | `421614` | `PactBatchDispatcher` | `0x2d29dAc762d43B036eDe889d3D18fF1fBA553878` | [Arbiscan](https://sepolia.arbiscan.io/address/0x2d29dAc762d43B036eDe889d3D18fF1fBA553878) |
 | **Base Sepolia** | `84532` | `MockUSDC` (6 dec) | `0xEFf5284031D5bA06AA2E5b77e27F97934dC12708` | [Basescan](https://sepolia.basescan.org/address/0xEFf5284031D5bA06AA2E5b77e27F97934dC12708) |

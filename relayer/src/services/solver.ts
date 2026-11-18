@@ -5,7 +5,7 @@
  *   CREATED ──► DISPATCHED ──► SETTLED ──► CLAIMED
  *                                    └──► (Timeout) ──► REFUNDED
  */
-import { createPublicClient, webSocket, type Hex } from "viem";
+import { createPublicClient, encodeFunctionData, keccak256, webSocket, type Hex } from "viem";
 import { avalancheFuji } from "viem/chains";
 import { MOCK_USDC_ABI, PACT_BATCH_DISPATCHER_ABI, PACT_ESCROW_ABI } from "../abi/contracts.js";
 import {
@@ -35,6 +35,7 @@ export class PactSolver {
   private liquidityMonitorTimer?: NodeJS.Timeout;
   private batchingChains = new Set<number>();
   private isStopping = false;
+  private historicalSyncRunning = false;
 
   /** Economy batch window (docs §1.3: 15-45s). */
   private readonly batchWindowMs = Number(process.env.ECONOMY_BATCH_WINDOW_MS || 15_000);
@@ -61,6 +62,20 @@ export class PactSolver {
     console.log(`[Solver] Starting Pact Relayer Solver as ${relayerAccount.address}`);
     console.log(`[Solver] Watching PactEscrow on Fuji: ${CONTRACTS.avalancheFuji.pactEscrow}`);
 
+    // A crash after a transaction broadcast must rebroadcast the exact signed
+    // transaction, never construct a replacement and pay a second merchant.
+    for (const pending of this.store.getUnresolvedDestinationTransactions()) {
+      try {
+        const destination = getDestinationClients(pending.chain_id);
+        const receipt = await destination.publicClient.getTransactionReceipt({ hash: pending.tx_hash as Hex }).catch(() => null);
+        if (receipt) { this.store.deleteDestinationTransaction(pending.tx_hash); continue; }
+        const transaction = await destination.publicClient.getTransaction({ hash: pending.tx_hash as Hex }).catch(() => null);
+        if (!transaction) await (destination.walletClient as any).request({ method: "eth_sendRawTransaction", params: [pending.raw_tx as Hex] });
+      } catch (error) {
+        console.warn(`[Solver] Destination outbox retry will resume:`, (error as Error).message);
+      }
+    }
+
     // 1. Recover any pending intents persisted in SQLite before crash/restart (NFR-03)
     await this.recoverPendingIntents();
 
@@ -77,7 +92,7 @@ export class PactSolver {
       pollingInterval,
       onLogs: (logs) => {
         for (const log of logs) {
-          void this.handleIntentCreatedLog(log);
+          void this.handleIntentCreatedLog(log).catch((error) => console.error("[Solver] Could not index intent; historical sync will retry:", (error as Error).message));
         }
       },
       onError: (err) => {
@@ -105,7 +120,7 @@ export class PactSolver {
           eventName: "PaymentIntentCreated",
           onLogs: (logs) => {
             for (const log of logs) {
-              void this.handleIntentCreatedLog(log);
+              void this.handleIntentCreatedLog(log).catch((error) => console.error("[Solver] Could not index intent; historical sync will retry:", (error as Error).message));
             }
           },
           onError: (err) => {
@@ -252,6 +267,8 @@ export class PactSolver {
   }
 
   public async syncHistoricalEvents(): Promise<void> {
+    if (this.historicalSyncRunning) return;
+    this.historicalSyncRunning = true;
     try {
       const currentBlock = await fujiPublicClient.getBlockNumber();
       const lastIndexed = this.store.getLastIndexedBlock();
@@ -284,6 +301,8 @@ export class PactSolver {
       this.store.setLastIndexedBlock(toBlock);
     } catch (err) {
       console.warn(`[Solver] Historical sync warning:`, (err as Error).message);
+    } finally {
+      this.historicalSyncRunning = false;
     }
   }
 
@@ -331,12 +350,14 @@ export class PactSolver {
       return;
     }
 
-    // Fetch tokenOut from contract if needed, or default to target chain MockUSDC
+    // tokenOut is not included in the creation event. Read the actual intent;
+    // guessing it both broke Fuji payouts and hid unsupported-token requests.
     const targetChainNum = Number(targetChainId);
-    const defaultTokenOut =
-      targetChainNum === 421614
-        ? CONTRACTS.arbitrumSepolia.mockUsdc
-        : CONTRACTS.baseSepolia.mockUsdc;
+    const onChain = await fujiPublicClient.readContract({
+      address: CONTRACTS.avalancheFuji.pactEscrow, abi: PACT_ESCROW_ABI,
+      functionName: "getIntent", args: [intentId],
+    });
+    const defaultTokenOut = onChain.tokenOut;
 
     const { record, isNew } = this.store.upsertIntentFromEvent({
       intentId,
@@ -354,12 +375,8 @@ export class PactSolver {
       sourceBlockNumber: log.blockNumber ? Number(log.blockNumber) : null,
     });
 
-    if (log.blockNumber) {
-      const lastBlock = this.store.getLastIndexedBlock();
-      if (lastBlock === null || log.blockNumber > lastBlock) {
-        this.store.setLastIndexedBlock(log.blockNumber);
-      }
-    }
+    // Only the ordered historical sweep advances the durable cursor. A live
+    // event from a newer block must not cause missed older blocks after a crash.
 
     if (isNew) {
       console.log(
@@ -419,6 +436,41 @@ export class PactSolver {
     );
   }
 
+  private validateAssetsAndQuote(record: StoredIntentRecord): void {
+    const dest = getDestinationClients(record.target_chain_id);
+    if (record.token_in.toLowerCase() !== CONTRACTS.avalancheFuji.mockUsdc.toLowerCase() || record.token_out.toLowerCase() !== dest.mockUsdcAddress.toLowerCase()) throw new Error("Unsupported input or output token. Solver liquidity will not be dispatched.");
+    const quote = this.store.getQuoteByHashLock(record.hash_lock);
+    if (!quote) throw new Error("No locally issued quote matches this payment.");
+    if ((quote.merchant && quote.merchant.toLowerCase() !== record.receiver.toLowerCase()) || (quote.target_chain_id && quote.target_chain_id !== record.target_chain_id) || (quote.amount_atomic && quote.amount_atomic !== record.amount_in)) throw new Error("Payment does not match its quoted recipient, amount, or network.");
+  }
+
+  private async broadcastDestinationTransaction(
+    chainId: number,
+    transaction: { to: `0x${string}`; data: Hex },
+    onPrepared?: (hash: Hex) => void,
+  ): Promise<Hex> {
+    const dest = getDestinationClients(chainId);
+    const prepared = await (dest.walletClient as any).prepareTransactionRequest({
+      account: relayerAccount,
+      to: transaction.to,
+      data: transaction.data,
+      value: 0n,
+    });
+    const raw = await relayerAccount.signTransaction(prepared);
+    const hash = keccak256(raw);
+    this.store.saveDestinationTransaction(hash, chainId, raw);
+    onPrepared?.(hash);
+    try {
+      const submitted = await (dest.walletClient as any).request({ method: "eth_sendRawTransaction", params: [raw] });
+      if (String(submitted).toLowerCase() !== hash.toLowerCase()) throw new Error("RPC returned a different signed transaction hash.");
+    } catch (error) {
+      const message = (error as Error).message || String(error);
+      if (!/already known|known transaction|already imported/i.test(message)) throw error;
+      console.log(`[Solver] Rebroadcasted signed transaction ${hash} is already known by ${dest.chainName}.`);
+    }
+    return hash;
+  }
+
   private async dispatchBatch(chainId: number, candidates: StoredIntentRecord[]): Promise<void> {
     const nowSec = Math.floor(Date.now() / 1000);
     const dest = getDestinationClients(chainId);
@@ -430,9 +482,11 @@ export class PactSolver {
     for (const item of candidates) {
       const fresh = this.store.getIntentById(item.intent_id);
       if (!fresh || fresh.state !== "CREATED" || fresh.dest_tx_hash) continue; // already handled
+      try { this.validateAssetsAndQuote(fresh); }
+      catch (error) { this.store.updateIntentState(fresh.intent_id, "CREATED", { errorMessage: (error as Error).message }); continue; }
       if (nowSec >= fresh.deadline) {
         // Too late to settle safely: let the sender refund() on Fuji.
-        this.store.updateIntentState(fresh.intent_id, "REFUNDED", {
+        this.store.updateIntentState(fresh.intent_id, "EXPIRED", {
           errorMessage: "Expired before economy batch dispatch",
         });
         continue;
@@ -477,8 +531,7 @@ export class PactSolver {
         await dest.publicClient.waitForTransactionReceipt({ hash: approveHash, pollingInterval: 250 });
       }
 
-      return await dest.walletClient.writeContract({
-        address: dest.batchDispatcherAddress,
+      const data = encodeFunctionData({
         abi: PACT_BATCH_DISPATCHER_ABI,
         functionName: "batchTransfer",
         args: [
@@ -488,12 +541,11 @@ export class PactSolver {
           batch.map((i) => BigInt(i.amount_in)),
         ],
       });
+      return await this.broadcastDestinationTransaction(chainId, { to: dest.batchDispatcherAddress, data }, (hash) => {
+        for (const item of batch) this.store.updateIntentState(item.intent_id, "DISPATCHED", { destTxHash: hash, errorMessage: null });
+      });
     });
 
-    // Persist DISPATCHED + shared batch tx hash BEFORE waiting for the receipt (crash-safe).
-    for (const i of batch) {
-      this.store.updateIntentState(i.intent_id, "DISPATCHED", { destTxHash: txHash, errorMessage: null });
-    }
     console.log(`[Batch] -> DISPATCHED ${batch.length} intent(s) on ${dest.chainName}: tx=${txHash}`);
 
     // Continue each intent: confirm batch receipt -> SETTLED -> claimEscrow on Fuji.
@@ -542,13 +594,14 @@ export class PactSolver {
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
-      if (nowSec > record.deadline && record.state === "CREATED") {
-        console.warn(`[Solver] Intent ${normalizedId} expired past deadline (${record.deadline}). Skipping dispatch.`);
-        this.store.updateIntentState(normalizedId, "REFUNDED", {
-          errorMessage: "Expired before destination dispatch",
-        });
-        return this.store.getIntentById(normalizedId);
+      if (record.state === "EXPIRED" || (nowSec > record.deadline && record.state === "CREATED")) {
+        const refunded = await fujiPublicClient.readContract({ address: CONTRACTS.avalancheFuji.pactEscrow, abi: PACT_ESCROW_ABI, functionName: "isRefunded", args: [record.intent_id] });
+        if (refunded) return this.store.updateIntentState(normalizedId, "REFUNDED", { errorMessage: null });
+        const source = await fujiPublicClient.readContract({ address: CONTRACTS.avalancheFuji.pactEscrow, abi: PACT_ESCROW_ABI, functionName: "getIntent", args: [record.intent_id] });
+        if (source.isFulfilled) return this.store.updateIntentState(normalizedId, "CLAIMED", { errorMessage: null });
+        return this.store.updateIntentState(normalizedId, "EXPIRED", { errorMessage: "Unclaimed escrow expired. Sender must submit an on-chain refund." });
       }
+      this.validateAssetsAndQuote(record);
 
       // Ensure we have the preimage secret before fronting liquidity
       let secret = record.secret;
@@ -609,20 +662,13 @@ export class PactSolver {
 
           const receiver = record.receiver;
           const amountIn = BigInt(record.amount_in);
+          const transferData = encodeFunctionData({ abi: MOCK_USDC_ABI, functionName: "transfer", args: [receiver, amountIn] });
           const destTxHash = await this.withChainLock(record.target_chain_id, async () => {
-            return await dest.walletClient.writeContract({
-              address: dest.mockUsdcAddress,
-              abi: MOCK_USDC_ABI,
-              functionName: "transfer",
-              args: [receiver, amountIn],
+            return await this.broadcastDestinationTransaction(record!.target_chain_id, { to: dest.mockUsdcAddress, data: transferData }, (hash) => {
+              this.store.updateIntentState(normalizedId, "DISPATCHED", { destTxHash: hash, errorMessage: null });
             });
           });
-
-          // Persist DISPATCHED + destTxHash BEFORE waiting for receipt (crash-safe idempotency)
-          record = this.store.updateIntentState(normalizedId, "DISPATCHED", {
-            destTxHash,
-            errorMessage: null,
-          })!;
+          record = this.store.getIntentById(normalizedId)!;
           console.log(`[Solver] -> DISPATCHED on ${dest.chainName}: tx=${destTxHash}`);
         }
       }
@@ -641,8 +687,9 @@ export class PactSolver {
           timeout: 60_000,
         });
 
+        this.store.deleteDestinationTransaction(record.dest_tx_hash);
         if (receipt.status !== "success") {
-          throw new Error(`Destination transfer reverted on ${dest.chainName}: ${record.dest_tx_hash}`);
+          return this.store.updateIntentState(normalizedId, "CREATED", { destTxHash: null, errorMessage: `Destination transfer reverted on ${dest.chainName}; safe to retry.`, incrementRetry: true });
         }
 
         record = this.store.updateIntentState(normalizedId, "SETTLED", {

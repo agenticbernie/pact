@@ -6,59 +6,31 @@ import { PayerClient } from "@/components/PayerClient";
 import { TelemetryDashboard } from "@/components/TelemetryDashboard";
 import { Smartphone, Store, Activity } from "lucide-react";
 
+type View = "payer" | "merchant" | "telemetry";
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"payer" | "merchant" | "telemetry">("payer");
-
+  const [active, setActive] = useState<View>("payer");
+  const [visited, setVisited] = useState({ merchant: false, telemetry: false });
   return (
-    <main className="min-h-screen bg-surface-base text-text-main flex flex-col justify-between">
-      {/* Top Floating Switcher between Payer, Merchant POS, and Telemetry */}
-      <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 bg-surface-card/90 backdrop-blur-md border border-surface-border p-1 rounded-full shadow-2xl flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("payer")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-            activeTab === "payer"
-              ? "bg-primary text-white shadow-md shadow-primary/20"
-              : "text-text-muted hover:text-text-main"
-          }`}
-        >
-          <Smartphone className="w-3.5 h-3.5" />
-          <span>Payer</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("merchant")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-            activeTab === "merchant"
-              ? "bg-primary text-white shadow-md shadow-primary/20"
-              : "text-text-muted hover:text-text-main"
-          }`}
-        >
-          <Store className="w-3.5 h-3.5" />
-          <span>Merchant POS</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("telemetry")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-            activeTab === "telemetry"
-              ? "bg-primary text-white shadow-md shadow-primary/20"
-              : "text-text-muted hover:text-text-main"
-          }`}
-        >
-          <Activity className="w-3.5 h-3.5" />
-          <span>Telemetry &amp; Trust</span>
-        </button>
-      </div>
-
-      {/* Screen View */}
-      <div className="w-full min-h-screen flex flex-col items-center justify-center">
-        {activeTab === "payer" && <PayerClient />}
-        {activeTab === "merchant" && <MerchantTerminal />}
-        {activeTab === "telemetry" && <TelemetryDashboard />}
-      </div>
+    <main className="min-h-dvh bg-surface-base text-text-main">
+      <nav aria-label="Pact application views" className="sticky top-0 z-40 h-20 bg-surface-base/95 backdrop-blur-md border-b border-surface-border flex items-center justify-center p-3">
+        <div className="flex w-full max-w-lg gap-1 rounded-2xl border border-surface-border bg-surface-card p-1">
+          {([
+            { id: "payer", label: "Pay", Icon: Smartphone },
+            { id: "merchant", label: "Merchant POS", Icon: Store },
+            { id: "telemetry", label: "Activity", Icon: Activity },
+          ] as const).map(({ id, label, Icon }) => (
+            <button key={id} type="button" id={`nav-${id}`} aria-pressed={active === id} aria-controls={`view-${id}`}
+              onClick={() => { setActive(id); if (id !== "payer") setVisited((previous) => ({ ...previous, [id]: true })); }}
+              className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl text-xs font-bold ${active === id ? "bg-primary text-white" : "text-text-muted hover:text-text-main"}`}>
+              <Icon className="w-4 h-4 shrink-0" /><span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+      {/* Keep started flows mounted: switching views must not discard pending payments. */}
+      <section id="view-payer" aria-labelledby="nav-payer" hidden={active !== "payer"}><PayerClient active={active === "payer"} /></section>
+      {visited.merchant && <section id="view-merchant" aria-labelledby="nav-merchant" hidden={active !== "merchant"}><MerchantTerminal active={active === "merchant"} /></section>}
+      {visited.telemetry && <section id="view-telemetry" aria-labelledby="nav-telemetry" hidden={active !== "telemetry"}><TelemetryDashboard active={active === "telemetry"} /></section>}
     </main>
   );
 }

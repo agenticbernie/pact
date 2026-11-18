@@ -7,7 +7,10 @@
  */
 import {
   concatHex,
+  decodeAbiParameters,
   decodeFunctionData,
+  isAddress,
+  isHex,
   numberToHex,
   pad,
   parseEther,
@@ -22,11 +25,12 @@ import {
   toPackedUserOperation,
   type UserOperation,
 } from "viem/account-abstraction";
-import { PACT_ESCROW_ABI } from "../abi/contracts.js";
+import { MOCK_USDC_ABI, PACT_ESCROW_ABI } from "../abi/contracts.js";
 import {
   CONTRACTS,
   fujiPublicClient,
   fujiWalletClient,
+  getDestinationClients,
   relayerAccount,
   withChainLock,
 } from "../config/chains.js";
@@ -106,6 +110,61 @@ export function validateSponsorshipQuotaAndAmount(sender: string, callData?: str
   }
 }
 
+const KERNEL_EXECUTE_ABI = [{ type: "function", name: "execute", stateMutability: "payable", inputs: [{ name: "execMode", type: "bytes32" }, { name: "executionCalldata", type: "bytes" }], outputs: [] }] as const;
+const KERNEL_INSTALL_ABI = [{ type: "function", name: "installModule", stateMutability: "payable", inputs: [{ name: "moduleType", type: "uint256" }, { name: "module", type: "address" }, { name: "initData", type: "bytes" }], outputs: [] }] as const;
+
+/** Validate the exact Kernel call envelope before a gas-paying key signs it. */
+export function validateSponsoredCalls(callData: Hex, sender?: Address): void {
+  const decoded = decodeFunctionData({ abi: KERNEL_EXECUTE_ABI, data: callData });
+  const [mode, encoded] = decoded.args;
+  let calls: readonly { target: Address; value: bigint; callData: Hex }[];
+  if (mode === `0x${"00".repeat(32)}`) {
+    if (encoded.length < 106) throw new Error("Invalid single-call envelope.");
+    calls = [{ target: encoded.slice(0, 42) as Address, value: BigInt(`0x${encoded.slice(42, 106)}`), callData: `0x${encoded.slice(106)}` }];
+  } else if (mode === `0x01${"00".repeat(31)}`) {
+    [calls] = decodeAbiParameters([{ type: "tuple[]", components: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "callData", type: "bytes" }] }], encoded);
+  } else throw new Error("Only ordinary Kernel calls can receive gas sponsorship.");
+  if (calls.length < 1 || calls.length > 3) throw new Error("Only a single Pact payment, its allowance, and account setup can be sponsored.");
+  if (calls.length === 1 && calls[0].value === 0n) {
+    const only = calls[0];
+    if (only.target.toLowerCase() === CONTRACTS.avalancheFuji.mockUsdc.toLowerCase() && decodeFunctionData({ abi: MOCK_USDC_ABI, data: only.callData }).functionName === "faucet") return;
+    if (only.target.toLowerCase() === CONTRACTS.avalancheFuji.pactEscrow.toLowerCase() && decodeFunctionData({ abi: PACT_ESCROW_ABI, data: only.callData }).functionName === "refund") return;
+  }
+  let paymentCount = 0;
+  let approvalAmount: bigint | null = null;
+  let expectedApproval: bigint | null = null;
+  let setupCount = 0;
+  for (const call of calls) {
+    if (call.value !== 0n) throw new Error("Native-value transfers are not sponsored.");
+    if (call.target.toLowerCase() === CONTRACTS.avalancheFuji.mockUsdc.toLowerCase()) {
+      const token = decodeFunctionData({ abi: MOCK_USDC_ABI, data: call.callData });
+      if (token.functionName === "faucet" && calls.length === 1) continue;
+      if (token.functionName === "approve" && approvalAmount === null) {
+        const [spender, amount] = token.args;
+        if (spender.toLowerCase() === CONTRACTS.avalancheFuji.pactEscrow.toLowerCase() && amount <= 50_050_000n) { approvalAmount = amount; continue; }
+      }
+    } else if (call.target.toLowerCase() === CONTRACTS.avalancheFuji.pactEscrow.toLowerCase()) {
+      const escrow = decodeFunctionData({ abi: PACT_ESCROW_ABI, data: call.callData });
+      if (escrow.functionName === "refund" && calls.length === 1) continue;
+      if (escrow.functionName === "createIntent") {
+        const [tokenIn, amount, chain, receiver, tokenOut, priority, hashLock, deadline] = escrow.args;
+        const destination = getDestinationClients(Number(chain));
+        const fee = priority === 1 ? 5_000n : amount >= 15_000_000n ? 50_000n : amount * 30n / 10_000n;
+        if (tokenIn.toLowerCase() === CONTRACTS.avalancheFuji.mockUsdc.toLowerCase() && tokenOut.toLowerCase() === destination.mockUsdcAddress.toLowerCase() && amount >= MIN_SPONSORED_USDC && amount <= 50_000_000n && !/^0x0{40}$/i.test(receiver) && (priority === 0 || priority === 1) && hashLock !== `0x${"00".repeat(32)}` && deadline > BigInt(Math.floor(Date.now() / 1000)) && deadline <= BigInt(Math.floor(Date.now() / 1000) + 1020) && (approvalAmount === null || approvalAmount === amount + fee)) { paymentCount++; expectedApproval = amount + fee; continue; }
+      }
+    } else if (sender && call.target.toLowerCase() === sender.toLowerCase()) {
+      const module = decodeFunctionData({ abi: KERNEL_INSTALL_ABI, data: call.callData });
+      const [moduleType, moduleAddress] = module.args;
+      if (module.functionName === "installModule" && moduleType === 1n && !/^0x0{40}$/i.test(moduleAddress) && setupCount === 0) { setupCount++; continue; }
+    }
+    throw new Error("This operation contains a call that is not eligible for Pact gas sponsorship.");
+  }
+  if (paymentCount !== 1 || calls.length !== 1 + setupCount + (approvalAmount === null ? 0 : 1)) throw new Error("Sponsorship requires exactly one valid Pact payment and only its matching approval or first-use validator setup.");
+  if (approvalAmount !== null && approvalAmount <= 0n) throw new Error("Approval must be greater than zero.");
+  if (approvalAmount !== null && approvalAmount !== expectedApproval) throw new Error("Approval must exactly match the quoted payment amount and fee.");
+
+}
+
 interface JsonRpcRequest {
   jsonrpc?: string;
   id?: number | string | null;
@@ -171,12 +230,14 @@ export async function handleBundlerJsonRpc(
   body: JsonRpcRequest | JsonRpcRequest[]
 ): Promise<unknown> {
   if (Array.isArray(body)) {
+    if (body.length === 0 || body.length > 50) return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "JSON-RPC batches must contain 1 to 50 requests." } };
     return Promise.all(body.map((item) => handleSingleJsonRpc(item)));
   }
   return handleSingleJsonRpc(body);
 }
 
 async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
+  if (!req || typeof req !== "object" || typeof req.method !== "string" || (req.params !== undefined && !Array.isArray(req.params))) return { jsonrpc: "2.0", id: req?.id ?? null, error: { code: -32600, message: "Invalid JSON-RPC request." } };
   const id = req.id ?? 1;
   const method = req.method;
   const params = req.params ?? [];
@@ -260,10 +321,11 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
 
       case "eth_sendUserOperation": {
         const rawUserOp = params[0] as Record<string, unknown>;
+        if (!rawUserOp || !isAddress(String(rawUserOp.sender), { strict: false }) || !isHex(rawUserOp.callData)) throw new Error("Invalid UserOperation sender or call data.");
         const epAddr = ((params[1] as Address) || entryPoint07Address) as Address;
+        if (epAddr.toLowerCase() !== entryPoint07Address.toLowerCase()) throw new Error("Only the canonical EntryPoint v0.7 is supported.");
         const userOp = normalizeUserOperation07(rawUserOp);
-
-        validateSponsorshipQuotaAndAmount(userOp.sender, userOp.callData);
+        validateSponsoredCalls(userOp.callData, userOp.sender);
 
         const userOpHash = getUserOperationHash({
           userOperation: userOp,
@@ -272,6 +334,7 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
           chainId: CONTRACTS.avalancheFuji.chainId,
         });
 
+        if (userOpReceipts.has(userOpHash.toLowerCase())) return { jsonrpc: "2.0", id, result: userOpHash };
         const packedOp = toPackedUserOperation(userOp);
 
         console.log(
@@ -279,6 +342,8 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
         );
 
         await withChainLock(CONTRACTS.avalancheFuji.chainId, async () => {
+          if (userOpReceipts.has(userOpHash.toLowerCase())) return;
+          validateSponsorshipQuotaAndAmount(userOp.sender, userOp.callData);
           // 1. Check & sponsor EntryPoint v0.7 deposit for Smart Account (FR-03: Gas Sponsorship)
           const currentDeposit = await fujiPublicClient.readContract({
             address: entryPoint07Address,
@@ -287,12 +352,12 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
             args: [userOp.sender],
           });
 
-          const minDeposit = parseEther("0.003");
-          if (currentDeposit < minDeposit) {
-            const topUpAmount = parseEther("0.006");
-            console.log(
-              `[Paymaster] Sponsoring ${userOp.sender} on EntryPoint v0.7 with 0.006 AVAX...`
-            );
+          const requiredDeposit = (userOp.callGasLimit + userOp.verificationGasLimit + userOp.preVerificationGas) * userOp.maxFeePerGas;
+          const sponsorshipCap = parseEther(process.env.MAX_SPONSORED_AVAX_PER_OP || "0.02");
+          if (requiredDeposit <= 0n || requiredDeposit > sponsorshipCap) throw new Error("This operation exceeds the gas sponsorship budget. Retry with current network gas estimates.");
+          if (currentDeposit < requiredDeposit) {
+            const topUpAmount = requiredDeposit - currentDeposit;
+            console.log(`[Paymaster] Topping up the exact EntryPoint deposit required for ${userOp.sender}.`);
             const depTx = await fujiWalletClient.writeContract({
               address: entryPoint07Address,
               abi: entryPoint07Abi,
@@ -306,8 +371,6 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
             });
           }
 
-          incrementSponsorshipCount(userOp.sender);
-
           // 2. Simulate on-chain validation (EntryPoint + Kernel v3 + CallPolicy) before broadcasting
           await fujiPublicClient.simulateContract({
             address: entryPoint07Address,
@@ -318,6 +381,7 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
             gas: 4_000_000n,
           });
 
+          incrementSponsorshipCount(userOp.sender);
           // 3. Execute EntryPoint.handleOps on Avalanche Fuji
           const handleOpsTx = await fujiWalletClient.writeContract({
             address: entryPoint07Address,
@@ -341,7 +405,7 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
           const matchedEvent = opEvents.find(
             (e) => e.args.userOpHash.toLowerCase() === userOpHash.toLowerCase()
           );
-          const success = matchedEvent ? matchedEvent.args.success : txReceipt.status === "success";
+          const success = Boolean(matchedEvent?.args.success) && txReceipt.status === "success";
           const actualGasCost = matchedEvent ? matchedEvent.args.actualGasCost : 0n;
           const actualGasUsed = matchedEvent ? matchedEvent.args.actualGasUsed : txReceipt.gasUsed;
 
@@ -366,9 +430,8 @@ async function handleSingleJsonRpc(req: JsonRpcRequest): Promise<unknown> {
             `[Bundler] -> UserOperation ${userOpHash} confirmed on Fuji! tx=${handleOpsTx} success=${success}`
           );
 
-          if (!success) {
-            throw new Error(`UserOperation ${userOpHash} inner execution reverted in tx ${handleOpsTx}`);
-          }
+          // Accepted operations return their hash even if inner execution failed;
+          // clients inspect success=false in the receipt instead of losing tracking.
         });
 
         return { jsonrpc: "2.0", id, result: userOpHash };
