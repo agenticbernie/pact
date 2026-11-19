@@ -1,6 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
-  <rect width="512" height="512" rx="128" fill="#0F172A"/>
-  <circle cx="256" cy="256" r="180" fill="none" stroke="#E84142" stroke-width="24"/>
-  <path d="M190 170 L320 256 L190 342 Z" fill="#E84142"/>
-  <circle cx="340" cy="180" r="28" fill="#10B981"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Pact</title>
+  <desc id="desc">Interlocking coral P on navy.</desc>
+  <rect width="512" height="512" rx="128" fill="#0C172A"/>
+  <g transform="translate(64 64) scale(3)" fill="#F25550">
+    <path d="M28 108V38C28 23.64 39.64 12 54 12H76V32H54C50.69 32 48 34.69 48 38V108H28Z"/>
+    <path d="M84 12.8C102.27 16.51 116 32.67 116 52C116 74.09 98.09 92 76 92H56V72H76C87.05 72 96 63.05 96 52C96 43.8 91.06 36.76 84 33.67V12.8Z"/>
+  </g>
 </svg>

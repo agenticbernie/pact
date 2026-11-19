@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { MerchantTerminal } from "@/components/MerchantTerminal";
 import { PayerClient } from "@/components/PayerClient";
 import { TelemetryDashboard } from "@/components/TelemetryDashboard";
@@ -12,8 +13,12 @@ export default function Home() {
   const [visited, setVisited] = useState({ merchant: false, telemetry: false });
   return (
     <main className="min-h-dvh bg-surface-base text-text-main">
-      <nav aria-label="Pact application views" className="sticky top-0 z-40 h-20 bg-surface-base/95 backdrop-blur-md border-b border-surface-border flex items-center justify-center p-3">
-        <div className="flex w-full max-w-lg gap-1 rounded-2xl border border-surface-border bg-surface-card p-1">
+      <nav aria-label="Pact application views" className="sticky top-0 z-40 h-20 bg-surface-base/95 backdrop-blur-md border-b border-surface-border flex items-center justify-center gap-2 sm:gap-4 p-3">
+        <div className="shrink-0" role="img" aria-label="Pact">
+          <Image src="/icon.svg" alt="" width={40} height={40} priority className="sm:hidden" />
+          <Image src="/pact-logo.svg" alt="" width={120} height={44} priority className="hidden sm:block" />
+        </div>
+        <div className="flex min-w-0 w-full max-w-lg gap-1 rounded-2xl border border-surface-border bg-surface-card p-1">
           {([
             { id: "payer", label: "Pay", Icon: Smartphone },
             { id: "merchant", label: "Merchant POS", Icon: Store },
